@@ -22,6 +22,7 @@ const Icon = ({ d }: { d: string }) => (
 
 const NAV: NavItem[] = [
   { href: "/", label: "Executive Summary", icon: <Icon d="M3 12l9-9 9 9M5 10v10h14V10" /> },
+  { href: "/governance", label: "Governance & Policy", icon: <Icon d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /> },
   { href: "/providers", label: "Provider Breakdown", icon: <Icon d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4" /> },
   { href: "/cost-centers", label: "Cost Centers", icon: <Icon d="M4 6h16M4 12h16M4 18h16" /> },
   { href: "/reconciliation", label: "Invoice Reconciliation", icon: <Icon d="M9 12h6M9 16h6M9 8h6M5 4h14v16H5z" /> },

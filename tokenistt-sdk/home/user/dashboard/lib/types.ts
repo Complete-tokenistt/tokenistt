@@ -151,3 +151,24 @@ export interface TeamView {
   alerts: TeamAlert[];
   budgetWarnPct: number; // e.g. 90 -> flag members >= 90%
 }
+
+export interface Policy {
+  id: string;
+  public_id: string;
+  name: string;
+  description?: string;
+  is_enabled: boolean;
+  conditions: {
+    cost_center?: string;
+    model?: string;
+    cost_limit?: number;
+    prompt_keyword?: string;
+  };
+  actions: {
+    effect: 'block' | 'require_approval' | 'force_model';
+    model?: string;
+    message?: string;
+  };
+  created_at: string;
+  updated_at: string;
+}
