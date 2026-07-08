@@ -14,14 +14,12 @@ export default function Section({
   className?: string;
 }) {
   return (
-    <section
-      className={`rounded-xl border border-slate-200 bg-white p-5 shadow-sm ${className}`}
-    >
-      <div className="mb-4 flex items-start justify-between gap-4">
+    <section className={`card ${className}`} style={{ padding: 20 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>
         <div>
-          <h2 className="text-base font-semibold">{title}</h2>
+          <div style={{ fontSize: 15.5, color: "var(--fg)" }}>{title}</div>
           {description && (
-            <p className="mt-0.5 text-xs text-slate-400">{description}</p>
+            <div className="mono" style={{ fontSize: 12, color: "var(--fg-3)", marginTop: 3 }}>{description}</div>
           )}
         </div>
         {action}

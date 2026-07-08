@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./dashboard-theme.css";
 import DashboardShell from "@/components/DashboardShell";
 
 export const metadata: Metadata = {
-  title: "Tokenistt · CFO Dashboard",
-  description: "Consolidated AI spend across all providers — FinOps.",
+  title: "Tokenistt · Dashboard",
+  description: "AI cost visibility and governance across every provider.",
 };
 
 export default function RootLayout({

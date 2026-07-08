@@ -1,100 +1,182 @@
 "use client";
 
+// Ported from the tokenistt marketing-site dashboard preview
+// (src/components/dashboard/DashboardLayout.jsx). Converted from
+// react-router (NavLink/useLocation/Outlet) to Next.js (Link/usePathname),
+// and Clerk's useUser() dropped — this app has no auth yet, so
+// workspace/firstName are static placeholders instead of pulled from a
+// signed-in user.
+
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { NAV_GROUPS, SECTION_META } from "@/lib/navConfig";
+import Tour from "@/components/Tour";
+import { buildTourSteps } from "@/lib/tourSteps";
+import { IconBell, IconHelp, IconMoon, IconRocket, IconSearch, IconSun } from "@/components/icons";
 
-type NavItem = { href: string; label: string; icon: ReactNode };
+const THEME_KEY = "tokenistt-dash-theme";
+const TOUR_SEEN_KEY = "tokenistt-dash-tour-seen";
+const WORKSPACE = "workspace";
+const FIRST_NAME = "there";
 
-const Icon = ({ d }: { d: string }) => (
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={1.8}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className="h-5 w-5"
-  >
-    <path d={d} />
-  </svg>
-);
+type DashboardCtx = { workspace: string; firstName: string; notify: (message: string) => void };
+const DashboardContext = createContext<DashboardCtx>({ workspace: WORKSPACE, firstName: FIRST_NAME, notify: () => {} });
+export const useDashboard = () => useContext(DashboardContext);
 
-const NAV: NavItem[] = [
-  { href: "/", label: "Executive Summary", icon: <Icon d="M3 12l9-9 9 9M5 10v10h14V10" /> },
-  { href: "/governance", label: "Governance & Policy", icon: <Icon d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /> },
-  { href: "/providers", label: "Provider Breakdown", icon: <Icon d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4" /> },
-  { href: "/cost-centers", label: "Cost Centers", icon: <Icon d="M4 6h16M4 12h16M4 18h16" /> },
-  { href: "/reconciliation", label: "Invoice Reconciliation", icon: <Icon d="M9 12h6M9 16h6M9 8h6M5 4h14v16H5z" /> },
-  { href: "/shadow-ai", label: "Shadow AI", icon: <Icon d="M12 3l8 4v6c0 5-3.5 7.5-8 8-4.5-.5-8-3-8-8V7z" /> },
-  { href: "/team", label: "Team Manager", icon: <Icon d="M16 11a4 4 0 1 0-8 0M12 7a3 3 0 1 0 0 0M3 21v-1a6 6 0 0 1 6-6h6a6 6 0 0 1 6 6v1" /> },
-  { href: "/benchmark", label: "Benchmarking", icon: <Icon d="M4 20V10M10 20V4M16 20v-7M22 20H2" /> },
-  { href: "/settings", label: "Settings", icon: <Icon d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2zM12 15a3 3 0 1 1 0-6 3 3 0 0 1 0 6z" /> },
-];
+function getInitialTheme(): "light" | "dark" {
+  if (typeof window === "undefined") return "dark";
+  const stored = window.localStorage.getItem(THEME_KEY);
+  if (stored === "light" || stored === "dark") return stored;
+  return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
 
 export default function DashboardShell({ children }: { children: ReactNode }) {
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [theme, setTheme] = useState<"light" | "dark">(getInitialTheme);
+  const [toasts, setToasts] = useState<{ id: number; message: string }[]>([]);
+  const [tourOpen, setTourOpen] = useState(false);
   const pathname = usePathname();
-  return (
-    <div className="flex min-h-screen bg-slate-50 text-slate-900">
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-slate-200 bg-white md:flex">
-        <div className="flex items-center gap-2 px-5 py-5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">
-            T
-          </div>
-          <div className="leading-tight">
-            <div className="text-sm font-semibold">Tokenistt</div>
-            <div className="text-xs text-slate-400">CFO Dashboard</div>
-          </div>
-        </div>
-        <nav className="flex-1 space-y-1 px-3 py-2">
-          {NAV.map((item) => {
-            const active =
-              item.href === "/"
-                ? pathname === "/"
-                : pathname.startsWith(item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${
-                  active
-                    ? "bg-brand-50 text-brand-700"
-                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                }`}
-              >
-                <span className={active ? "text-brand-600" : "text-slate-400"}>
-                  {item.icon}
-                </span>
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
-        <div className="border-t border-slate-200 px-5 py-4 text-xs text-slate-400">
-          Phase 4 · FinOps UI
-        </div>
-      </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
-          <div>
-            <h1 className="text-lg font-semibold leading-tight">Consolidated AI Spend</h1>
-            <p className="text-xs text-slate-400">
-              All providers · all cost centers · one view
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-600 ring-1 ring-emerald-200">
-              Live
-            </span>
-            <div className="hidden text-right sm:block">
-              <div className="text-sm font-medium">July 2026</div>
-              <div className="text-xs text-slate-400">Reporting period</div>
+  useEffect(() => {
+    window.localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
+
+  useEffect(() => {
+    if (!window.localStorage.getItem(TOUR_SEEN_KEY)) {
+      const t = setTimeout(() => setTourOpen(true), 500);
+      return () => clearTimeout(t);
+    }
+  }, []);
+
+  const safePathname = pathname ?? "/";
+  const meta = SECTION_META[safePathname] || SECTION_META["/"];
+  const toggleTheme = () => setTheme((t) => (t === "light" ? "dark" : "light"));
+
+  function notify(message: string) {
+    const id = Date.now() + Math.random();
+    setToasts((t) => [...t, { id, message }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200);
+  }
+
+  function closeTour() {
+    setTourOpen(false);
+    window.localStorage.setItem(TOUR_SEEN_KEY, "true");
+  }
+
+  return (
+    <DashboardContext.Provider value={{ workspace: WORKSPACE, firstName: FIRST_NAME, notify }}>
+      <div className="dash-shell" data-theme={theme}>
+        <div className="dash-topbar">
+          <div className="dash-topbar-inner">
+            <button type="button" className="dash-mobile-toggle" onClick={() => setMobileNavOpen((v) => !v)} aria-label="Toggle navigation">
+              <span /><span /><span />
+            </button>
+
+            <div className="dash-topbar-crumb" data-tour="tour-crumb">
+              <span className="mono dash-topbar-workspace">{WORKSPACE}</span>
+              <span className="dash-topbar-sep">/</span>
+              <span className="mono dash-topbar-section">{meta.title}</span>
+            </div>
+
+            <div className="dash-topbar-search" data-tour="tour-search">
+              <IconSearch />
+              <input readOnly placeholder="Search requests, keys, teams… (⌘K)" />
+            </div>
+
+            <div className="dash-topbar-actions">
+              <span className="tag" style={{ color: "var(--fg-3)" }}>preview data</span>
+              <Link href="/onboarding" className="btn btn-violet btn-sm" data-tour="tour-getstarted">
+                <IconRocket />
+                Get started
+              </Link>
+              <button type="button" className="dash-icon-btn" aria-label="Take a tour" title="Take a tour" onClick={() => setTourOpen(true)}>
+                <IconHelp />
+              </button>
+              <button type="button" className="dash-icon-btn" aria-label="Notifications">
+                <IconBell />
+                <span className="dash-icon-dot" />
+              </button>
+              <button
+                type="button"
+                className="dash-theme-toggle"
+                onClick={toggleTheme}
+                aria-label={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
+                title={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
+                data-tour="tour-theme"
+              >
+                {theme === "light" ? <IconMoon /> : <IconSun />}
+              </button>
             </div>
           </div>
-        </header>
-        <main className="flex-1 overflow-x-hidden px-6 py-6">{children}</main>
+        </div>
+
+        <div className="dash-body">
+          <aside className={`dash-sidebar${mobileNavOpen ? " open" : ""}`}>
+            <div className="dash-sidebar-scroll">
+              {NAV_GROUPS.map((group) => (
+                <div className="dash-nav-group" key={group.label} data-tour={`tour-group-${group.label}`}>
+                  <div className="mono dash-nav-label">{group.label}</div>
+                  {group.items.map((item) => {
+                    const active = item.href === "/" ? safePathname === "/" : safePathname.startsWith(item.href);
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        className={`dash-nav-item${active ? " active" : ""}`}
+                        onClick={() => setMobileNavOpen(false)}
+                      >
+                        <item.icon />
+                        <span>{item.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+
+            <div className="dash-sidebar-foot">
+              <div className="dash-plan-card" data-tour="tour-plancard">
+                <div className="mono" style={{ fontSize: 11.5, color: "var(--violet)", letterSpacing: "0.05em" }}>PHASE 1</div>
+                <div style={{ fontSize: 13.5, color: "var(--fg-2)", marginTop: 4, lineHeight: 1.5 }}>
+                  Governance, providers, cost centers, reconciliation, shadow AI, team, benchmark, and settings run on live data. The rest is preview data until wired up.
+                </div>
+                <button type="button" className="mono dash-link-btn" style={{ marginTop: 10 }} onClick={() => setTourOpen(true)}>
+                  ↻ Retake the tour
+                </button>
+              </div>
+            </div>
+          </aside>
+
+          {mobileNavOpen && <div className="dash-sidebar-backdrop" onClick={() => setMobileNavOpen(false)} />}
+
+          <main className="dash-main">
+            <div className="dash-page-head">
+              <div className="eyebrow">
+                <span className="num">{meta.kicker}</span>
+                <span className="bar" />
+                <span>tokenistt · {WORKSPACE}</span>
+              </div>
+              <div className="dash-page-head-row">
+                <div>
+                  <h1 className="dash-page-title">{safePathname === "/" ? <>Welcome back, {FIRST_NAME}</> : meta.title}</h1>
+                  <p className="dash-page-desc">{meta.desc}</p>
+                </div>
+              </div>
+            </div>
+
+            {children}
+          </main>
+        </div>
+
+        <div className="dash-toast-stack">
+          {toasts.map((t) => (
+            <div key={t.id} className="dash-toast mono">✓ {t.message}</div>
+          ))}
+        </div>
+
+        {tourOpen && <Tour steps={buildTourSteps()} onFinish={closeTour} />}
       </div>
-    </div>
+    </DashboardContext.Provider>
   );
 }
