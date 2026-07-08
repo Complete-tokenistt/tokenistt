@@ -99,7 +99,7 @@ import Tokenistt from '@tokenistt/sdk';
 │  • Anthropic Claude  │      │  PostgreSQL  — transactions,      │
 │  • AWS Bedrock       │      │  budgets, workspaces, audit logs  │
 │  • Azure OpenAI      │      │                                   │
-│  • OpenAI (soon)     │      │  Redis       — rate-limit cache   │
+│  • OpenAI direct     │      │  Redis       — rate-limit cache   │
 └──────────────────────┘      │  ClickHouse  — analytics OLAP     │
                               └───────────────────────────────────┘
                                            │
@@ -250,7 +250,7 @@ The core HTTP proxy that normalises requests across AI providers and returns Ope
 | Anthropic | Claude 3 (Opus, Sonnet, Haiku) | `src/providers/anthropic.ts` |
 | AWS Bedrock | Claude via Bedrock, Titan | `src/providers/bedrock.ts` |
 | Azure OpenAI | GPT-4, GPT-3.5 | `src/providers/azure.ts` |
-| OpenAI direct | GPT-4o, o1 *(coming soon)* | — |
+| OpenAI direct | GPT-4o, GPT-3.5-turbo, o1, o3 | `src/providers/openai.ts` |
 
 **Key capabilities:**
 - Automatic provider detection from model name (e.g. `claude-*` → Anthropic)
@@ -741,10 +741,10 @@ cd tokenistt-gateway/finops-middleware && npm test
 - [x] Analytics Consumer (Kafka → ClickHouse)
 
 ### 🔧 Phase 1 — Gaps to close
-- [ ] Wire finops-middleware → universal-gateway into one pipeline
-- [ ] Event Logger — write `transactions` row per API call to Postgres
-- [ ] Connect Dashboard APIs to real Postgres data (remove mock)
-- [ ] OpenAI direct provider adapter
+- [x] Wire finops-middleware → universal-gateway into one pipeline
+- [x] Event Logger — write `transactions` row per API call to Postgres
+- [x] Connect Dashboard APIs to real Postgres data (remove mock)
+- [x] OpenAI direct provider adapter
 - [ ] Server-side streaming (SSE passthrough in gateway)
 - [ ] Dashboard pages: Governance, Routing Rules, Alerts, Settings
 
