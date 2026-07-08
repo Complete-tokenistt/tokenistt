@@ -746,7 +746,7 @@ cd tokenistt-gateway/finops-middleware && npm test
 - [x] Connect Dashboard APIs to real Postgres data (remove mock)
 - [x] OpenAI direct provider adapter
 - [x] Server-side streaming (SSE passthrough in gateway)
-- [x] Dashboard pages: Governance & Policies (Routing Rules, Alerts, Settings coming next)
+- [x] Dashboard pages: Governance & Policies, Secure Settings (Credential Manager)
 
 ### 🚀 Phase 2 — Coming
 - [ ] Connectors (GitHub, Jira, Slack, Linear)
