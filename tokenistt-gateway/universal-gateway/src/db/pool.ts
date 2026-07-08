@@ -9,12 +9,21 @@
  * Optional:          DB_POOL_MAX (default 10)
  */
 import pg from 'pg';
+import { migratePolicies } from './policies.js';
 
 const { Pool } = pg;
 
 let _pool: pg.Pool | null = null;
+let mockPool: any = null;
+
+export function setMockPool(pool: any) {
+  mockPool = pool;
+}
 
 export function getPool(): pg.Pool {
+  if (mockPool) {
+    return mockPool;
+  }
   if (!_pool) {
     const connectionString = process.env.DATABASE_URL;
 
@@ -62,6 +71,7 @@ export async function checkDbConnection(): Promise<boolean> {
     await client.query('SELECT 1');
     client.release();
     console.log('[DB Pool] Postgres connection OK.');
+    await migratePolicies();
     return true;
   } catch (err: any) {
     console.error('[DB Pool] Postgres connection failed:', err.message);

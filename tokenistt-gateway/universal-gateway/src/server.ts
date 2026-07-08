@@ -31,6 +31,7 @@ import {
 import { logTransaction }                           from './db/transactionLogger.js';
 import { checkDbConnection, closePool }             from './db/pool.js';
 import { handleStreamingCompletion }                from './services/streaming.js';
+import { checkPolicies }                            from './db/policies.js';
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -153,6 +154,45 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
     res.setHeader('x-tokenistt-workspace',   auth.costCenter);
     res.setHeader('x-tokenistt-actor',       auth.actor);
     res.setHeader('x-tokenistt-request-id',  requestId);
+
+    // ── Step 2.5: Policy & Governance Check ──────────────────────────────────
+    const policyResult = await checkPolicies(auth, req.body);
+    if (!policyResult.allowed) {
+      res.status(403).json({
+        error: {
+          message: policyResult.reason || 'Blocked by active governance policy.',
+          type: 'policy_violation_error',
+          code: 'policy_violation',
+        },
+      });
+
+      // Log blocked transaction
+      logTransaction({
+        auth,
+        provider: 'governance',
+        model: req.body.model,
+        endpoint: '/v1/chat/completions',
+        requestId,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        inputCostUsd: 0,
+        outputCostUsd: 0,
+        costUsd: 0,
+        durationMs: 0,
+        status: 'error',
+        errorCode: 'policy_violation',
+        projectTag: req.body.project_tag,
+        metadata: {
+          error: policyResult.reason || 'Blocked by active governance policy.',
+        },
+      }).catch(() => {});
+      return;
+    }
+
+    if (policyResult.modifiedRequest) {
+      req.body = policyResult.modifiedRequest;
+    }
 
     // ── Streaming (passthrough) ─────────────────────────────────────────────
     if (req.body.stream === true) {
