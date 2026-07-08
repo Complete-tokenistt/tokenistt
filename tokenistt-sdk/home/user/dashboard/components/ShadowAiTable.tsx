@@ -24,21 +24,19 @@ export default function ShadowAiTable({ data }: { data: ShadowAiEvent[] }) {
     {
       accessorKey: "vendor",
       header: "Vendor",
-      cell: ({ getValue }) => (
-        <span className="font-medium text-slate-800">{getValue<string>()}</span>
-      ),
+      cell: ({ getValue }) => <span style={{ fontSize: 14, color: "var(--fg)" }}>{getValue<string>()}</span>,
     },
     {
       accessorKey: "source",
       header: "Detected via",
-      cell: ({ getValue }) => SOURCE_LABEL[getValue<ShadowAiEvent["source"]>()],
+      cell: ({ getValue }) => <span className="mono" style={{ fontSize: 12.5, color: "var(--fg-2)" }}>{SOURCE_LABEL[getValue<ShadowAiEvent["source"]>()]}</span>,
     },
     {
       accessorKey: "actor",
       header: "Actor",
       cell: ({ getValue }) => {
         const v = getValue<string>();
-        return <span className="text-slate-600">{v === "unknown" ? "—" : v}</span>;
+        return <span className="mono" style={{ fontSize: 12.5, color: "var(--fg-3)" }}>{v === "unknown" ? "—" : v}</span>;
       },
     },
     {
@@ -46,19 +44,13 @@ export default function ShadowAiTable({ data }: { data: ShadowAiEvent[] }) {
       header: "Amount",
       cell: ({ getValue }) => {
         const v = getValue<number>();
-        return (
-          <span className="tabular-nums text-slate-700">
-            {v > 0 ? fmtUsd(v) : "usage"}
-          </span>
-        );
+        return <span className="mono" style={{ fontSize: 13, color: "var(--fg-1)" }}>{v > 0 ? fmtUsd(v) : "usage"}</span>;
       },
     },
     {
       accessorKey: "detectedAt",
       header: "Detected",
-      cell: ({ getValue }) => (
-        <span className="text-xs text-slate-400">{fmtDate(getValue<string>())}</span>
-      ),
+      cell: ({ getValue }) => <span className="mono" style={{ fontSize: 12, color: "var(--fg-4)" }}>{fmtDate(getValue<string>())}</span>,
     },
     {
       accessorKey: "status",
@@ -69,17 +61,11 @@ export default function ShadowAiTable({ data }: { data: ShadowAiEvent[] }) {
       id: "actions",
       header: "",
       cell: ({ row }) => (
-        <div className="flex justify-end gap-2">
-          <button
-            onClick={() => setStatus(row.original.id, "acknowledged")}
-            className="rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
-          >
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setStatus(row.original.id, "acknowledged")}>
             Acknowledge
           </button>
-          <button
-            onClick={() => setStatus(row.original.id, "approved")}
-            className="rounded-md bg-brand-600 px-2 py-1 text-xs font-medium text-white hover:bg-brand-700"
-          >
+          <button type="button" className="btn btn-violet btn-sm" onClick={() => setStatus(row.original.id, "approved")}>
             Approve
           </button>
         </div>

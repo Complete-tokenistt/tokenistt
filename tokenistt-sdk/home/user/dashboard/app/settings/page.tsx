@@ -1,13 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Section from "@/components/Section";
+import { StatusPill } from "@/components/StatusBadges";
 
 export default function SettingsPage() {
-  const [status, setStatus] = useState<Record<string, boolean>>({
-    openai: false,
-    anthropic: false
-  });
+  const [status, setStatus] = useState<Record<string, boolean>>({ openai: false, anthropic: false });
   const [loading, setLoading] = useState(true);
   const [provider, setProvider] = useState("openai");
   const [apiKey, setApiKey] = useState("");
@@ -42,11 +39,11 @@ export default function SettingsPage() {
       const res = await fetch("/api/settings/keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider, apiKey })
+        body: JSON.stringify({ provider, apiKey }),
       });
 
       if (!res.ok) throw new Error("Failed to save credentials");
-      
+
       setMessage({ text: `Successfully encrypted and updated ${provider.toUpperCase()} credential!`, type: "success" });
       setApiKey("");
       fetchStatus();
@@ -58,122 +55,70 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold tracking-tight text-slate-900">Security & Credentials</h2>
-        <p className="text-sm text-slate-500">
-          Manage your organization's root API keys securely. All credentials are encrypted in Transit and at Rest.
-        </p>
-      </div>
+    <div>
+      <div className="mobile-stack" style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 24 }}>
+        <div className="card" style={{ padding: 20 }}>
+          <div className="mono dash-section-label" style={{ marginBottom: 12 }}>ENCRYPTION STATUS</div>
+          <p style={{ fontSize: 13, color: "var(--fg-3)", lineHeight: 1.55 }}>
+            Tokenistt secures all external API credentials using <strong style={{ color: "var(--fg-1)" }}>AES-256-GCM</strong>. Decryption occurs only in-memory on the gateway during request execution and is never stored in plaintext.
+          </p>
 
-      <div className="grid gap-6 md:grid-cols-3">
-        {/* Left Side: status overview */}
-        <div className="md:col-span-1 space-y-4">
-          <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
-            <h3 className="font-semibold text-slate-900 text-sm">Encryption Status</h3>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Tokenistt secures all external API credentials using <strong>AES-256-GCM</strong>. Decryption occurs only in-memory on the gateway during request execution and is never stored in plaintext.
-            </p>
-
-            <div className="border-t border-slate-100 pt-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-slate-600">OpenAI Direct</span>
-                {loading ? (
-                  <span className="h-4 w-12 animate-pulse rounded bg-slate-100" />
-                ) : status.openai ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-2xs font-semibold text-emerald-700 ring-1 ring-emerald-600/10">
-                    🔒 Encrypted
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-2xs font-semibold text-amber-700 ring-1 ring-amber-600/10">
-                    ⚠️ Not Configured
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-slate-600">Anthropic Direct</span>
-                {loading ? (
-                  <span className="h-4 w-12 animate-pulse rounded bg-slate-100" />
-                ) : status.anthropic ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-2xs font-semibold text-emerald-700 ring-1 ring-emerald-600/10">
-                    🔒 Encrypted
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-2xs font-semibold text-amber-700 ring-1 ring-amber-600/10">
-                    ⚠️ Not Configured
-                  </span>
-                )}
-              </div>
+          <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--line-soft)", display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span className="mono" style={{ fontSize: 12.5, color: "var(--fg-2)" }}>OpenAI Direct</span>
+              {loading ? <span className="mono" style={{ fontSize: 11.5, color: "var(--fg-4)" }}>…</span> : <StatusPill status={status.openai ? "connected" : "planned"} />}
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span className="mono" style={{ fontSize: 12.5, color: "var(--fg-2)" }}>Anthropic Direct</span>
+              {loading ? <span className="mono" style={{ fontSize: 11.5, color: "var(--fg-4)" }}>…</span> : <StatusPill status={status.anthropic ? "connected" : "planned"} />}
             </div>
           </div>
         </div>
 
-        {/* Right Side: Key updater form */}
-        <div className="md:col-span-2">
-          <Section
-            title="Update Secure Credentials"
-            description="Overwrite or configure root keys. Plaintext keys are encrypted before hitting the database."
-          >
-            <form onSubmit={handleSave} className="space-y-4">
-              {message && (
-                <div
-                  className={`rounded-lg p-3 text-xs font-medium ${
-                    message.type === "success" ? "bg-emerald-50 text-emerald-700 border border-emerald-100" : "bg-rose-50 text-rose-700 border border-rose-100"
-                  }`}
-                >
-                  {message.text}
-                </div>
-              )}
+        <div className="card" style={{ padding: 22 }}>
+          <div className="mono dash-section-label" style={{ marginBottom: 4 }}>UPDATE SECURE CREDENTIALS</div>
+          <p style={{ fontSize: 13.5, color: "var(--fg-3)", marginBottom: 18 }}>Overwrite or configure root keys. Plaintext keys are encrypted before hitting the database.</p>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="block text-xs font-medium text-slate-700">Provider</label>
-                  <select
-                    value={provider}
-                    onChange={e => setProvider(e.target.value)}
-                    className="mt-1 block w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 focus:border-brand-500 focus:bg-white focus:outline-none transition-colors"
-                  >
-                    <option value="openai">OpenAI Direct (sk-proj-...)</option>
-                    <option value="anthropic">Anthropic (sk-ant-api03-...)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-700">API Key</label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="••••••••••••••••••••••••••••••••"
-                    value={apiKey}
-                    onChange={e => setApiKey(e.target.value)}
-                    className="mt-1 block w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:bg-white focus:outline-none transition-colors"
-                  />
-                </div>
+          <form onSubmit={handleSave}>
+            {message && (
+              <div
+                className="mono"
+                style={{
+                  padding: "10px 14px", marginBottom: 14, borderRadius: 6, fontSize: 12.5,
+                  color: message.type === "success" ? "var(--green)" : "var(--red)",
+                  border: `1px solid ${message.type === "success" ? "var(--green)" : "var(--red)"}`,
+                }}
+              >
+                {message.text}
               </div>
+            )}
 
-              <div className="rounded-lg bg-slate-50 p-4 border border-slate-100">
-                <div className="flex gap-2">
-                  <svg className="h-4.5 w-4.5 text-slate-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                  <div className="text-2xs text-slate-500 leading-normal">
-                    <strong>Important Security Warning:</strong> Saved API keys are fully masked and undecryptable by standard users or other dashboard employees. Keys can only be overwritten, never read or downloaded.
-                  </div>
-                </div>
-              </div>
+            <div className="mobile-stack" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span className="mono" style={{ fontSize: 11, color: "var(--fg-4)" }}>PROVIDER</span>
+                <select className="mono dash-select" value={provider} onChange={(e) => setProvider(e.target.value)}>
+                  <option value="openai">OpenAI Direct (sk-proj-...)</option>
+                  <option value="anthropic">Anthropic (sk-ant-api03-...)</option>
+                </select>
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span className="mono" style={{ fontSize: 11, color: "var(--fg-4)" }}>API KEY</span>
+                <input className="mono dash-input" type="password" required placeholder="••••••••••••••••••••••••••••••••" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
+              </label>
+            </div>
 
-              <div className="flex justify-end pt-2">
-                <button
-                  type="submit"
-                  disabled={saving || !apiKey}
-                  className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-500 shadow-sm transition-colors disabled:opacity-50"
-                >
-                  {saving ? "Encrypting & Saving..." : "Update Credential"}
-                </button>
-              </div>
-            </form>
-          </Section>
+            <div style={{ padding: "12px 14px", background: "var(--bg-2)", border: "1px solid var(--line-soft)", borderRadius: 6, marginBottom: 18 }}>
+              <span className="mono" style={{ fontSize: 11.5, color: "var(--fg-3)", lineHeight: 1.55 }}>
+                ⚠ Saved API keys are fully masked and undecryptable by standard users or other dashboard employees. Keys can only be overwritten, never read or downloaded.
+              </span>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button type="submit" className="btn btn-violet btn-sm" disabled={saving || !apiKey}>
+                {saving ? "Encrypting & Saving..." : "Update Credential"}
+              </button>
+            </div>
+          </form>
         </div>
       </div>
     </div>
