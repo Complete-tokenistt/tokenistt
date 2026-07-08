@@ -1,6 +1,5 @@
 import { getProviderBreakdown } from "@/lib/mock-data";
-import Section from "@/components/Section";
-import ProviderPie from "@/components/ProviderPie";
+import { LogoBadge } from "@/components/StatusBadges";
 import { fmtUsd, fmtUsdCompact } from "@/lib/format";
 
 export default function ProvidersPage() {
@@ -8,47 +7,38 @@ export default function ProvidersPage() {
   const total = data.reduce((s, d) => s + d.spendUsd, 0);
 
   return (
-    <div className="space-y-6">
-      <Section
-        title="Provider Breakdown"
-        description="Consolidated spend by AI provider (month to date)"
-      >
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <ProviderPie data={data} />
-          <div className="space-y-3 self-center">
-            {data.map((d) => (
-              <div
-                key={d.provider}
-                className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2"
-              >
-                <div className="flex items-center gap-2">
-                  <span
-                    className="h-3 w-3 rounded-full"
-                    style={{ background: d.color }}
-                  />
-                  <span className="text-sm font-medium text-slate-700">
-                    {d.label}
-                  </span>
-                </div>
-                <div className="text-right">
-                  <div className="text-sm font-semibold tabular-nums">
-                    {fmtUsd(d.spendUsd)}
-                  </div>
-                  <div className="text-xs text-slate-400">
-                    {d.sharePct.toFixed(1)}%
-                  </div>
-                </div>
+    <div>
+      <div className="dash-section-head">
+        <div>
+          <div className="mono dash-section-label">CONNECTED · {data.length}</div>
+          <div style={{ fontSize: 15, color: "var(--fg-2)", marginTop: 2 }}>Consolidated spend by AI provider (month to date)</div>
+        </div>
+        <span className="mono" style={{ fontSize: 13, color: "var(--fg-3)" }}>{fmtUsdCompact(total)} total</span>
+      </div>
+
+      <div className="integration-grid">
+        {data.map((d) => (
+          <div key={d.provider} className="card integration-card">
+            <div className="integration-card-head">
+              <LogoBadge letter={d.label.charAt(0)} color={d.color} />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 15.5, color: "var(--fg)" }}>{d.label}</div>
+                <div className="mono" style={{ fontSize: 12, color: "var(--fg-3)" }}>{d.sharePct.toFixed(1)}% of spend</div>
               </div>
-            ))}
-            <div className="flex items-center justify-between border-t border-slate-100 px-3 pt-3 text-sm">
-              <span className="font-medium text-slate-500">Total</span>
-              <span className="font-semibold tabular-nums">
-                {fmtUsdCompact(total)}
-              </span>
+            </div>
+            <div className="integration-card-stats">
+              <div>
+                <div className="mono" style={{ fontSize: 10.5, color: "var(--fg-4)", letterSpacing: "0.04em" }}>SPEND MTD</div>
+                <div className="mono" style={{ fontSize: 16, color: "var(--fg)" }}>{fmtUsd(d.spendUsd)}</div>
+              </div>
+              <div>
+                <div className="mono" style={{ fontSize: 10.5, color: "var(--fg-4)", letterSpacing: "0.04em" }}>SHARE OF SPEND</div>
+                <div className="mono" style={{ fontSize: 16, color: "var(--fg)" }}>{d.sharePct.toFixed(1)}%</div>
+              </div>
             </div>
           </div>
-        </div>
-      </Section>
+        ))}
+      </div>
     </div>
   );
 }

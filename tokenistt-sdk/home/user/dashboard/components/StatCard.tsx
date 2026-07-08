@@ -1,5 +1,12 @@
 import type { ReactNode } from "react";
 
+const ACCENT: Record<string, string> = {
+  brand: "var(--violet)",
+  emerald: "var(--green)",
+  amber: "var(--amber)",
+  red: "var(--red)",
+};
+
 export default function StatCard({
   label,
   value,
@@ -13,21 +20,15 @@ export default function StatCard({
   accent?: "brand" | "emerald" | "amber" | "red";
   icon?: ReactNode;
 }) {
-  const accentMap = {
-    brand: "text-brand-600",
-    emerald: "text-emerald-600",
-    amber: "text-amber-600",
-    red: "text-red-600",
-  } as const;
-
+  const color = ACCENT[accent];
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-slate-500">{label}</span>
-        {icon && <span className={accentMap[accent]}>{icon}</span>}
+    <div className="card" style={{ padding: 18 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span className="mono" style={{ fontSize: 11, color: "var(--fg-4)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</span>
+        {icon && <span style={{ color }}>{icon}</span>}
       </div>
-      <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
-      {sub && <div className="mt-1 text-xs text-slate-400">{sub}</div>}
+      <div className="mono" style={{ marginTop: 8, fontSize: 22, color: "var(--fg)", letterSpacing: "-0.02em" }}>{value}</div>
+      {sub && <div className="mono" style={{ marginTop: 4, fontSize: 11, color: "var(--fg-3)" }}>{sub}</div>}
     </div>
   );
 }
