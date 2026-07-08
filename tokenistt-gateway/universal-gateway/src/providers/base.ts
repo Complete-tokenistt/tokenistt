@@ -14,7 +14,7 @@ export interface ProviderAdapter {
   translateRequest(request: OpenAIChatCompletionRequest): unknown;
   
   // Make the actual API call to the provider
-  callProvider(translateRequest: unknown): Promise<ProviderResponse>;
+  callProvider(translateRequest: unknown, apiKeyOverride?: string | null): Promise<ProviderResponse>;
   
   // Parse provider response into unified format
   parseResponse(response: ProviderResponse): {
@@ -38,7 +38,7 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
   
   abstract translateRequest(request: OpenAIChatCompletionRequest): unknown;
   
-  abstract callProvider(request: unknown): Promise<ProviderResponse>;
+  abstract callProvider(request: unknown, apiKeyOverride?: string | null): Promise<ProviderResponse>;
   
   parseResponse(response: ProviderResponse) {
     return {

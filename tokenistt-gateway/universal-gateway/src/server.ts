@@ -62,6 +62,9 @@ if (process.env.AZURE_OPENAI_ENDPOINT && process.env.AZURE_OPENAI_API_KEY) {
     apiVersion:     process.env.AZURE_API_VERSION    || '2024-02-01',
   };
 }
+if (process.env.OPENAI_API_KEY) {
+  providerConfig.openai = { apiKey: process.env.OPENAI_API_KEY };
+}
 
 const gateway = new GatewayService(
   {
@@ -166,7 +169,7 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
     );
 
     // ── Step 4: Call provider ────────────────────────────────────────────────
-    const response  = await gateway.handleChatCompletion(req.body, providerOverride);
+    const response  = await gateway.handleChatCompletion(req.body, providerOverride, auth.realApiKey);
     const durationMs = Date.now() - startTime;
 
     // ── Step 5: Precise cost breakdown ───────────────────────────────────────

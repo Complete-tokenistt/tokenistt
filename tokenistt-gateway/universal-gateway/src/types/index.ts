@@ -38,6 +38,8 @@ export interface OpenAIChatCompletionRequest {
   presence_penalty?: number;
   frequency_penalty?: number;
   user?: string;
+  project_tag?: string;
+  costCenter?: string;
 }
 
 export interface OpenAIUsage {

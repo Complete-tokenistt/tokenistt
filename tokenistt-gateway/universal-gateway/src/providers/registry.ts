@@ -2,6 +2,7 @@ import { ProviderType } from '../types/index.js';
 import { AnthropicAdapter } from './anthropic.js';
 import { BedrockAdapter } from './bedrock.js';
 import { AzureAdapter } from './azure.js';
+import { OpenAIAdapter } from './openai.js';
 import { BaseProviderAdapter } from './base.js';
 
 export interface ProviderConfig {
@@ -18,6 +19,9 @@ export interface ProviderConfig {
     apiKey: string;
     deploymentName: string;
     apiVersion?: string;
+  };
+  openai?: {
+    apiKey: string;
   };
 }
 
@@ -70,6 +74,14 @@ export class ProviderRegistry {
       );
       this.providers.set('azure', azure);
     }
+    
+    if (config?.openai) {
+      const openai = new OpenAIAdapter(config.openai.apiKey);
+      this.providers.set('openai', openai);
+    } else if (process.env.OPENAI_API_KEY) {
+      const openai = new OpenAIAdapter(process.env.OPENAI_API_KEY);
+      this.providers.set('openai', openai);
+    }
   }
   
   setDefaultProvider(provider: ProviderType): void {
@@ -113,6 +125,15 @@ export class ProviderRegistry {
     if (normalizedModel.includes('azure')) {
       return 'azure';
     }
+
+    if (
+      normalizedModel.includes('openai') ||
+      normalizedModel.includes('gpt-') ||
+      normalizedModel.startsWith('o1') ||
+      normalizedModel.startsWith('o3')
+    ) {
+      return 'openai';
+    }
     
     return this.defaultProvider;
   }
@@ -150,6 +171,15 @@ export class ProviderRegistry {
       adapter.configure(endpoint, apiKey, deploymentName, apiVersion);
     } else {
       this.providers.set('azure', new AzureAdapter(endpoint, apiKey, deploymentName, apiVersion));
+    }
+  }
+
+  updateOpenAIConfig(apiKey: string): void {
+    const adapter = this.providers.get('openai') as OpenAIAdapter | undefined;
+    if (adapter) {
+      adapter.setApiKey(apiKey);
+    } else {
+      this.providers.set('openai', new OpenAIAdapter(apiKey));
     }
   }
 }

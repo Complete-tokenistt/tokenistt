@@ -38,7 +38,8 @@ export class GatewayService {
   
   async handleChatCompletion(
     request: OpenAIChatCompletionRequest,
-    providerOverride?: ProviderType
+    providerOverride?: ProviderType,
+    apiKeyOverride?: string | null
   ): Promise<OpenAIChatCompletionResponse> {
     const startTime = Date.now();
     
@@ -58,7 +59,7 @@ export class GatewayService {
     
     try {
       const translatedRequest = provider.translateRequest(request);
-      const providerResponse = await provider.callProvider(translatedRequest);
+      const providerResponse = await provider.callProvider(translatedRequest, apiKeyOverride);
       const latencyMs = Date.now() - startTime;
       
       const actualCost = calculateCost(
@@ -192,6 +193,9 @@ export class GatewayService {
         config.azure.deploymentName,
         config.azure.apiVersion
       );
+    }
+    if (config.openai) {
+      this.registry.updateOpenAIConfig(config.openai.apiKey);
     }
   }
   
