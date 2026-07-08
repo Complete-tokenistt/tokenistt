@@ -39,6 +39,12 @@ export interface TransactionPayload {
 // Logger
 // ---------------------------------------------------------------------------
 
+let mockLogger: ((payload: TransactionPayload) => Promise<string | null>) | null = null;
+
+export function setMockLogger(fn: typeof mockLogger) {
+  mockLogger = fn;
+}
+
 /**
  * Writes one row to `transactions` asynchronously.
  * Returns the public_id of the new row, or null if the DB is unavailable.
@@ -46,6 +52,9 @@ export interface TransactionPayload {
 export async function logTransaction(
   payload: TransactionPayload,
 ): Promise<string | null> {
+  if (mockLogger) {
+    return mockLogger(payload);
+  }
   if (!process.env.DATABASE_URL) {
     // Dev mode — just console log and skip DB write
     console.log(

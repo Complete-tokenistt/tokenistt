@@ -30,6 +30,7 @@ import {
 }                                                   from './db/auth.js';
 import { logTransaction }                           from './db/transactionLogger.js';
 import { checkDbConnection, closePool }             from './db/pool.js';
+import { handleStreamingCompletion }                from './services/streaming.js';
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -153,13 +154,12 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
     res.setHeader('x-tokenistt-actor',       auth.actor);
     res.setHeader('x-tokenistt-request-id',  requestId);
 
-    // ── Streaming (stub) ─────────────────────────────────────────────────────
+    // ── Streaming (passthrough) ─────────────────────────────────────────────
     if (req.body.stream === true) {
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection',    'keep-alive');
-      res.write('data: {"error":"Streaming not yet implemented in gateway"}\n\n');
-      res.end();
+      const providerOverride = extractProviderFromHeaders(
+        req.headers as Record<string, string | undefined>,
+      );
+      await handleStreamingCompletion(req.body, res, auth, providerOverride, requestId);
       return;
     }
 
