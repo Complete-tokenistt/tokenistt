@@ -110,6 +110,10 @@ export class ProviderRegistry {
   detectProvider(model: string): ProviderType {
     const normalizedModel = model.toLowerCase();
     
+    if (normalizedModel.startsWith('openai:')) {
+      return 'openai';
+    }
+    
     if (normalizedModel.includes('claude')) {
       return 'anthropic';
     }

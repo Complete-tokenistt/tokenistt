@@ -21,7 +21,7 @@ export class OpenAIAdapter extends BaseProviderAdapter {
   setApiKey(apiKey: string): void {
     this.defaultApiKey = apiKey;
     this.defaultClient = axios.create({
-      baseURL: 'https://api.openai.com/v1',
+      baseURL: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
@@ -72,7 +72,7 @@ export class OpenAIAdapter extends BaseProviderAdapter {
 
     if (apiKeyOverride) {
       client = axios.create({
-        baseURL: 'https://api.openai.com/v1',
+        baseURL: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiKeyOverride}`,
@@ -82,7 +82,7 @@ export class OpenAIAdapter extends BaseProviderAdapter {
 
     if (!client && apiKey) {
       client = axios.create({
-        baseURL: 'https://api.openai.com/v1',
+        baseURL: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiKey}`,
