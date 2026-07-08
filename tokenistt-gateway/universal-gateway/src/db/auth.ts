@@ -18,6 +18,7 @@
  */
 
 import { getPool } from './pool.js';
+import { decryptApiKey } from '../services/vault.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -215,7 +216,7 @@ export async function authenticateRequest(
     budgetUsedUsd:     budgetUsed,
     budgetPeriod:      row.budget_period,
     allowedProviders:  row.allowed_providers ?? [],
-    realApiKey:        row.real_api_key ?? null,
+    realApiKey:        row.real_api_key ? decryptApiKey(row.real_api_key, row.org_id) : null,
   };
 }
 
