@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🔐 Tokenistt
+# 🔐 Tokenist
 
 ### AI Cost Visibility · Governance · Budget Control · Multi-Provider Routing
 
