@@ -24,7 +24,7 @@ export async function GET(req: Request) {
 
   // ── Fallback: no DB ────────────────────────────────────────────────────────
   if (!process.env.DATABASE_URL) {
-    return NextResponse.json(getAnomalies());
+    return NextResponse.json(await getAnomalies());
   }
 
   try {
@@ -95,6 +95,6 @@ export async function GET(req: Request) {
     });
   } catch (err: any) {
     console.error('[/api/anomalies] DB error, falling back to mock:', err.message);
-    return NextResponse.json(getAnomalies());
+    return NextResponse.json(await getAnomalies());
   }
 }

@@ -6,7 +6,7 @@ import Tokenistt from '../src';
 
 async function main() {
   const client = new Tokenistt({
-    apiKey: process.env.TOKENISTT_API_KEY ?? 'sk-test',
+    apiKey: process.env.TOKENISTT_API_KEY ?? 'tktt_live_default_user_12345',
     baseURL: process.env.TOKENISTT_BASE_URL ?? 'https://gateway.tokenistt.ai/v1',
 
     // attribution

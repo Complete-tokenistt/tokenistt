@@ -31,7 +31,7 @@ function inferStatus(spendUsd: number, budgetUsd: number): TeamMemberStatus {
 export async function GET() {
   // ── Fallback: no DB ────────────────────────────────────────────────────────
   if (!process.env.DATABASE_URL) {
-    return NextResponse.json(getTeamView());
+    return NextResponse.json(await getTeamView());
   }
 
   try {

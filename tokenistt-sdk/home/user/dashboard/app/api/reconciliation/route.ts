@@ -20,7 +20,7 @@ export async function POST(req: Request) {
 
     // ── Fallback: no DB ────────────────────────────────────────────────────────
     if (!process.env.DATABASE_URL) {
-      return NextResponse.json({ rows: reconcile(invoices) });
+      return NextResponse.json({ rows: await reconcile(invoices) });
     }
 
     const pool = getPool();
@@ -85,7 +85,7 @@ export async function POST(req: Request) {
     console.error("[/api/reconciliation] DB error, falling back to mock:", err.message);
     try {
       const body = (await req.json()) as { invoices?: InvoiceLine[] };
-      return NextResponse.json({ rows: reconcile(body.invoices ?? []) });
+      return NextResponse.json({ rows: await reconcile(body.invoices ?? []) });
     } catch {
       return NextResponse.json({ error: "Invalid request or database error" }, { status: 500 });
     }
