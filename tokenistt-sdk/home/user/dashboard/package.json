@@ -15,12 +15,14 @@
     "@tanstack/react-table": "^8.21.3",
     "next": "^15.5.20",
     "pdf-parse": "1.1.1",
+    "pg": "^8.13.3",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "recharts": "^3.9.2"
   },
   "devDependencies": {
     "@types/node": "^22.15.34",
+    "@types/pg": "^8.11.11",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "autoprefixer": "^10.4.21",

@@ -45,7 +45,7 @@ export default function TeamModelStacked({
             width={48}
           />
           <Tooltip
-            formatter={(value: number) => fmtUsd(value)}
+            formatter={(value: any) => fmtUsd(Number(value))}
             contentStyle={{
               borderRadius: 8,
               border: "1px solid #e2e8f0",

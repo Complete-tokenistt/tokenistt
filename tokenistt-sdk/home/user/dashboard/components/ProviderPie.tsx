@@ -29,8 +29,8 @@ export default function ProviderPie({
             innerRadius={60}
             outerRadius={95}
             paddingAngle={2}
-            label={({ label, sharePct }) =>
-              `${label} ${sharePct.toFixed(1)}%`
+            label={({ name, percent }: any) =>
+              `${name} ${(percent * 100).toFixed(1)}%`
             }
             labelLine={false}
           >
@@ -39,7 +39,7 @@ export default function ProviderPie({
             ))}
           </Pie>
           <Tooltip
-            formatter={(value: number) => fmtUsd(value)}
+            formatter={(value: any) => fmtUsd(Number(value))}
             contentStyle={{
               borderRadius: 8,
               border: "1px solid #e2e8f0",

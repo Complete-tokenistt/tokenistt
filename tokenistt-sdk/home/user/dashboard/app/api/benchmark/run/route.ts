@@ -53,7 +53,13 @@ export async function POST(req: Request) {
       const profile = BENCHMARK_MODELS.find((m) => m.id === id);
       if (!profile) continue;
 
-      const client = new Tokenistt({ apiKey, baseURL });
+      const client = new Tokenistt({
+        apiKey,
+        baseURL,
+        onUsage: (c: number) => {
+          cost += c;
+        },
+      });
       let cost = 0;
       let correct = 0;
       let latSum = 0;
@@ -61,15 +67,16 @@ export async function POST(req: Request) {
 
       for (const p of prompts) {
         const t0 = Date.now();
-        const res = await client.chat.completions.create({
-          model: id,
-          messages: [{ role: "user", content: p.prompt }],
-          user: "benchmark",
-          costCenter: "benchmark",
-          onUsage: (c: number) => {
-            cost += c;
+        const res = await client.chat.completions.create(
+          {
+            model: id,
+            messages: [{ role: "user", content: p.prompt }],
           },
-        });
+          {
+            user: "benchmark",
+            costCenter: "benchmark",
+          }
+        );
         latSum += Date.now() - t0;
 
         const text = res?.choices?.[0]?.message?.content ?? "";
