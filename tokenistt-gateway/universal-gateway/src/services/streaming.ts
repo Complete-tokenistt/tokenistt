@@ -22,21 +22,29 @@ export async function handleStreamingCompletion(
 
   // 1. Detect provider
   const normalizedModel = request.model.toLowerCase();
-  let providerType: ProviderType = providerOverride || 'anthropic';
+  let providerType: ProviderType = providerOverride || (process.env.DEFAULT_PROVIDER as ProviderType) || 'anthropic';
   
-  if (normalizedModel.includes('claude')) {
+  if (normalizedModel.startsWith('openai:')) {
+    providerType = 'openai';
+  } else if (normalizedModel.includes('claude')) {
     providerType = 'anthropic';
   } else if (
-    normalizedModel.includes('azure') || 
-    normalizedModel.includes('gpt-4') || 
-    normalizedModel.includes('gpt-3.5')
+    normalizedModel.includes('bedrock') || 
+    normalizedModel.includes('llama') || 
+    normalizedModel.includes('mistral') ||
+    normalizedModel.includes('ai21') ||
+    normalizedModel.includes('titan')
   ) {
-    // If AZURE env vars are configured and model doesn't explicitly start with openai:, default to azure
-    if (process.env.AZURE_OPENAI_ENDPOINT && !normalizedModel.startsWith('openai:')) {
-      providerType = 'azure';
-    } else {
-      providerType = 'openai';
-    }
+    providerType = 'bedrock';
+  } else if (normalizedModel.includes('azure')) {
+    providerType = 'azure';
+  } else if (
+    normalizedModel.includes('openai') ||
+    normalizedModel.includes('gpt-') ||
+    normalizedModel.startsWith('o1') ||
+    normalizedModel.startsWith('o3')
+  ) {
+    providerType = 'openai';
   }
 
   // 2. Resolve API key & endpoint
@@ -54,7 +62,8 @@ export async function handleStreamingCompletion(
     if (!apiKey) {
       throw new Error('OpenAI credentials not configured');
     }
-    url = 'https://api.openai.com/v1/chat/completions';
+    const baseUrl = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
+    url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
     headers['Authorization'] = `Bearer ${apiKey}`;
     body = {
       model: request.model.replace(/^openai:/, ''),

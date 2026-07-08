@@ -29,22 +29,26 @@ async function main() {
   );
 
   // Non-streaming
-  const completion = await client.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [
-      { role: 'system', content: 'You are terse.' },
-      { role: 'user', content: 'Say hello in 3 words.' },
-    ],
-    user: 'alice', // per-request attribution override
-    costCenter: 'onboarding',
-  });
+  const completion = await client.chat.completions.create(
+    {
+      model: 'openai:llama-3.1-8b-instant',
+      messages: [
+        { role: 'system', content: 'You are terse.' },
+        { role: 'user', content: 'Say hello in 3 words.' },
+      ],
+    },
+    {
+      user: 'alice', // per-request attribution override
+      costCenter: 'onboarding',
+    }
+  );
   console.log('Completion:', completion.choices[0].message.content);
   console.log('Usage:', completion.usage);
 
   // Streaming
   console.log('\nStreaming:');
   const stream = await client.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: 'openai:llama-3.1-8b-instant',
     messages: [{ role: 'user', content: 'Write a haiku about APIs.' }],
     stream: true,
   });
