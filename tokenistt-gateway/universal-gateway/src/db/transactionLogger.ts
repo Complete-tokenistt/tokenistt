@@ -70,12 +70,35 @@ export async function logTransaction(
   try {
     const pool = getPool();
 
+    // ── Resolve/Upsert User for Attribution ──────────────────────────────────
+    let userId: string | null = null;
+    const orgId = payload.auth.organizationId !== BigInt(0) ? payload.auth.organizationId : null;
+    
+    if (orgId && payload.auth.actor) {
+      try {
+        const userRes = await pool.query<{ id: string }>(
+          `
+          INSERT INTO users (organization_id, external_ref, email, display_name)
+          VALUES ($1, $2, CASE WHEN $2 LIKE '%@%' THEN $2 ELSE NULL END, SPLIT_PART($2, '@', 1))
+          ON CONFLICT (organization_id, external_ref) 
+          DO UPDATE SET external_ref = EXCLUDED.external_ref
+          RETURNING id::text
+          `,
+          [orgId, payload.auth.actor]
+        );
+        userId = userRes.rows[0]?.id ?? null;
+      } catch (err: any) {
+        console.error('[TxLog] Failed to upsert user for attribution:', err.message);
+      }
+    }
+
     const { rows } = await pool.query<{ public_id: string }>(
       `
       INSERT INTO transactions (
         organization_id,
         workspace_id,
         virtual_key_id,
+        user_id,
         actor,
         provider,
         model,
@@ -97,14 +120,15 @@ export async function logTransaction(
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
         $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-        $21
+        $21, $22
       )
       RETURNING public_id::text
       `,
       [
-        payload.auth.organizationId !== BigInt(0) ? payload.auth.organizationId : null,
+        orgId,
         payload.auth.workspaceId,
-        payload.auth.virtualKeyId !== BigInt(0)   ? payload.auth.virtualKeyId   : null,
+        payload.auth.virtualKeyId !== BigInt(0) ? payload.auth.virtualKeyId : null,
+        userId ? BigInt(userId) : null,
         payload.auth.actor,
         payload.provider,
         payload.model,
@@ -113,7 +137,7 @@ export async function logTransaction(
         payload.auth.costCenter,
         payload.projectTag ?? null,
         payload.costUsd.toFixed(6),
-        payload.costUsd.toFixed(6),  // amortized = cost (cache not tracked yet)
+        payload.costUsd.toFixed(6),  // amortized = cost
         payload.inputCostUsd.toFixed(6),
         payload.outputCostUsd.toFixed(6),
         payload.promptTokens,
@@ -138,8 +162,7 @@ export async function logTransaction(
     return publicId;
 
   } catch (err: any) {
-    // Fail-open: log the error but never reject — the HTTP response is
-    // already sent to the client by the time we reach this catch.
+    // Fail-open: log the error but never reject
     console.error('[TxLog] Failed to write transaction row:', err.message);
     return null;
   }

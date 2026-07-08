@@ -4,10 +4,12 @@ import { Kpi } from "@/components/Kpi";
 import { LogoBadge, StatusPill } from "@/components/StatusBadges";
 import { fmtUsd, fmtPct } from "@/lib/format";
 
-export default function OverviewPage() {
-  const s = getSummary();
-  const anomalies = getAnomalies();
-  const providers = getProviderBreakdown();
+export const dynamic = "force-dynamic";
+
+export default async function OverviewPage() {
+  const s = await getSummary();
+  const anomalies = await getAnomalies();
+  const providers = await getProviderBreakdown();
 
   const budgetTone = s.budgetUsedPct >= 100 ? "breached" : s.budgetUsedPct >= 85 ? "warning" : null;
 

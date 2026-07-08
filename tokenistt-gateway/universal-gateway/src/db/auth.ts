@@ -47,6 +47,8 @@ export interface AuthContext {
   allowedProviders: string[];
   /** real provider API key stored in key metadata (optional BYOK) */
   realApiKey: string | null;
+  /** budget enforcement mode: alert_only | auto_throttle | hard_cap */
+  enforcementMode: string;
 }
 
 export interface ParsedToken {
@@ -152,6 +154,7 @@ export async function authenticateRequest(
     status:             string;
     real_api_key:       string | null;
     budget_used_usd:    string;
+    enforcement_mode:   string | null;
   }>(
     `
     SELECT
@@ -165,6 +168,7 @@ export async function authenticateRequest(
       vk.allowed_providers                         AS allowed_providers,
       vk.status                                    AS status,
       vk.metadata->>'real_api_key'                 AS real_api_key,
+      vk.metadata->>'enforcement_mode'             AS enforcement_mode,
       COALESCE(
         (
           SELECT SUM(t.cost_usd)::text
@@ -196,11 +200,16 @@ export async function authenticateRequest(
     throw new AuthError(`Virtual key is ${row.status}`, 403);
   }
 
-  // ── 4. Hard budget check ──────────────────────────────────────────────────
+  // ── 4. Budget check ───────────────────────────────────────────────────────
   const budgetCap  = row.budget_cap_usd  ? parseFloat(row.budget_cap_usd)  : null;
   const budgetUsed = parseFloat(row.budget_used_usd);
+  
+  // Normalize enforcement mode
+  const rawMode = row.enforcement_mode ? row.enforcement_mode.toLowerCase().replace(/[^a-z0-9]/g, '_') : 'hard_cap';
+  const enforcementMode = (rawMode === 'alert_only' || rawMode === 'auto_throttle' || rawMode === 'hard_cap') ? rawMode : 'hard_cap';
 
-  if (budgetCap !== null && budgetUsed >= budgetCap) {
+  // Hard cap blocks when budget is exceeded
+  if (enforcementMode !== 'alert_only' && budgetCap !== null && budgetUsed >= budgetCap) {
     throw new BudgetExceededError(budgetCap, budgetUsed);
   }
 
@@ -217,6 +226,7 @@ export async function authenticateRequest(
     budgetPeriod:      row.budget_period,
     allowedProviders:  row.allowed_providers ?? [],
     realApiKey:        row.real_api_key ? decryptApiKey(row.real_api_key, row.org_id) : null,
+    enforcementMode,
   };
 }
 
@@ -238,5 +248,6 @@ function buildOpenModeContext(authHeader: string | undefined): AuthContext {
     budgetPeriod:       'none',
     allowedProviders:   [],
     realApiKey:         null,
+    enforcementMode:    'hard_cap',
   };
 }
