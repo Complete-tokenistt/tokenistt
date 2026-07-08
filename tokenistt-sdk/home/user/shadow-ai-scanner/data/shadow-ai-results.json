@@ -1,0 +1,54 @@
+{
+  "orgId": "acme",
+  "runAt": "2026-07-08T06:00:11.000Z",
+  "periodStart": "2026-06-08T00:00:00.000Z",
+  "periodEnd": "2026-07-08T06:00:11.000Z",
+  "findings": [
+    {
+      "id": "sf-brex-txn_8821",
+      "detectedAt": "2026-07-08T06:00:11.000Z",
+      "source": "card-transaction",
+      "vendor": "OpenAI",
+      "employeeEmail": "j.doe@acme.io",
+      "amountUsd": 20,
+      "hasGatewayUsage": false,
+      "shadow": true,
+      "apiSpendUsd": 0,
+      "trueCostUsd": 20,
+      "note": "No corporate gateway usage for j.doe on OpenAI — likely a personal account."
+    },
+    {
+      "id": "sf-ramp-txn_5510",
+      "detectedAt": "2026-07-08T06:00:11.000Z",
+      "source": "card-transaction",
+      "vendor": "Anthropic",
+      "employeeEmail": "a.roy@acme.io",
+      "amountUsd": 49,
+      "hasGatewayUsage": true,
+      "shadow": false,
+      "apiSpendUsd": 12.4,
+      "trueCostUsd": 61.4,
+      "note": "Corporate usage found for a.roy on Anthropic."
+    },
+    {
+      "id": "sf-brextxn_3390",
+      "detectedAt": "2026-07-08T06:00:11.000Z",
+      "source": "card-transaction",
+      "vendor": "Perplexity",
+      "employeeEmail": "unknown",
+      "amountUsd": 20,
+      "hasGatewayUsage": false,
+      "shadow": true,
+      "apiSpendUsd": 0,
+      "trueCostUsd": 20,
+      "note": "No corporate gateway usage for unknown on Perplexity — likely a personal account."
+    }
+  ],
+  "totals": {
+    "shadowSpendUsd": 40,
+    "expensedUsd": 89,
+    "apiSpendUsd": 12.4,
+    "trueCostUsd": 101.4,
+    "shadowCount": 2
+  }
+}

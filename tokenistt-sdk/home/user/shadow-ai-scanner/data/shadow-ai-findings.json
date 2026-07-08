@@ -1,0 +1,32 @@
+[
+  {
+    "id": "sf-brex-txn_8821",
+    "detectedAt": "2026-07-08T06:00:11.000Z",
+    "actor": "j.doe@acme.io",
+    "source": "card-transaction",
+    "vendor": "OpenAI",
+    "amountUsd": 20,
+    "status": "unreviewed",
+    "note": "No corporate gateway usage for j.doe on OpenAI — likely a personal account."
+  },
+  {
+    "id": "sf-ramp-txn_5510",
+    "detectedAt": "2026-07-08T06:00:11.000Z",
+    "actor": "a.roy@acme.io",
+    "source": "card-transaction",
+    "vendor": "Anthropic",
+    "amountUsd": 49,
+    "status": "approved",
+    "note": "Corporate usage found for a.roy on Anthropic."
+  },
+  {
+    "id": "sf-brextxn_3390",
+    "detectedAt": "2026-07-08T06:00:11.000Z",
+    "actor": "unknown",
+    "source": "card-transaction",
+    "vendor": "Perplexity",
+    "amountUsd": 20,
+    "status": "unreviewed",
+    "note": "No corporate gateway usage for unknown on Perplexity — likely a personal account."
+  }
+]

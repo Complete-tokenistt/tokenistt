@@ -1,0 +1,98 @@
+{
+  "uid": "tokenistt-spend",
+  "title": "Tokenistt — AI Spend",
+  "description": "Consolidated AI spend from the ClickHouse analytics pipeline (Prompt 6).",
+  "tags": ["tokenistt", "finops"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5m",
+  "time": { "from": "now-30d", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total spend (MTD)",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "tokenistt" },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "tokenistt" },
+          "rawSql": "SELECT sum(cost_usd) AS spend FROM v_daily_spend_by_cost_center",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 2,
+      "type": "piechart",
+      "title": "Spend by provider",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "tokenistt" },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "tokenistt" },
+          "rawSql": "SELECT provider, sum(cost_usd) AS spend FROM v_daily_spend_by_provider GROUP BY provider ORDER BY spend DESC",
+          "format": 1
+        }
+      ],
+      "options": { "pieType": "donut", "displayLabels": ["percent"], "legend": { "displayMode": "list", "placement": "right" } }
+    },
+    {
+      "id": 3,
+      "type": "barchart",
+      "title": "Spend by cost center",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "tokenistt" },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "tokenistt" },
+          "rawSql": "SELECT cost_center, sum(cost_usd) AS spend FROM v_daily_spend_by_cost_center GROUP BY cost_center ORDER BY spend DESC",
+          "format": 1
+        }
+      ],
+      "options": { "orientation": "auto", "legend": { "displayMode": "list", "placement": "right" } }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Daily spend (all users)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "tokenistt" },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "tokenistt" },
+          "rawSql": "SELECT day AS t, sum(cost_usd) AS spend FROM v_daily_spend_by_user GROUP BY day ORDER BY day",
+          "format": 2
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "custom": { "drawStyle": "line", "fillOpacity": 10 } } }
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Spend anomalies (>3x 30-day avg)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "tokenistt" },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "tokenistt" },
+          "rawSql": "SELECT actor, spend_24h, avg_daily_30d, ratio, severity FROM spend_anomalies ORDER BY ratio DESC LIMIT 50",
+          "format": 1
+        }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "align": "auto" } } }
+    }
+  ]
+}

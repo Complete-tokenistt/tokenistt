@@ -1,0 +1,169 @@
+// =============================================================================
+// tokenistt — Prisma schema (PostgreSQL) — alternative to the Drizzle migration.
+//
+// Apply with:  npx prisma migrate dev --name init
+//
+// NOTE: Prisma cannot express declarative table partitioning, BRIN indexes,
+// or partial indexes in the schema. Those are added via a raw SQL migration
+// (see db/drizzle/0000_init.sql) after `prisma migrate` creates the tables:
+//   - ALTER TABLE transactions SET PARTITION BY RANGE (created_at);  (or create
+//     the partitioned table manually and let Prisma manage the non-partitioned
+//     columns via `execution` ignore)
+//   - CREATE INDEX ... USING BRIN (created_at);
+//   - CREATE INDEX ... WHERE shadow_ai_flag = true;
+// For most teams the composite/btree indexes below are sufficient; add
+// partitioning only once the table exceeds ~100M rows.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id            BigInt          @id @default(autoincrement())
+  publicId      String          @unique @default(uuid())
+  name          String
+  slug          String          @unique
+  plan          String          @default("free")
+  settings      Json            @default("{}")
+  createdAt     DateTime        @default(now()) @db.Timestamptz
+  updatedAt     DateTime        @updatedAt @db.Timestamptz
+  users         User[]
+  workspaces    Workspace[]
+  virtualKeys   VirtualKey[]
+  transactions  Transaction[]
+  invoices      ProviderInvoice[]
+}
+
+model User {
+  id             BigInt         @id @default(autoincrement())
+  publicId       String         @unique @default(uuid())
+  organizationId BigInt
+  email          String?
+  displayName    String?
+  externalRef    String?
+  createdAt      DateTime       @default(now()) @db.Timestamptz
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  transactions   Transaction[]
+  ownedKeys      VirtualKey[]    @relation("key_owner")
+  createdKeys    VirtualKey[]    @relation("key_creator")
+
+  @@unique([organizationId, externalRef])
+}
+
+model Workspace {
+  id             BigInt        @id @default(autoincrement())
+  publicId       String        @unique @default(uuid())
+  organizationId BigInt
+  name           String
+  costCenter     String // "CC-4401-Support"
+  budgetCapUsd   Decimal?      @db.Decimal(18, 2)
+  billingEmail   String?
+  metadata       Json          @default("{}")
+  createdAt      DateTime      @default(now()) @db.Timestamptz
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  virtualKeys    VirtualKey[]
+  transactions   Transaction[]
+
+  @@unique([organizationId, costCenter])
+}
+
+model VirtualKey {
+  id              BigInt       @id @default(autoincrement())
+  publicId        String       @unique @default(uuid())
+  organizationId  BigInt
+  workspaceId     BigInt?
+  ownerUserId     BigInt?
+  createdBy       BigInt?
+  name            String
+  keyPrefix       String
+  keyHash         String
+  budgetCapUsd    Decimal?     @db.Decimal(18, 2)
+  budgetPeriod    String       @default("monthly")
+  allowedProviders String[]
+  status          String       @default("active")
+  lastUsedAt      DateTime?
+  expiresAt       DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime     @default(now()) @db.Timestamptz
+  metadata        Json         @default("{}")
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace       Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  owner           User?        @relation("key_owner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  creator         User?        @relation("key_creator", fields: [createdBy], references: [id], onDelete: SetNull)
+  transactions    Transaction[]
+
+  @@index([organizationId, status])
+}
+
+model Transaction {
+  id                 BigInt     @id @default(autoincrement())
+  publicId           String     @default(uuid())
+  organizationId     BigInt
+  workspaceId        BigInt?
+  virtualKeyId       BigInt?
+  userId             BigInt?
+  actor              String?
+  provider           String
+  model              String
+  endpoint           String     @default("/chat/completions")
+  requestId          String?
+  costCenter         String
+  projectTag         String?
+  currency           String     @default("USD") @db.Char(3)
+  costUsd            Decimal    @db.Decimal(18, 6)
+  amortizedCostUsd   Decimal    @default(0) @db.Decimal(18, 6)
+  inputCostUsd       Decimal    @default(0) @db.Decimal(18, 6)
+  outputCostUsd      Decimal    @default(0) @db.Decimal(18, 6)
+  promptTokens       Int        @default(0)
+  completionTokens   Int        @default(0)
+  totalTokens        Int        @default(0)
+  cacheCreationTokens Int       @default(0)
+  cacheReadTokens    Int        @default(0)
+  status             String     @default("success")
+  errorCode          String?
+  shadowAiFlag       Boolean    @default(false)
+  durationMs         Int?
+  metadata           Json       @default("{}")
+  createdAt          DateTime   @default(now()) @db.Timestamptz
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace          Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  virtualKey         VirtualKey?  @relation(fields: [virtualKeyId], references: [id], onDelete: SetNull)
+  user               User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([costCenter, actor, createdAt])
+  @@index([workspaceId, createdAt])
+  @@index([actor, createdAt])
+  @@index([provider, createdAt])
+  @@index([shadowAiFlag, createdAt])
+  @@index([projectTag, createdAt])
+}
+
+model ProviderInvoice {
+  id               BigInt     @id @default(autoincrement())
+  publicId         String     @unique @default(uuid())
+  organizationId   BigInt
+  provider         String
+  invoiceNumber    String?
+  invoiceDate      DateTime   @db.Date
+  periodStart      DateTime   @db.Date
+  periodEnd        DateTime   @db.Date
+  currency         String     @default("USD") @db.Char(3)
+  billedAmountUsd  Decimal    @db.Decimal(18, 2)
+  taxUsd           Decimal    @default(0) @db.Decimal(18, 2)
+  creditsUsd       Decimal    @default(0) @db.Decimal(18, 2)
+  netAmountUsd     Decimal    @db.Decimal(18, 2)
+  documentUrl      String?
+  status           String     @default("received")
+  createdAt        DateTime   @default(now()) @db.Timestamptz
+  metadata         Json       @default("{}")
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, provider, invoiceNumber])
+  @@index([provider, periodStart, periodEnd])
+}

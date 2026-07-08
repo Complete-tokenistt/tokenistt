@@ -1,0 +1,48 @@
+{
+  "name": "@tokenist/sdk",
+  "version": "1.0.0",
+  "description": "Drop-in OpenAI SDK replacement with FinOps support - budget tracking, cost attribution, and multi-provider routing",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./http": {
+      "import": "./dist/core/http.js",
+      "types": "./dist/core/http.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/example.js",
+    "dev": "tsx src/example.ts",
+    "test": "tsx --test src/**/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "openai",
+    "sdk",
+    "ai",
+    "finops",
+    "budget",
+    "cost-tracking",
+    "attribution",
+    "tokenist"
+  ],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

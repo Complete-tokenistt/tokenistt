@@ -1,0 +1,1 @@
+# keeps data/ in git; runtime credentials are written here (jsonStore).

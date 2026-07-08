@@ -1,0 +1,20 @@
+{
+  "name": "tokenistt-shadow-ai-scanner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shadow AI detection — scans Brex/Ramp/Navan expenses for unsanctioned AI subscriptions and flags personal-account usage.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "worker": "tsc -p tsconfig.json && node dist/index.js",
+    "scan": "tsc -p tsconfig.json && node dist/cli.js"
+  },
+  "dependencies": {
+    "bullmq": "^5.12.0",
+    "dotenv": "^16.4.5",
+    "ioredis": "^5.4.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "typescript": "^5.5.3"
+  }
+}

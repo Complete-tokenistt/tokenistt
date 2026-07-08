@@ -1,0 +1,13 @@
+apiVersion: 1
+datasources:
+  - name: Tokenistt ClickHouse
+    uid: tokenistt
+    type: grafana-clickhouse-datasource
+    enabled: true
+    jsonData:
+      server: clickhouse
+      port: 8123
+      protocol: http
+      username: default
+      password: ""
+      defaultDatabase: default

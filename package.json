@@ -1,0 +1,32 @@
+{
+  "name": "tokenistt-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Tokenistt unified monorepo — SDK, Gateway, FinOps Middleware, Analytics, and tooling",
+  "workspaces": [
+    "tokenistt-gateway/universal-gateway",
+    "tokenistt-gateway/finops-middleware",
+    "tokenistt-gateway/tokenist-sdk",
+    "tokenistt-sdk",
+    "tokenistt-sdk/analytics/consumer",
+    "tokenistt-sdk/home/user/credential-manager",
+    "tokenistt-sdk/home/user/dashboard",
+    "tokenistt-sdk/home/user/mcp-server",
+    "tokenistt-sdk/home/user/shadow-ai-scanner"
+  ],
+  "scripts": {
+    "build:gateway": "npm run build --workspace=tokenistt-gateway/universal-gateway",
+    "build:middleware": "npm run build --workspace=tokenistt-gateway/finops-middleware",
+    "build:sdk:v1": "npm run build --workspace=tokenistt-gateway/tokenist-sdk",
+    "build:sdk:v2": "npm run build --workspace=tokenistt-sdk",
+    "build:all": "npm run build:gateway && npm run build:middleware && npm run build:sdk:v1 && npm run build:sdk:v2",
+    "dev:gateway": "npm run dev --workspace=tokenistt-gateway/universal-gateway",
+    "dev:middleware": "npm run dev --workspace=tokenistt-gateway/finops-middleware",
+    "typecheck:gateway": "npm run typecheck --workspace=tokenistt-gateway/universal-gateway",
+    "typecheck:middleware": "npm run typecheck --workspace=tokenistt-gateway/finops-middleware",
+    "typecheck:sdk": "npm run typecheck --workspace=tokenistt-sdk"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@tokenistt/analytics-consumer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Kafka -> ClickHouse consumer that pre-aggregates AI spend and flags anomalies.",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "producer": "tsx scripts/producer.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@clickhouse/client": "^1.4.0",
+    "dotenv": "^16.4.5",
+    "kafkajs": "^2.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.4.5"
+  }
+}
