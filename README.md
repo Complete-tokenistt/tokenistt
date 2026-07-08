@@ -745,7 +745,7 @@ cd tokenistt-gateway/finops-middleware && npm test
 - [x] Event Logger — write `transactions` row per API call to Postgres
 - [x] Connect Dashboard APIs to real Postgres data (remove mock)
 - [x] OpenAI direct provider adapter
-- [ ] Server-side streaming (SSE passthrough in gateway)
+- [x] Server-side streaming (SSE passthrough in gateway)
 - [ ] Dashboard pages: Governance, Routing Rules, Alerts, Settings
 
 ### 🚀 Phase 2 — Coming
