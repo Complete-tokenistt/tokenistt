@@ -12,20 +12,20 @@
   },
   "dependencies": {
     "@tokenistt/sdk": "file:..",
-    "@tanstack/react-table": "8.17.3",
-    "next": "14.2.5",
+    "@tanstack/react-table": "^8.21.3",
+    "next": "^15.5.20",
     "pdf-parse": "1.1.1",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
-    "recharts": "2.12.7"
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "recharts": "^3.9.2"
   },
   "devDependencies": {
-    "@types/node": "20.14.10",
-    "@types/react": "18.3.3",
-    "@types/react-dom": "18.3.0",
-    "autoprefixer": "10.4.19",
-    "postcss": "8.4.39",
-    "tailwindcss": "3.4.6",
-    "typescript": "5.5.3"
+    "@types/node": "^22.15.34",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.16",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.3"
   }
 }
