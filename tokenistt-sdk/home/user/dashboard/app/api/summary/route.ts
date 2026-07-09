@@ -21,7 +21,7 @@ const BUDGET_USD = parseFloat(process.env.MONTHLY_BUDGET_USD ?? '25000');
 export async function GET() {
   // ── Fallback: no DB ────────────────────────────────────────────────────────
   if (!process.env.DATABASE_URL) {
-    return NextResponse.json(await getSummary());
+    return NextResponse.json(getSummary());
   }
 
   try {

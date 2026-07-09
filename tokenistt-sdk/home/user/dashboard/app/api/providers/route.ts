@@ -20,7 +20,7 @@ import type { Provider } from "@/lib/types";
 export async function GET() {
   // ── Fallback: no DB ────────────────────────────────────────────────────────
   if (!process.env.DATABASE_URL) {
-    return NextResponse.json(await getProviderBreakdown());
+    return NextResponse.json(getProviderBreakdown());
   }
 
   try {
@@ -65,6 +65,6 @@ export async function GET() {
     return NextResponse.json(rows);
   } catch (err: any) {
     console.error("[/api/providers] DB error, falling back to mock:", err.message);
-    return NextResponse.json(await getProviderBreakdown());
+    return NextResponse.json(getProviderBreakdown());
   }
 }

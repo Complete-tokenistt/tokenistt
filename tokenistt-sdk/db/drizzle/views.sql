@@ -121,8 +121,8 @@ FROM transactions t
 LEFT JOIN inv i
        ON i.organization_id = t.organization_id
       AND i.provider        = t.provider
-      AND date_trunc('month', t.created_at)::date = i.month
-GROUP BY t.organization_id, t.provider, date_trunc('month', t.created_at)::date, i.billed_amount_usd;
+      AND date_trunc('month', t.created_at) = i.month
+GROUP BY t.organization_id, t.provider, month, i.billed_amount_usd;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_mv_recon
     ON mv_provider_reconciliation (organization_id, provider, month);
 
