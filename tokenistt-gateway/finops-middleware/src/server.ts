@@ -29,58 +29,14 @@ const finOpsConfig: FinOpsConfig = {
 // Create FinOps middleware
 const finOpsMiddleware = createFinOpsMiddleware(finOpsConfig);
 
-// Apply middlewares
+// Apply global request logging middleware
 app.use(requestLogger);
-app.use(finOpsMiddleware);
 
-// Health check (no auth required)
+// Public endpoints (no auth required)
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
-// Budget status endpoint
-app.get('/v1/budget', (req: Request, res: Response) => {
-  const attribution = req.attribution!;
-  res.json({
-    userId: attribution.userId,
-    workspace: attribution.workspace,
-    costCenter: attribution.costCenter,
-    budgetLimit: attribution.budgetLimit,
-    budgetRemaining: attribution.budgetRemaining,
-    rateLimitPerMinute: attribution.rateLimitPerMinute,
-  });
-});
-
-// Demo API endpoint (simulates AI completion)
-app.post('/v1/chat/completions', (req: Request, res: Response) => {
-  const attribution = req.attribution!;
-  
-  // Simulate AI response
-  const response = {
-    id: `chatcmpl-${Date.now()}`,
-    object: 'chat.completion',
-    created: Math.floor(Date.now() / 1000),
-    model: 'claude-3-sonnet',
-    choices: [{
-      index: 0,
-      message: {
-        role: 'assistant',
-        content: `Hello ${attribution.userId}! This is a demo response. Your cost center is ${attribution.costCenter}.`,
-      },
-      finish_reason: 'stop',
-    }],
-    usage: {
-      prompt_tokens: 20,
-      completion_tokens: 30,
-      total_tokens: 50,
-    },
-    // These fields will be added by the FinOps middleware
-  };
-  
-  res.json(response);
-});
-
-// Batch cost estimation endpoint
 app.post('/v1/estimate-cost', (req: Request, res: Response) => {
   const { messages, max_tokens } = req.body;
   
@@ -105,6 +61,48 @@ app.post('/v1/estimate-cost', (req: Request, res: Response) => {
       outputCost,
     },
   });
+});
+
+// Apply FinOps middleware (requires auth for all routes defined below)
+app.use(finOpsMiddleware);
+
+// Authenticated endpoints (requires auth header)
+app.get('/v1/budget', (req: Request, res: Response) => {
+  const attribution = req.attribution!;
+  res.json({
+    userId: attribution.userId,
+    workspace: attribution.workspace,
+    costCenter: attribution.costCenter,
+    budgetLimit: attribution.budgetLimit,
+    budgetRemaining: attribution.budgetRemaining,
+    rateLimitPerMinute: attribution.rateLimitPerMinute,
+  });
+});
+
+app.post('/v1/chat/completions', (req: Request, res: Response) => {
+  const attribution = req.attribution!;
+  
+  const response = {
+    id: `chatcmpl-${Date.now()}`,
+    object: 'chat.completion',
+    created: Math.floor(Date.now() / 1000),
+    model: 'claude-3-sonnet',
+    choices: [{
+      index: 0,
+      message: {
+        role: 'assistant',
+        content: `Hello ${attribution.userId}! This is a demo response. Your cost center is ${attribution.costCenter}.`,
+      },
+      finish_reason: 'stop',
+    }],
+    usage: {
+      prompt_tokens: 20,
+      completion_tokens: 30,
+      total_tokens: 50,
+    },
+  };
+  
+  res.json(response);
 });
 
 // Apply error handler
