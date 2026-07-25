@@ -1,6 +1,6 @@
 import express from "express";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-import { buildServer } from "../server";
+import { buildServer } from "../server.js";
 
 // MCP SSE transport (spec 2024-11-05): client opens GET /sse (stream + gets a
 // sessionId), then POSTs messages to /messages?sessionId=...

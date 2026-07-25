@@ -1,4 +1,4 @@
-import { CATALOG, type CatalogModel } from "./catalog";
+import { CATALOG, type CatalogModel } from "./catalog.js";
 
 export interface RouteInput {
   prompt?: string;

@@ -1,4 +1,4 @@
-import { GATEWAY_URL, GATEWAY_API_KEY } from "./config";
+import { GATEWAY_URL, GATEWAY_API_KEY } from "./config.js";
 
 export interface GatewayCallResult {
   response: string;
@@ -33,7 +33,7 @@ export async function callGateway(
     if (!res.ok) return null;
     const j = (await res.json()) as any;
     const text: string = j?.choices?.[0]?.message?.content ?? "";
-    const costUsd: number = j?.usage?.cost ?? 0;
+    const costUsd: number = j?._tokenistt?.cost_usd ?? 0;
     return { response: text, costUsd, latencyMs: Date.now() - t0 };
   } catch {
     return null;
