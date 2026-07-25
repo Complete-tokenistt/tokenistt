@@ -3,10 +3,8 @@ import Section from "@/components/Section";
 import CostCenterTable from "@/components/CostCenterTable";
 import { fmtUsd } from "@/lib/format";
 
-export const dynamic = "force-dynamic";
-
-export default async function CostCentersPage() {
-  const data = await getCostCenters();
+export default function CostCentersPage() {
+  const data = getCostCenters();
   const total = data.reduce((s, c) => s + c.spendUsd, 0);
   const growing = data.filter((c) => c.momGrowthPct > 0).length;
 

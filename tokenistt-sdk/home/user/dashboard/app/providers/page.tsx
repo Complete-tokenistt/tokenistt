@@ -2,10 +2,8 @@ import { getProviderBreakdown } from "@/lib/mock-data";
 import { LogoBadge } from "@/components/StatusBadges";
 import { fmtUsd, fmtUsdCompact } from "@/lib/format";
 
-export const dynamic = "force-dynamic";
-
-export default async function ProvidersPage() {
-  const data = await getProviderBreakdown();
+export default function ProvidersPage() {
+  const data = getProviderBreakdown();
   const total = data.reduce((s, d) => s + d.spendUsd, 0);
 
   return (

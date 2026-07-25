@@ -17,7 +17,7 @@ import type { ShadowAiEvent } from "@/lib/types";
 export async function GET() {
   // ── Fallback: no DB ────────────────────────────────────────────────────────
   if (!process.env.DATABASE_URL) {
-    return NextResponse.json(await getShadowAi());
+    return NextResponse.json(getShadowAi());
   }
 
   try {

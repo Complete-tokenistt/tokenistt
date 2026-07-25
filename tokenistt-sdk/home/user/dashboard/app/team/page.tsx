@@ -13,11 +13,9 @@ import {
   TIER_LABEL,
 } from "@/lib/format";
 
-export const dynamic = "force-dynamic";
-
 // Prompt 8 — Team Manager View (team-scoped only).
-export default async function TeamPage() {
-  const t = await getTeamView();
+export default function TeamPage() {
+  const t = getTeamView();
 
   const overCount = t.members.filter(
     (m) => (m.spendUsd / m.budgetUsd) * 100 >= t.budgetWarnPct,
