@@ -11,6 +11,7 @@
 
 import { getPool } from './pool.js';
 import type { AuthContext } from './auth.js';
+import { incrementCachedBudget } from '../services/redis.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -158,6 +159,11 @@ export async function logTransaction(
       `cost=$${payload.costUsd.toFixed(6)} | ` +
       `${payload.durationMs}ms`
     );
+
+    if (payload.status === 'success' && payload.auth.rawToken) {
+      // Increment cached budget in Redis (ignore errors, fail-open)
+      incrementCachedBudget(payload.auth.rawToken, payload.costUsd).catch(() => {});
+    }
 
     return publicId;
 

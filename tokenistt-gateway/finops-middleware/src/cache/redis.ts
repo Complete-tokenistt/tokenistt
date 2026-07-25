@@ -140,9 +140,21 @@ export class RedisCache {
       try {
         const multi = this.client.multi();
         multi.incr(fullKey);
-        multi.expire(fullKey, ttlSeconds);
+        multi.ttl(fullKey);
         const results = await multi.exec();
-        return (results?.[0]?.[1] as number) || 0;
+        
+        if (!results) {
+          return 0;
+        }
+        
+        const count = (results[0]?.[1] as number) || 0;
+        const ttl = (results[1]?.[1] as number) || -1;
+        
+        if (ttl === -1) {
+          await this.client.expire(fullKey, ttlSeconds);
+        }
+        
+        return count;
       } catch (err) {
         console.error('Redis increment error:', err);
       }

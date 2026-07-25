@@ -19,6 +19,11 @@
 
 import { getPool } from './pool.js';
 import { decryptApiKey } from '../services/vault.js';
+import { 
+  getCachedVirtualKey, 
+  setCachedVirtualKey,
+} from '../services/redis.js';
+import { checkSlidingWindowRateLimit } from '../services/redisRateLimiter.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,6 +54,10 @@ export interface AuthContext {
   realApiKey: string | null;
   /** budget enforcement mode: alert_only | auto_throttle | hard_cap */
   enforcementMode: string;
+  /** raw token prefix from header (for cache key operations) */
+  rawToken?: string;
+  /** rate limit allowed per minute */
+  rateLimitPerMinute: number;
 }
 
 export interface ParsedToken {
@@ -99,6 +108,17 @@ export class BudgetExceededError extends Error {
   readonly statusCode = 429;
 }
 
+export class RateLimitExceededError extends Error {
+  constructor(
+    public readonly limit: number,
+    public readonly retryAfter: number
+  ) {
+    super(`Rate limit exceeded: ${limit} requests per minute limit reached. Retry after ${retryAfter}s.`);
+    this.name = 'RateLimitExceededError';
+  }
+  readonly statusCode = 429;
+}
+
 // ---------------------------------------------------------------------------
 // Core auth function
 // ---------------------------------------------------------------------------
@@ -139,95 +159,127 @@ export async function authenticateRequest(
     );
   }
 
-  // ── 2. Look up virtual_keys joined to workspaces ─────────────────────────
-  const pool = getPool();
+  let authContext: AuthContext | null = null;
 
-  const { rows } = await pool.query<{
-    vk_id:              string;
-    vk_public_id:       string;
-    org_id:             string;
-    workspace_id:       string | null;
-    cost_center:        string;
-    budget_cap_usd:     string | null;
-    budget_period:      string;
-    allowed_providers:  string[] | null;
-    status:             string;
-    real_api_key:       string | null;
-    budget_used_usd:    string;
-    enforcement_mode:   string | null;
-  }>(
-    `
-    SELECT
-      vk.id                                        AS vk_id,
-      vk.public_id::text                           AS vk_public_id,
-      vk.organization_id::text                     AS org_id,
-      vk.workspace_id::text                        AS workspace_id,
-      COALESCE(ws.cost_center, 'default')          AS cost_center,
-      vk.budget_cap_usd::text                      AS budget_cap_usd,
-      vk.budget_period                             AS budget_period,
-      vk.allowed_providers                         AS allowed_providers,
-      vk.status                                    AS status,
-      vk.metadata->>'real_api_key'                 AS real_api_key,
-      vk.metadata->>'enforcement_mode'             AS enforcement_mode,
-      COALESCE(
-        (
-          SELECT SUM(t.cost_usd)::text
-          FROM   transactions t
-          WHERE  t.virtual_key_id = vk.id
-            AND  CASE vk.budget_period
-                   WHEN 'daily'   THEN t.created_at >= date_trunc('day',  now())
-                   WHEN 'monthly' THEN t.created_at >= date_trunc('month', now())
-                   ELSE false
-                 END
-        ), '0'
-      )                                            AS budget_used_usd
-    FROM  virtual_keys  vk
-    LEFT  JOIN workspaces ws ON ws.id = vk.workspace_id
-    WHERE vk.key_prefix = $1
-    LIMIT 1
-    `,
-    [parsed.raw],
-  );
+  // ── 1.5. Try Redis Cache first ──────────────────────────────────────────
+  authContext = await getCachedVirtualKey(parsed.raw);
+  
+  if (authContext) {
+    // Validate that the actor matches the user id parsed from the token
+    authContext.actor = parsed.userId;
+  } else {
+    // ── 2. Cache Miss: Look up virtual_keys joined to workspaces in Postgres ──
+    const pool = getPool();
 
-  if (rows.length === 0) {
-    throw new AuthError(`Virtual key not found: ${parsed.workspace}/${parsed.userId}`);
-  }
+    const { rows } = await pool.query<{
+      vk_id:              string;
+      vk_public_id:       string;
+      org_id:             string;
+      workspace_id:       string | null;
+      cost_center:        string;
+      budget_cap_usd:     string | null;
+      budget_period:      string;
+      allowed_providers:  string[] | null;
+      status:             string;
+      real_api_key:       string | null;
+      budget_used_usd:    string;
+      enforcement_mode:   string | null;
+      rate_limit_per_minute: number | null;
+    }>(
+      `
+      SELECT
+        vk.id                                        AS vk_id,
+        vk.public_id::text                           AS vk_public_id,
+        vk.organization_id::text                     AS org_id,
+        vk.workspace_id::text                        AS workspace_id,
+        COALESCE(ws.cost_center, 'default')          AS cost_center,
+        vk.budget_cap_usd::text                      AS budget_cap_usd,
+        vk.budget_period                             AS budget_period,
+        vk.allowed_providers                         AS allowed_providers,
+        vk.status                                    AS status,
+        vk.metadata->>'real_api_key'                 AS real_api_key,
+        vk.metadata->>'enforcement_mode'             AS enforcement_mode,
+        COALESCE((vk.metadata->>'rate_limit_per_minute')::integer, 100) AS rate_limit_per_minute,
+        COALESCE(
+          (
+            SELECT SUM(t.cost_usd)::text
+            FROM   transactions t
+            WHERE  t.virtual_key_id = vk.id
+              AND  CASE vk.budget_period
+                     WHEN 'daily'   THEN t.created_at >= date_trunc('day',  now())
+                     WHEN 'monthly' THEN t.created_at >= date_trunc('month', now())
+                     ELSE false
+                   END
+          ), '0'
+        )                                            AS budget_used_usd
+      FROM  virtual_keys  vk
+      LEFT  JOIN workspaces ws ON ws.id = vk.workspace_id
+      WHERE vk.key_prefix = $1
+      LIMIT 1
+      `,
+      [parsed.raw],
+    );
 
-  const row = rows[0];
+    if (rows.length === 0) {
+      throw new AuthError(`Virtual key not found: ${parsed.workspace}/${parsed.userId}`);
+    }
 
-  // ── 3. Status check ───────────────────────────────────────────────────────
-  if (row.status !== 'active') {
-    throw new AuthError(`Virtual key is ${row.status}`, 403);
+    const row = rows[0];
+
+    // ── 3. Status check ─────────────────────────────────────────────────────
+    if (row.status !== 'active') {
+      throw new AuthError(`Virtual key is ${row.status}`, 403);
+    }
+
+    const budgetCap  = row.budget_cap_usd  ? parseFloat(row.budget_cap_usd)  : null;
+    const budgetUsed = parseFloat(row.budget_used_usd);
+    
+    // Normalize enforcement mode
+    const rawMode = row.enforcement_mode ? row.enforcement_mode.toLowerCase().replace(/[^a-z0-9]/g, '_') : 'hard_cap';
+    const enforcementMode = (rawMode === 'alert_only' || rawMode === 'auto_throttle' || rawMode === 'hard_cap') ? rawMode : 'hard_cap';
+
+    authContext = {
+      virtualKeyId:      BigInt(row.vk_id),
+      virtualKeyPublicId: row.vk_public_id,
+      workspaceId:       row.workspace_id ? BigInt(row.workspace_id) : null,
+      organizationId:    BigInt(row.org_id),
+      costCenter:        row.cost_center,
+      actor:             parsed.userId,
+      budgetCapUsd:      budgetCap,
+      budgetUsedUsd:     budgetUsed,
+      budgetPeriod:      row.budget_period,
+      allowedProviders:  row.allowed_providers ?? [],
+      realApiKey:        row.real_api_key ? decryptApiKey(row.real_api_key, row.org_id) : null,
+      enforcementMode,
+      rawToken:          parsed.raw,
+      rateLimitPerMinute: row.rate_limit_per_minute ?? 100,
+    };
+
+    // Save to Redis Cache (5 minutes TTL)
+    await setCachedVirtualKey(parsed.raw, authContext, 300);
   }
 
   // ── 4. Budget check ───────────────────────────────────────────────────────
-  const budgetCap  = row.budget_cap_usd  ? parseFloat(row.budget_cap_usd)  : null;
-  const budgetUsed = parseFloat(row.budget_used_usd);
-  
-  // Normalize enforcement mode
-  const rawMode = row.enforcement_mode ? row.enforcement_mode.toLowerCase().replace(/[^a-z0-9]/g, '_') : 'hard_cap';
-  const enforcementMode = (rawMode === 'alert_only' || rawMode === 'auto_throttle' || rawMode === 'hard_cap') ? rawMode : 'hard_cap';
-
-  // Hard cap blocks when budget is exceeded
-  if (enforcementMode !== 'alert_only' && budgetCap !== null && budgetUsed >= budgetCap) {
-    throw new BudgetExceededError(budgetCap, budgetUsed);
+  if (
+    authContext.enforcementMode !== 'alert_only' && 
+    authContext.budgetCapUsd !== null && 
+    authContext.budgetUsedUsd >= authContext.budgetCapUsd
+  ) {
+    throw new BudgetExceededError(authContext.budgetCapUsd, authContext.budgetUsedUsd);
   }
 
-  // ── 5. Return context ─────────────────────────────────────────────────────
-  return {
-    virtualKeyId:      BigInt(row.vk_id),
-    virtualKeyPublicId: row.vk_public_id,
-    workspaceId:       row.workspace_id ? BigInt(row.workspace_id) : null,
-    organizationId:    BigInt(row.org_id),
-    costCenter:        row.cost_center,
-    actor:             parsed.userId,
-    budgetCapUsd:      budgetCap,
-    budgetUsedUsd:     budgetUsed,
-    budgetPeriod:      row.budget_period,
-    allowedProviders:  row.allowed_providers ?? [],
-    realApiKey:        row.real_api_key ? decryptApiKey(row.real_api_key, row.org_id) : null,
-    enforcementMode,
-  };
+  // ── 4.5. Rate Limit check ─────────────────────────────────────────────────
+  const rateLimitResult = await checkSlidingWindowRateLimit(
+    authContext.virtualKeyId,
+    authContext.rateLimitPerMinute,
+    60
+  );
+
+  if (!rateLimitResult.allowed) {
+    throw new RateLimitExceededError(authContext.rateLimitPerMinute, rateLimitResult.resetAt - Math.floor(Date.now() / 1000));
+  }
+
+  return authContext;
 }
 
 // ---------------------------------------------------------------------------
@@ -249,5 +301,6 @@ function buildOpenModeContext(authHeader: string | undefined): AuthContext {
     allowedProviders:   [],
     realApiKey:         null,
     enforcementMode:    'hard_cap',
+    rateLimitPerMinute: 100,
   };
 }
