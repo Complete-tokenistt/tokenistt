@@ -1,9 +1,9 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { route } from "./router.js";
-import { callGateway } from "./gateway.js";
-import { getDailySpend } from "./spend.js";
-import { buildOptimizePrompt } from "./optimize.js";
+import { route } from "./router";
+import { callGateway } from "./gateway";
+import { getDailySpend } from "./spend";
+import { buildOptimizePrompt } from "./optimize";
 
 // Builds a fully-wired McpServer (tools + resources + prompts). A fresh server
 // is created per connection for SSE (stateful per session); for stdio a single
@@ -23,8 +23,8 @@ export function buildServer(): McpServer {
       user: z.string().optional().describe("Attribution user id"),
       maxCostUsd: z.number().optional().describe("Max USD per request"),
       preferQuality: z.boolean().optional().describe("Optimize for quality over cost"),
-    } as any,
-    async ({ prompt, user, maxCostUsd, preferQuality }: any) => {
+    },
+    async ({ prompt, user, maxCostUsd, preferQuality }) => {
       const decision = route({ prompt, user, maxCostUsd, preferQuality });
       const live = await callGateway(decision.selectedModel, prompt, user);
       const payload = live
@@ -41,14 +41,14 @@ export function buildServer(): McpServer {
             response: null,
             note: "No GATEWAY_URL configured; returning routing decision only.",
           };
-      return { content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }] };
+      return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] };
     },
   );
 
   // ---- Resource: spend_report://{user}/daily ----
   server.resource(
     "spend_report",
-    new ResourceTemplate("spend_report://{user}/daily", {} as any),
+    new ResourceTemplate("spend_report://{user}/daily", {}),
     async (uri, vars) => {
       const report = await getDailySpend(String(vars.user ?? ""));
       return {
@@ -72,11 +72,11 @@ export function buildServer(): McpServer {
         .string()
         .optional()
         .describe("Optional transcript of the last conversation"),
-    } as any,
-    async ({ conversation }: any) => {
+    },
+    async ({ conversation }) => {
       const text = buildOptimizePrompt(conversation);
       return {
-        messages: [{ role: "user" as const, content: { type: "text" as const, text } }],
+        messages: [{ role: "user", content: { type: "text", text } }],
       };
     },
   );

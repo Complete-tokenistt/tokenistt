@@ -89,10 +89,10 @@ export class FinOpsMiddlewareBuilder {
         if (!rateLimitResult.allowed) {
           this.config.onRateLimitExceeded(context, rateLimitResult);
           
-          res.setHeader('X-RateLimit-Limit', String(context.rateLimitPerMinute));
-          res.setHeader('X-RateLimit-Remaining', '0');
-          res.setHeader('X-RateLimit-Reset', String(rateLimitResult.resetAt));
-          res.setHeader('Retry-After', String(rateLimitResult.retryAfter || 60));
+          res.setHeader('X-RateLimit-Limit', context.rateLimitPerMinute);
+          res.setHeader('X-RateLimit-Remaining', 0);
+          res.setHeader('X-RateLimit-Reset', rateLimitResult.resetAt);
+          res.setHeader('Retry-After', rateLimitResult.retryAfter || 60);
           
           throw new RateLimitExceededError(
             rateLimitResult.retryAfter || 60,
@@ -101,9 +101,9 @@ export class FinOpsMiddlewareBuilder {
           );
         }
         
-        res.setHeader('X-RateLimit-Limit', String(context.rateLimitPerMinute));
-        res.setHeader('X-RateLimit-Remaining', String(rateLimitResult.remaining));
-        res.setHeader('X-RateLimit-Reset', String(rateLimitResult.resetAt));
+        res.setHeader('X-RateLimit-Limit', context.rateLimitPerMinute);
+        res.setHeader('X-RateLimit-Remaining', rateLimitResult.remaining);
+        res.setHeader('X-RateLimit-Reset', rateLimitResult.resetAt);
         
         const estimatedCost = this.extractEstimatedCost(req);
         const budgetResult = await this.budgetService.checkBudget(context, estimatedCost);
@@ -132,12 +132,12 @@ export class FinOpsMiddlewareBuilder {
           );
         }
         
-        res.setHeader('X-Attribution-User', String(context.userId));
-        res.setHeader('X-Attribution-Cost-Center', String(context.costCenter));
-        res.setHeader('X-Attribution-Workspace', String(context.workspace));
-        res.setHeader('X-Attribution-Virtual-Key', String(context.virtualKeyId));
-        res.setHeader('X-Budget-Limit', String(context.budgetLimit));
-        res.setHeader('X-Budget-Remaining', String(budgetResult.remainingAfter));
+        res.setHeader('X-Attribution-User', context.userId);
+        res.setHeader('X-Attribution-Cost-Center', context.costCenter);
+        res.setHeader('X-Attribution-Workspace', context.workspace);
+        res.setHeader('X-Attribution-Virtual-Key', context.virtualKeyId);
+        res.setHeader('X-Budget-Limit', context.budgetLimit);
+        res.setHeader('X-Budget-Remaining', budgetResult.remainingAfter);
         
         req.attribution = context;
         
