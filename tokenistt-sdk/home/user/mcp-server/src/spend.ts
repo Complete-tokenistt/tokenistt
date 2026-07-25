@@ -1,4 +1,4 @@
-import { GATEWAY_URL } from "./config.js";
+import { GATEWAY_URL } from "./config";
 
 export interface SpendReport {
   user: string;
