@@ -117,38 +117,6 @@ app.get('/v1/models', (_req: Request, res: Response) => {
   res.json({ object: 'list', data });
 });
 
-// Helper function to downgrade to cheaper models under budget pressure
-function throttleModel(model: string): string {
-  const lowercaseModel = model.toLowerCase();
-  
-  // 1. Anthropic models
-  if (lowercaseModel.includes('claude-3-opus') || lowercaseModel.includes('claude-3-sonnet') || lowercaseModel.includes('claude-2')) {
-    if (lowercaseModel.startsWith('anthropic:')) return 'anthropic:claude-3-haiku';
-    if (lowercaseModel.startsWith('bedrock:')) return 'bedrock:claude-3-haiku';
-    return 'claude-3-haiku';
-  }
-  
-  // 2. OpenAI models
-  if (lowercaseModel.includes('gpt-4') || lowercaseModel.includes('o1') || lowercaseModel.includes('o3')) {
-    if (lowercaseModel.startsWith('openai:')) return 'openai:gpt-3.5-turbo';
-    if (lowercaseModel.startsWith('azure:')) return 'azure:gpt-35-turbo';
-    return 'gpt-3.5-turbo';
-  }
-  
-  // 3. Bedrock llama models
-  if (lowercaseModel.includes('llama-3-70b') || lowercaseModel.includes('llama3-70b')) {
-    return 'bedrock:meta-llama-3-8b';
-  }
-
-  // 4. General/Groq Llama models (e.g. llama-3.1-70b-versatile -> llama-3.1-8b-instant)
-  if (lowercaseModel.includes('70b') && lowercaseModel.includes('llama')) {
-    if (lowercaseModel.startsWith('openai:')) return 'openai:llama-3.1-8b-instant';
-    return 'llama-3.1-8b-instant';
-  }
-
-  return model;
-}
-
 // ── Main chat completions endpoint ──────────────────────────────────────────
 
 app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextFunction) => {
@@ -170,22 +138,6 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
 
     // ── Step 2: Auth & Budget Check ─────────────────────────────────────────
     const auth = await authenticateRequest(req.headers.authorization);
-
-    // Apply budget auto-throttling if context allows and 90% budget is hit
-    let isThrottled = false;
-    const originalModel = req.body.model;
-    if (
-      auth.enforcementMode === 'auto_throttle' &&
-      auth.budgetCapUsd !== null &&
-      auth.budgetUsedUsd >= auth.budgetCapUsd * 0.9
-    ) {
-      const downgraded = throttleModel(req.body.model);
-      if (downgraded !== req.body.model) {
-        req.body.model = downgraded;
-        isThrottled = true;
-        console.log(`[Budget Throttling] Downgrading model: ${originalModel} -> ${downgraded} (Spend: $${auth.budgetUsedUsd.toFixed(4)} of $${auth.budgetCapUsd.toFixed(2)} limit)`);
-      }
-    }
 
     // Soft budget warning (within 20% of limit)
     if (
@@ -279,10 +231,6 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
     res.setHeader('x-tokenistt-tokens-completion', String(completTokens));
     res.setHeader('x-tokenistt-latency-ms',        String(durationMs));
     res.setHeader('x-tokenistt-provider',          usedProvider);
-    if (isThrottled) {
-      res.setHeader('x-tokenistt-budget-throttled', 'true');
-      res.setHeader('x-tokenistt-budget-throttled-from', originalModel);
-    }
 
     // ── Step 7: Send response ────────────────────────────────────────────────
     res.json({
@@ -293,8 +241,6 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
         cost_center:  auth.costCenter,
         cost_usd:     totalCostUsd,
         latency_ms:   durationMs,
-        budget_throttled: isThrottled ? true : undefined,
-        budget_throttled_from: isThrottled ? originalModel : undefined,
       },
     });
 

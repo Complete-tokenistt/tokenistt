@@ -1,7 +1,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { buildServer } from "./server.js";
-import { startSse } from "./transports/sse.js";
-import { TRANSPORT, PORT } from "./config.js";
+import { buildServer } from "./server";
+import { startSse } from "./transports/sse";
+import { TRANSPORT, PORT } from "./config";
 
 async function main() {
   if (TRANSPORT === "sse") {

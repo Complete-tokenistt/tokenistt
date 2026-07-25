@@ -2,10 +2,8 @@ import { getInvoices, reconcile } from "@/lib/mock-data";
 import Section from "@/components/Section";
 import ReconciliationView from "@/components/ReconciliationView";
 
-export const dynamic = "force-dynamic";
-
-export default async function ReconciliationPage() {
-  const initialRows = await reconcile(await getInvoices());
+export default function ReconciliationPage() {
+  const initialRows = reconcile(getInvoices());
 
   return (
     <div className="space-y-6">

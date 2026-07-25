@@ -8,9 +8,9 @@ import { fmtUsd } from "@/lib/format";
 // Re-render per request so freshly ingested scanner findings show up.
 export const dynamic = "force-dynamic";
 
-export default async function ShadowAiPage() {
+export default function ShadowAiPage() {
   const ingested = loadIngestedShadowAi();
-  const data = [...ingested, ...(await getShadowAi())];
+  const data = [...ingested, ...getShadowAi()];
   const total = data.reduce((s, e) => s + e.amountUsd, 0);
   const unreviewed = data.filter((e) => e.status === "unreviewed").length;
 

@@ -1,4 +1,4 @@
-import { CATALOG } from "./catalog.js";
+import { CATALOG } from "./catalog";
 
 // Builds the `optimize_cost` prompt: review a conversation and suggest a
 // cheaper model, grounded in the current model catalog.

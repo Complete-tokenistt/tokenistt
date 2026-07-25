@@ -22,7 +22,7 @@ import type { CostCenterRow, CostCenterStatus } from "@/lib/types";
 export async function GET() {
   // ── Fallback: no DB ────────────────────────────────────────────────────────
   if (!process.env.DATABASE_URL) {
-    return NextResponse.json(await getCostCenters());
+    return NextResponse.json(getCostCenters());
   }
 
   try {
@@ -108,6 +108,6 @@ export async function GET() {
     return NextResponse.json(costCenters);
   } catch (err: any) {
     console.error("[/api/cost-centers] DB error, falling back to mock:", err.message);
-    return NextResponse.json(await getCostCenters());
+    return NextResponse.json(getCostCenters());
   }
 }
