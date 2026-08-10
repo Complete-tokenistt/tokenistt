@@ -27,6 +27,7 @@ import {
   authenticateRequest,
   AuthError,
   BudgetExceededError,
+  RateLimitExceededError,
 }                                                   from './db/auth.js';
 import { logTransaction }                           from './db/transactionLogger.js';
 import { checkDbConnection, closePool }             from './db/pool.js';
@@ -272,7 +273,7 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
     // Log failed transaction too (fail-open)
     if (!(err instanceof AuthError)) {
       logTransaction({
-        auth:             { actor: 'unknown', costCenter: 'default', organizationId: BigInt(0), workspaceId: null, virtualKeyId: BigInt(0), virtualKeyPublicId: '', budgetCapUsd: null, budgetUsedUsd: 0, budgetPeriod: 'none', allowedProviders: [], realApiKey: null },
+        auth:             { actor: 'unknown', costCenter: 'default', organizationId: BigInt(0), workspaceId: null, virtualKeyId: BigInt(0), virtualKeyPublicId: '', budgetCapUsd: null, budgetUsedUsd: 0, budgetPeriod: 'none', allowedProviders: [], realApiKey: null, enforcementMode: 'hard_cap', rateLimitPerMinute: 100 },
         provider:         'unknown',
         model:            req.body?.model ?? 'unknown',
         endpoint:         '/v1/chat/completions',
@@ -338,6 +339,18 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
         code:       'budget_exceeded',
         limit_usd:  err.limitUsd,
         used_usd:   err.usedUsd,
+      },
+    });
+    return;
+  }
+
+  if (err instanceof RateLimitExceededError) {
+    res.status(err.statusCode).json({
+      error: {
+        message: err.message,
+        type:    'rate_limit_exceeded',
+        code:    'rate_limit_exceeded',
+        limit:   err.limit,
       },
     });
     return;

@@ -1,3 +1,4 @@
+import pg from 'pg';
 import { RedisCache } from '../cache/redis.js';
 import { 
   VirtualKeyToken, 
@@ -212,12 +213,102 @@ export interface PostgresVirtualKeyStoreConfig {
 }
 
 export class PostgresVirtualKeyStore implements VirtualKeyStore {
-  // This is a placeholder - implement with actual pg client in production
-  constructor(_config: PostgresVirtualKeyStoreConfig) {
-    throw new Error('Postgres store not implemented. Use InMemoryVirtualKeyStore for development.');
+  private pool: pg.Pool;
+
+  constructor(config: PostgresVirtualKeyStoreConfig) {
+    this.pool = new pg.Pool({
+      connectionString: config.connectionString,
+      ssl: { rejectUnauthorized: false }
+    });
   }
   
-  async findByToken(_token: string): Promise<VirtualKeyLookupResult | null> {
-    throw new Error('Postgres store not implemented');
+  async findByToken(token: string): Promise<VirtualKeyLookupResult | null> {
+    const parts = token.split('_');
+    if (parts.length < 5) return null;
+    const workspace = parts[2];
+    const userId = parts[3];
+
+    try {
+      const { rows } = await this.pool.query<{
+        vk_id:              string;
+        vk_public_id:       string;
+        org_id:             string;
+        workspace_id:       string | null;
+        cost_center:        string;
+        budget_cap_usd:     string | null;
+        budget_period:      string;
+        allowed_providers:  string[] | null;
+        status:             string;
+        real_api_key:       string | null;
+        budget_used_usd:    string;
+        enforcement_mode:   string | null;
+        rate_limit_per_minute: number | null;
+      }>(
+        `
+        SELECT
+          vk.id                                        AS vk_id,
+          vk.public_id::text                           AS vk_public_id,
+          vk.organization_id::text                     AS org_id,
+          vk.workspace_id::text                        AS workspace_id,
+          COALESCE(ws.cost_center, 'default')          AS cost_center,
+          vk.budget_cap_usd::text                      AS budget_cap_usd,
+          vk.budget_period                             AS budget_period,
+          vk.allowed_providers                         AS allowed_providers,
+          vk.status                                    AS status,
+          vk.metadata->>'real_api_key'                 AS real_api_key,
+          vk.metadata->>'enforcement_mode'             AS enforcement_mode,
+          COALESCE((vk.metadata->>'rate_limit_per_minute')::integer, 100) AS rate_limit_per_minute,
+          COALESCE(
+            (
+              SELECT SUM(t.cost_usd)::text
+              FROM   transactions t
+              WHERE  t.virtual_key_id = vk.id
+                AND  CASE vk.budget_period
+                       WHEN 'daily'   THEN t.created_at >= date_trunc('day',  now())
+                       WHEN 'monthly' THEN t.created_at >= date_trunc('month', now())
+                       ELSE false
+                     END
+            ), '0'
+          )                                            AS budget_used_usd
+        FROM  virtual_keys  vk
+        LEFT  JOIN workspaces ws ON ws.id = vk.workspace_id
+        WHERE vk.key_prefix = $1
+        LIMIT 1
+        `,
+        [token],
+      );
+
+      if (rows.length === 0) return null;
+      const row = rows[0];
+
+      const budgetLimit = row.budget_cap_usd ? parseFloat(row.budget_cap_usd) : 0;
+      const budgetUsed = parseFloat(row.budget_used_usd);
+
+      const now = new Date();
+      let budgetResetAt = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      if (row.budget_period === 'daily') {
+        budgetResetAt = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      }
+
+      return {
+        virtualKeyId: row.vk_id,
+        realApiKey: row.real_api_key || '',
+        userId,
+        workspace,
+        costCenter: row.cost_center,
+        budgetLimit,
+        budgetRemaining: Math.max(0, budgetLimit - budgetUsed),
+        budgetResetAt,
+        rateLimitPerMinute: row.rate_limit_per_minute ?? 100,
+        enabled: row.status === 'active',
+        metadata: {
+          enforcementMode: row.enforcement_mode ?? 'hard_cap',
+          organizationId: row.org_id,
+        }
+      };
+    } catch (err: any) {
+      console.error('[PostgresVirtualKeyStore] Lookup error:', err.message);
+      return null;
+    }
   }
 }
