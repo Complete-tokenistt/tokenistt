@@ -24,6 +24,7 @@ import {
   setCachedVirtualKey,
 } from '../services/redis.js';
 import { checkSlidingWindowRateLimit } from '../services/redisRateLimiter.js';
+import { checkAndSendBudgetAlert } from '../services/alerting.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -265,6 +266,7 @@ export async function authenticateRequest(
     authContext.budgetCapUsd !== null && 
     authContext.budgetUsedUsd >= authContext.budgetCapUsd
   ) {
+    checkAndSendBudgetAlert(authContext, 'hard').catch(() => {});
     throw new BudgetExceededError(authContext.budgetCapUsd, authContext.budgetUsedUsd);
   }
 

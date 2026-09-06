@@ -1,0 +1,77 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tokenistt-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tokenistt
+      POSTGRES_USER: tokenistt
+      POSTGRES_PASSWORD: tokenistt_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./tokenistt-sdk/db/drizzle/0000_init.sql:/docker-entrypoint-initdb.d/01_init.sql
+      - ./tokenistt-sdk/db/drizzle/views.sql:/docker-entrypoint-initdb.d/02_views.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tokenistt -d tokenistt"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: tokenistt-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  gateway:
+    build:
+      context: .
+      dockerfile: tokenistt-gateway/universal-gateway/Dockerfile
+    container_name: tokenistt-gateway
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      NODE_ENV: production
+      DATABASE_URL: postgres://tokenistt:tokenistt_dev@postgres:5432/tokenistt
+      REDIS_URL: redis://redis:6379
+      DEFAULT_PROVIDER: anthropic
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
+      MASTER_KEY: ${MASTER_KEY:-default-master-key-change-in-production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  dashboard:
+    build:
+      context: ./tokenistt-sdk/home/user/dashboard
+      dockerfile: Dockerfile
+    container_name: tokenistt-dashboard
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://tokenistt:tokenistt_dev@postgres:5432/tokenistt
+      TOKENISTT_BASE_URL: http://gateway:3000/v1
+    depends_on:
+      - postgres
+      - gateway
+
+volumes:
+  pgdata:

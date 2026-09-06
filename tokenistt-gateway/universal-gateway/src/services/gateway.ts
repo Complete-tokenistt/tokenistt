@@ -206,6 +206,10 @@ export class GatewayService {
   hasProvider(provider: ProviderType): boolean {
     return this.registry.hasProvider(provider);
   }
+
+  detectProvider(model: string): ProviderType {
+    return this.registry.detectProvider(model);
+  }
 }
 
 export function validateChatCompletionRequest(

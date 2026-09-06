@@ -33,6 +33,9 @@ import { logTransaction }                           from './db/transactionLogger
 import { checkDbConnection, closePool }             from './db/pool.js';
 import { handleStreamingCompletion }                from './services/streaming.js';
 import { checkPolicies }                            from './db/policies.js';
+import { checkAndSendBudgetAlert }                 from './services/alerting.js';
+import { SmartRouter }                              from './services/router.js';
+import { adminRouter }                              from './routes/admin.js';
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -42,6 +45,9 @@ if (existsSync('.env')) config();
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
+
+// ── Admin routes ────────────────────────────────────────────────────────────
+app.use('/v1/admin', adminRouter);
 
 // ── Provider configuration ──────────────────────────────────────────────────
 
@@ -76,6 +82,8 @@ const gateway = new GatewayService(
   },
   providerConfig,
 );
+
+const router = new SmartRouter(gateway);
 
 // ---------------------------------------------------------------------------
 // Middleware
@@ -149,6 +157,7 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
         'x-tokenistt-budget-remaining',
         (auth.budgetCapUsd - auth.budgetUsedUsd).toFixed(4),
       );
+      checkAndSendBudgetAlert(auth, 'soft').catch(() => {});
     }
 
     // Attach attribution headers
@@ -209,8 +218,8 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
       req.headers as Record<string, string | undefined>,
     );
 
-    // ── Step 4: Call provider ────────────────────────────────────────────────
-    const response  = await gateway.handleChatCompletion(req.body, providerOverride, auth.realApiKey);
+    // ── Step 4: Call provider (via SmartRouter for automatic failover) ───────
+    const response  = await router.handleChatCompletion(req.body, providerOverride, auth.realApiKey);
     const durationMs = Date.now() - startTime;
 
     // ── Step 5: Precise cost breakdown ───────────────────────────────────────
