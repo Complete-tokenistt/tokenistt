@@ -13,8 +13,8 @@ export default function CostCenterTable({ data }: { data: CostCenterRow[] }) {
       header: "Cost Center",
       cell: ({ row }) => (
         <div>
-          <div className="font-medium text-slate-800">{row.original.name}</div>
-          <div className="text-xs text-slate-400">{row.original.code}</div>
+          <div className="font-medium" style={{ color: "var(--fg)" }}>{row.original.name}</div>
+          <div className="text-xs mono" style={{ color: "var(--fg-4)" }}>{row.original.code}</div>
         </div>
       ),
     },
@@ -22,14 +22,14 @@ export default function CostCenterTable({ data }: { data: CostCenterRow[] }) {
       accessorKey: "owner",
       header: "Owner",
       cell: ({ getValue }) => (
-        <span className="text-slate-600">{getValue<string>()}</span>
+        <span style={{ color: "var(--fg-2)" }}>{getValue<string>()}</span>
       ),
     },
     {
       accessorKey: "spendUsd",
       header: "Spend (MTD)",
       cell: ({ getValue }) => (
-        <span className="font-medium tabular-nums">
+        <span className="font-medium mono tabular-nums" style={{ color: "var(--fg)" }}>
           {fmtUsd(getValue<number>())}
         </span>
       ),
@@ -41,9 +41,8 @@ export default function CostCenterTable({ data }: { data: CostCenterRow[] }) {
         const v = getValue<number>();
         return (
           <span
-            className={`tabular-nums font-medium ${
-              v >= 0 ? "text-emerald-600" : "text-red-600"
-            }`}
+            className="mono tabular-nums font-medium"
+            style={{ color: v >= 0 ? "var(--green)" : "var(--red)" }}
           >
             {fmtPct(v)}
           </span>
@@ -54,7 +53,7 @@ export default function CostCenterTable({ data }: { data: CostCenterRow[] }) {
       accessorKey: "transactionCount",
       header: "Calls",
       cell: ({ getValue }) => (
-        <span className="tabular-nums text-slate-500">
+        <span className="mono tabular-nums" style={{ color: "var(--fg-3)" }}>
           {fmtNumber(getValue<number>())}
         </span>
       ),

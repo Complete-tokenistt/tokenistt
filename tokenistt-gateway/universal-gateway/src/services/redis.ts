@@ -186,31 +186,44 @@ export async function checkRateLimit(
   }
 }
 
+export const INCREMENT_BUDGET_SCRIPT = `
+local key = KEYS[1]
+local amount = tonumber(ARGV[1])
+local default_ttl = tonumber(ARGV[2])
+local cached = redis.call('GET', key)
+if not cached then return nil end
+local ctx = cjson.decode(cached)
+local current = tonumber(ctx['budgetUsedUsd']) or 0
+ctx['budgetUsedUsd'] = current + amount
+local ttl = redis.call('TTL', key)
+if ttl < 0 then ttl = default_ttl end
+redis.call('SETEX', key, ttl, cjson.encode(ctx))
+return tostring(ctx['budgetUsedUsd'])
+`;
+
 /**
- * Increment the budgetUsedUsd for a cached virtual key context.
+ * Increment the budgetUsedUsd for a cached virtual key context atomically.
  */
 export async function incrementCachedBudget(
   token: string,
   amount: number
-): Promise<void> {
+): Promise<number | null> {
   const client = getRedisClient();
-  if (!client) return;
+  if (!client) return null;
   
   try {
     const key = `${KEY_PREFIX}${token}`;
-    const cached = await client.get(key);
-    if (cached) {
-      const context = deserializeContext(cached);
-      context.budgetUsedUsd += amount;
-      
-      const ttl = await client.ttl(key);
-      if (ttl > 0) {
-        await client.setex(key, ttl, serializeContext(context));
-      } else {
-        await client.setex(key, DEFAULT_TTL_SECONDS, serializeContext(context));
-      }
-    }
+    const result = await client.eval(
+      INCREMENT_BUDGET_SCRIPT,
+      1,
+      key,
+      amount.toString(),
+      DEFAULT_TTL_SECONDS.toString()
+    ) as string | null;
+
+    return result ? parseFloat(result) : null;
   } catch (err: any) {
     console.error('[Redis] Increment cached budget error:', err.message);
+    return null;
   }
 }

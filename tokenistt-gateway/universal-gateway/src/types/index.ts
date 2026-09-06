@@ -69,6 +69,7 @@ export interface OpenAIChatCompletionResponse {
   actual_cost?: number;
   latency_ms?: number;
   model_used?: string;
+  _tokenistt?: Record<string, any>;
 }
 
 // Provider identifier
@@ -87,6 +88,7 @@ export interface UnifiedMetadata {
 export interface PricingTier {
   input: number;  // per 1M tokens
   output: number; // per 1M tokens
+  cachedInput?: number; // per 1M cached tokens
 }
 
 // Request context

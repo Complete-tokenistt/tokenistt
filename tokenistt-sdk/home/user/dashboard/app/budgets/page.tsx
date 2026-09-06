@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { StatusPill } from "@/components/StatusBadges";
 import { BUDGET_POLICIES, BUDGET_ALERT_HISTORY, TEAMS } from "@/lib/dashboard-mock-data";
 
@@ -36,6 +36,32 @@ export default function BudgetsPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
 
+  useEffect(() => {
+    async function fetchBudgets() {
+      try {
+        const res = await fetch("/api/budgets");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data?.budgets && Array.isArray(data.budgets) && data.budgets.length > 0) {
+          const mapped: Policy[] = data.budgets.map((b: any, index: number) => ({
+            id: Number(b.id) || index + 1,
+            scope: b.name || `${b.scope_type} budget`,
+            cap: Number(b.cap_usd) || 0,
+            spent: Number(b.used_usd) || 0,
+            period: b.period || "monthly",
+            action: b.enforcement_mode === "hard_cap" ? "hard cap" : "auto-throttle",
+            thresholds: [Number(b.warn_threshold_pct) || 80, Number(b.critical_threshold_pct) || 90],
+            status: statusFor(Number(b.used_usd) || 0, Number(b.cap_usd) || 0),
+          }));
+          setPolicies(mapped);
+        }
+      } catch (err) {
+        console.warn("Could not load /api/budgets, using defaults:", err);
+      }
+    }
+    fetchBudgets();
+  }, []);
+
   function openNew() {
     setEditingId(null);
     setForm(EMPTY_FORM);
@@ -67,16 +93,39 @@ export default function BudgetsPage() {
     setEditingId(null);
   }
 
-  function removePolicy(id: number) {
+  async function removePolicy(id: number) {
     setPolicies((p) => p.filter((x) => x.id !== id));
+    try {
+      await fetch(`/api/budgets?id=${id}`, { method: "DELETE" });
+    } catch (err) {
+      console.warn("Error deleting budget from API:", err);
+    }
   }
 
-  function submitForm(e: React.FormEvent) {
+  async function submitForm(e: React.FormEvent) {
     e.preventDefault();
     const cap = Number(form.cap);
     if (!form.scope || !cap || cap <= 0) return;
     const spent = spentFor(form.scope);
     const status = statusFor(spent, cap);
+
+    try {
+      await fetch("/api/budgets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.scope,
+          scope_type: form.scope === "workspace-wide" ? "organization" : "team",
+          cap_usd: cap,
+          period: form.period,
+          warn_threshold_pct: form.thresholds[0] || 80,
+          critical_threshold_pct: form.thresholds[1] || 90,
+          enforcement_mode: form.mode === "hard" ? "hard_cap" : "alert_only",
+        }),
+      });
+    } catch (err) {
+      console.warn("Error saving budget to API:", err);
+    }
 
     if (editingId != null) {
       setPolicies((p) => p.map((x) => (x.id === editingId ? { ...x, scope: form.scope, cap, period: form.period, action: form.action, thresholds: form.thresholds, spent, status } : x)));
@@ -99,7 +148,7 @@ export default function BudgetsPage() {
           {formOpen && (
             <form onSubmit={submitForm} style={{ padding: "16px 18px", borderBottom: "1px solid var(--line-soft)", background: "oklch(0.420 0.150 295 / 0.06)" }}>
               <div className="mono" style={{ fontSize: 11.5, color: "var(--violet)", letterSpacing: "0.05em", marginBottom: 12 }}>
-                {editingId != null ? "EDIT POLICY" : "NEW POLICY"} · mock, not persisted
+                {editingId != null ? "EDIT POLICY" : "NEW POLICY"} · multi-level budget cap
               </div>
               <div className="mobile-stack" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr 1.3fr auto", gap: 10, alignItems: "end" }}>
                 <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>

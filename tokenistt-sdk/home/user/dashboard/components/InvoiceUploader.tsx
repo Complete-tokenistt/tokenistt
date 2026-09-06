@@ -69,12 +69,20 @@ export default function InvoiceUploader({
   }
 
   return (
-    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4">
-      <div className="flex flex-wrap items-center gap-3">
+    <div
+      className="card"
+      style={{
+        padding: "16px 20px",
+        background: "var(--bg-2)",
+        border: "1px dashed var(--line)",
+      }}
+    >
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 14 }}>
         <button
+          type="button"
           onClick={() => inputRef.current?.click()}
           disabled={busy}
-          className="rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
+          className="btn btn-violet btn-sm"
         >
           {busy ? "Processing…" : "Upload invoice"}
         </button>
@@ -89,24 +97,34 @@ export default function InvoiceUploader({
             e.target.value = "";
           }}
         />
-        <span className="text-xs text-slate-400">
+        <span className="mono" style={{ fontSize: 12.5, color: "var(--fg-3)" }}>
           CSV or PDF · OpenAI / Anthropic / Bedrock / Google / Mistral
         </span>
         <a
           href={`data:text/csv;charset=utf-8,${encodeURIComponent(SAMPLE_CSV)}`}
           download="sample-invoices.csv"
-          className="ml-auto text-xs font-medium text-brand-600 hover:underline"
+          className="mono"
+          style={{
+            marginLeft: "auto",
+            fontSize: 12.5,
+            color: "var(--violet)",
+            textDecoration: "none",
+          }}
         >
-          Download sample CSV
+          Download sample CSV →
         </a>
       </div>
 
       {fileName && (
-        <p className="mt-2 text-xs text-slate-500">
-          Loaded: <span className="font-medium">{fileName}</span>
+        <p className="mono" style={{ marginTop: 10, fontSize: 12, color: "var(--fg-2)" }}>
+          Loaded: <span style={{ color: "var(--fg)", fontWeight: 500 }}>{fileName}</span>
         </p>
       )}
-      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      {error && (
+        <p className="mono" style={{ marginTop: 10, fontSize: 12, color: "var(--red)" }}>
+          {error}
+        </p>
+      )}
     </div>
   );
 }

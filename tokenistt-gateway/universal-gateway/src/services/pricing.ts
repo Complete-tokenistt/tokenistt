@@ -1,8 +1,13 @@
 import { PricingTier } from '../types/index.js';
 
-// Pricing map (per 1M tokens)
+// Pricing map (per 1M tokens in USD)
 export const PRICING: Record<string, PricingTier> = {
   // OpenAI Models
+  'openai:gpt-4o': { input: 2.50, output: 10.00, cachedInput: 1.25 },
+  'openai:gpt-4o-mini': { input: 0.15, output: 0.60, cachedInput: 0.075 },
+  'openai:o1': { input: 15.00, output: 60.00, cachedInput: 7.50 },
+  'openai:o1-mini': { input: 3.00, output: 12.00, cachedInput: 1.50 },
+  'openai:o3-mini': { input: 1.10, output: 4.40, cachedInput: 0.55 },
   'openai:gpt-4': { input: 30.00, output: 60.00 },
   'openai:gpt-4-32k': { input: 60.00, output: 120.00 },
   'openai:gpt-4-turbo': { input: 10.00, output: 30.00 },
@@ -10,14 +15,22 @@ export const PRICING: Record<string, PricingTier> = {
   'openai:gpt-3.5-turbo-16k': { input: 1.00, output: 2.00 },
   
   // Anthropic Models
+  'anthropic:claude-3-5-sonnet': { input: 3.00, output: 15.00, cachedInput: 0.30 },
+  'anthropic:claude-3-5-sonnet-20241022': { input: 3.00, output: 15.00, cachedInput: 0.30 },
+  'anthropic:claude-3-5-haiku': { input: 0.80, output: 4.00, cachedInput: 0.08 },
+  'anthropic:claude-3-5-haiku-20241022': { input: 0.80, output: 4.00, cachedInput: 0.08 },
   'anthropic:claude-3-opus': { input: 15.00, output: 75.00 },
+  'anthropic:claude-3-opus-20240229': { input: 15.00, output: 75.00 },
   'anthropic:claude-3-sonnet': { input: 3.00, output: 15.00 },
+  'anthropic:claude-3-sonnet-20240229': { input: 3.00, output: 15.00 },
   'anthropic:claude-3-haiku': { input: 0.25, output: 1.25 },
+  'anthropic:claude-3-haiku-20240307': { input: 0.25, output: 1.25 },
   'anthropic:claude-2.1': { input: 8.00, output: 24.00 },
   'anthropic:claude-2.0': { input: 8.00, output: 24.00 },
   'anthropic:claude-instant': { input: 0.80, output: 2.40 },
   
   // AWS Bedrock Models (base pricing, AWS markup added separately)
+  'bedrock:claude-3-5-sonnet': { input: 3.00, output: 15.00 },
   'bedrock:claude-3-sonnet': { input: 3.00, output: 15.00 },
   'bedrock:claude-3-haiku': { input: 0.25, output: 1.25 },
   'bedrock:claude-3-opus': { input: 15.00, output: 75.00 },
@@ -32,6 +45,8 @@ export const PRICING: Record<string, PricingTier> = {
   'bedrock:mistral-large': { input: 4.00, output: 12.00 },
   
   // Azure OpenAI (same as OpenAI pricing)
+  'azure:gpt-4o': { input: 2.50, output: 10.00 },
+  'azure:gpt-4o-mini': { input: 0.15, output: 0.60 },
   'azure:gpt-4': { input: 30.00, output: 60.00 },
   'azure:gpt-4-32k': { input: 60.00, output: 120.00 },
   'azure:gpt-4-turbo': { input: 10.00, output: 30.00 },
@@ -45,34 +60,101 @@ const BEDROCK_AWS_MARKUP = {
   output: 0.000024, // per token
 };
 
-export function calculateCost(
+export interface CostCalculationResult {
+  cost: number;
+  inputCost: number;
+  outputCost: number;
+  cachedInputCost: number;
+  isKnown: boolean;
+  costStatus: 'ok' | 'COST_UNAVAILABLE';
+}
+
+/**
+ * Resolves pricing tier with direct lookup and intelligent prefix/family matching.
+ */
+export function resolvePricing(provider: string, model: string): PricingTier | null {
+  const normProvider = provider.toLowerCase();
+  let normModel = model.toLowerCase();
+
+  // Strip provider prefix if passed in model (e.g. "openai:gpt-4o")
+  if (normModel.startsWith(`${normProvider}:`)) {
+    normModel = normModel.slice(normProvider.length + 1);
+  }
+
+  // 1. Exact match
+  const directKey = `${normProvider}:${normModel}`;
+  if (PRICING[directKey]) {
+    return PRICING[directKey];
+  }
+
+  // 2. Prefix / Versioned model matching
+  const candidates = Object.keys(PRICING).filter(k => k.startsWith(`${normProvider}:`));
+  for (const candidate of candidates) {
+    const candidateModel = candidate.slice(normProvider.length + 1);
+    if (normModel.startsWith(candidateModel) || candidateModel.startsWith(normModel)) {
+      return PRICING[candidate];
+    }
+  }
+
+  return null;
+}
+
+export function calculateCostWithStatus(
   provider: string,
   model: string,
   inputTokens: number,
-  outputTokens: number
-): number {
-  const key = `${provider}:${model.toLowerCase()}`;
-  const pricing = PRICING[key];
-  
+  outputTokens: number,
+  cachedTokens = 0
+): CostCalculationResult {
+  const pricing = resolvePricing(provider, model);
+
   if (!pricing) {
-    // Default fallback pricing
-    console.warn(`No pricing found for ${key}, using default`);
-    return calculateDefaultCost(inputTokens, outputTokens);
+    console.warn(`No pricing found for ${provider}:${model.toLowerCase()}, using default`);
+    const fallbackCost = calculateDefaultCost(inputTokens, outputTokens);
+    return {
+      cost: fallbackCost,
+      inputCost: (inputTokens / 1_000_000) * 1.00,
+      outputCost: (outputTokens / 1_000_000) * 3.00,
+      cachedInputCost: 0,
+      isKnown: false,
+      costStatus: 'COST_UNAVAILABLE',
+    };
   }
-  
+
   const inputCost = (inputTokens / 1_000_000) * pricing.input;
   const outputCost = (outputTokens / 1_000_000) * pricing.output;
-  
-  let totalCost = inputCost + outputCost;
-  
+  const cachedInputCost = pricing.cachedInput 
+    ? (cachedTokens / 1_000_000) * pricing.cachedInput 
+    : 0;
+
+  let totalCost = inputCost + outputCost + cachedInputCost;
+
   // Add AWS Bedrock markup if applicable
-  if (provider === 'bedrock') {
+  if (provider.toLowerCase() === 'bedrock') {
     const awsMarkupInput = inputTokens * BEDROCK_AWS_MARKUP.input;
     const awsMarkupOutput = outputTokens * BEDROCK_AWS_MARKUP.output;
     totalCost += awsMarkupInput + awsMarkupOutput;
   }
-  
-  return Math.round(totalCost * 1_000_000) / 1_000_000; // Round to 6 decimal places
+
+  const rounded = Math.round(totalCost * 1_000_000) / 1_000_000;
+  return {
+    cost: rounded,
+    inputCost: Math.round(inputCost * 1_000_000) / 1_000_000,
+    outputCost: Math.round(outputCost * 1_000_000) / 1_000_000,
+    cachedInputCost: Math.round(cachedInputCost * 1_000_000) / 1_000_000,
+    isKnown: true,
+    costStatus: 'ok',
+  };
+}
+
+export function calculateCost(
+  provider: string,
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+  cachedTokens = 0
+): number {
+  return calculateCostWithStatus(provider, model, inputTokens, outputTokens, cachedTokens).cost;
 }
 
 function calculateDefaultCost(inputTokens: number, outputTokens: number): number {
@@ -85,6 +167,8 @@ function calculateDefaultCost(inputTokens: number, outputTokens: number): number
 export function getAvailableModels(): Record<string, string[]> {
   return {
     anthropic: [
+      'claude-3-5-sonnet',
+      'claude-3-5-haiku',
       'claude-3-opus',
       'claude-3-sonnet',
       'claude-3-haiku',
@@ -93,6 +177,7 @@ export function getAvailableModels(): Record<string, string[]> {
       'claude-instant',
     ],
     bedrock: [
+      'claude-3-5-sonnet',
       'claude-3-sonnet',
       'claude-3-haiku',
       'claude-3-opus',
@@ -107,6 +192,8 @@ export function getAvailableModels(): Record<string, string[]> {
       'mistral-large-2402',
     ],
     azure: [
+      'gpt-4o',
+      'gpt-4o-mini',
       'gpt-4',
       'gpt-4-32k',
       'gpt-4-turbo',
@@ -114,6 +201,11 @@ export function getAvailableModels(): Record<string, string[]> {
       'gpt-35-turbo-16k',
     ],
     openai: [
+      'gpt-4o',
+      'gpt-4o-mini',
+      'o1',
+      'o1-mini',
+      'o3-mini',
       'gpt-4',
       'gpt-4-32k',
       'gpt-4-turbo',

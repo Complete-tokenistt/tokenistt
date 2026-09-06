@@ -7,6 +7,7 @@ import { calculateCost } from '../services/pricing.js';
 export interface Policy {
   id: string;
   public_id: string;
+  organization_id?: bigint | null;
   name: string;
   description?: string;
   is_enabled: boolean;
@@ -30,16 +31,23 @@ export async function migratePolicies(): Promise<void> {
     // 1. Create table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS policies (
-        id          bigserial PRIMARY KEY,
-        public_id   uuid UNIQUE NOT NULL DEFAULT gen_random_uuid(),
-        name        text NOT NULL,
-        description text,
-        is_enabled  boolean NOT NULL DEFAULT true,
-        conditions  jsonb NOT NULL DEFAULT '{}'::jsonb,
-        actions     jsonb NOT NULL DEFAULT '{}'::jsonb,
-        created_at  timestamptz NOT NULL DEFAULT now(),
-        updated_at  timestamptz NOT NULL DEFAULT now()
+        id              bigserial PRIMARY KEY,
+        public_id       uuid UNIQUE NOT NULL DEFAULT gen_random_uuid(),
+        organization_id bigint,
+        name            text NOT NULL,
+        description     text,
+        is_enabled      boolean NOT NULL DEFAULT true,
+        conditions      jsonb NOT NULL DEFAULT '{}'::jsonb,
+        actions         jsonb NOT NULL DEFAULT '{}'::jsonb,
+        created_at      timestamptz NOT NULL DEFAULT now(),
+        updated_at      timestamptz NOT NULL DEFAULT now()
       )
+    `);
+
+    // Ensure organization_id column exists if table was previously created without it
+    await pool.query(`
+      ALTER TABLE policies ADD COLUMN IF NOT EXISTS organization_id bigint;
+      CREATE INDEX IF NOT EXISTS ix_policies_org ON policies (organization_id, is_enabled);
     `);
 
     // 2. Seed default policies if table is empty
@@ -108,8 +116,13 @@ export async function checkPolicies(
 
   try {
     const pool = getPool();
+    const orgIdStr = auth.organizationId ? auth.organizationId.toString() : null;
     const { rows } = await pool.query<Policy>(
-      'SELECT id::text, public_id::text, name, description, is_enabled, conditions, actions FROM policies WHERE is_enabled = true'
+      `SELECT id::text, public_id::text, name, description, is_enabled, conditions, actions 
+       FROM policies 
+       WHERE is_enabled = true 
+         AND (organization_id IS NULL OR organization_id = $1)`,
+      [orgIdStr]
     );
 
     let modifiedRequest = { ...request };

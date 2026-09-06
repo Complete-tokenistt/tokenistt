@@ -25,8 +25,8 @@ export default function TeamPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold">{t.teamName} team</h2>
-        <p className="text-xs text-slate-400">
+        <h2 className="text-lg font-semibold" style={{ color: "var(--fg)" }}>{t.teamName} team</h2>
+        <p className="text-xs mono" style={{ color: "var(--fg-4)" }}>
           Manager: {t.managerName} · {t.period} · team-scoped view
         </p>
       </div>
@@ -72,7 +72,7 @@ export default function TeamPage() {
           description="Individual spend & budget"
           className="lg:col-span-2"
           action={
-            <span className="text-xs text-slate-400">
+            <span className="text-xs mono" style={{ color: "var(--fg-4)" }}>
               {t.members.length} people
             </span>
           }
@@ -84,7 +84,7 @@ export default function TeamPage() {
           title="Alerts"
           description="Notify me when…"
           action={
-            <span className="text-xs text-slate-400">
+            <span className="text-xs mono" style={{ color: "var(--fg-4)" }}>
               {activeAlerts} active
             </span>
           }
@@ -103,19 +103,23 @@ export default function TeamPage() {
           {t.modelUsage.map((m) => (
             <div
               key={m.model}
-              className="rounded-lg border border-slate-100 p-3"
-              style={{ borderLeft: `4px solid ${MODEL_COLORS[m.model]}` }}
+              className="card p-3"
+              style={{
+                background: "var(--bg-2)",
+                borderColor: "var(--line-soft)",
+                borderLeft: `4px solid ${MODEL_COLORS[m.model]}`,
+              }}
             >
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-700">
+                <span className="text-sm font-medium" style={{ color: "var(--fg)" }}>
                   {MODEL_LABELS[m.model] ?? m.label}
                 </span>
                 <Badge tone={TIER_TONE[m.tier]}>{TIER_LABEL[m.tier]}</Badge>
               </div>
-              <div className="mt-1 text-lg font-semibold tabular-nums">
+              <div className="mt-1 text-lg font-semibold mono tabular-nums" style={{ color: "var(--fg)" }}>
                 {fmtUsd(m.spendUsd)}
               </div>
-              <div className="text-xs text-slate-400">
+              <div className="text-xs mono" style={{ color: "var(--fg-4)" }}>
                 {m.sharePct.toFixed(1)}% of team
               </div>
             </div>

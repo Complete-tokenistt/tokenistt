@@ -25,6 +25,7 @@ import {
 } from '../services/redis.js';
 import { checkSlidingWindowRateLimit } from '../services/redisRateLimiter.js';
 import { checkAndSendBudgetAlert } from '../services/alerting.js';
+import { hashToken } from '../services/keyManager.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,11 +55,11 @@ export interface AuthContext {
   /** real provider API key stored in key metadata (optional BYOK) */
   realApiKey: string | null;
   /** budget enforcement mode: alert_only | auto_throttle | hard_cap */
-  enforcementMode: string;
+  enforcementMode?: string;
   /** raw token prefix from header (for cache key operations) */
   rawToken?: string;
   /** rate limit allowed per minute */
-  rateLimitPerMinute: number;
+  rateLimitPerMinute?: number;
 }
 
 export interface ParsedToken {
@@ -215,10 +216,10 @@ export async function authenticateRequest(
         )                                            AS budget_used_usd
       FROM  virtual_keys  vk
       LEFT  JOIN workspaces ws ON ws.id = vk.workspace_id
-      WHERE vk.key_prefix = $1
+      WHERE (vk.key_hash = $1 OR vk.key_prefix = $2)
       LIMIT 1
       `,
-      [parsed.raw],
+      [hashToken(parsed.raw), parsed.raw],
     );
 
     if (rows.length === 0) {
@@ -271,14 +272,15 @@ export async function authenticateRequest(
   }
 
   // ── 4.5. Rate Limit check ─────────────────────────────────────────────────
+  const limitPerMinute = authContext.rateLimitPerMinute ?? 100;
   const rateLimitResult = await checkSlidingWindowRateLimit(
     authContext.virtualKeyId,
-    authContext.rateLimitPerMinute,
+    limitPerMinute,
     60
   );
 
   if (!rateLimitResult.allowed) {
-    throw new RateLimitExceededError(authContext.rateLimitPerMinute, rateLimitResult.resetAt - Math.floor(Date.now() / 1000));
+    throw new RateLimitExceededError(limitPerMinute, rateLimitResult.resetAt - Math.floor(Date.now() / 1000));
   }
 
   return authContext;

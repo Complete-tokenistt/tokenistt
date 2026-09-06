@@ -14,16 +14,16 @@ export default function CostCentersPage() {
         title="Cost Center Drill-down"
         description="Month-to-date spend with month-over-month growth"
         action={
-          <div className="flex gap-4 text-xs text-slate-400">
+          <div className="flex gap-4 text-xs mono" style={{ color: "var(--fg-4)" }}>
             <span>
               Total:{" "}
-              <span className="font-semibold text-slate-600">
+              <span className="font-semibold tabular-nums" style={{ color: "var(--fg)" }}>
                 {fmtUsd(total)}
               </span>
             </span>
             <span>
               Growing:{" "}
-              <span className="font-semibold text-slate-600">
+              <span className="font-semibold tabular-nums" style={{ color: "var(--fg-2)" }}>
                 {growing}/{data.length}
               </span>
             </span>

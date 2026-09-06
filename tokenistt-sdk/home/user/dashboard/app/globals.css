@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
+  --background: oklch(0.155 0.005 270);
+  --foreground: oklch(0.975 0.003 270);
 }
 
 html,
@@ -24,6 +24,6 @@ body {
   height: 8px;
 }
 .scroll-thin::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: oklch(0.295 0.010 270);
   border-radius: 9999px;
 }
