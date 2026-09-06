@@ -1,9 +1,41 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { calculateCost, PRICING, getAvailableModels } from '../services/pricing.js';
+import { calculateCost, calculateCostWithStatus, PRICING, getAvailableModels } from '../services/pricing.js';
 
 describe('Pricing Service', () => {
   describe('calculateCost', () => {
+    it('should calculate cost for OpenAI GPT-4o ($2.50 in / $10.00 out per 1M)', () => {
+      // 1000 input = 0.0025, 500 output = 0.0050 -> total 0.0075
+      const cost = calculateCost('openai', 'gpt-4o', 1000, 500);
+      assert.strictEqual(cost, 0.0075);
+    });
+
+    it('should calculate cost for Anthropic Claude 3.5 Sonnet ($3.00 in / $15.00 out per 1M)', () => {
+      // 1000 input = 0.003, 500 output = 0.0075 -> total 0.0105
+      const cost = calculateCost('anthropic', 'claude-3-5-sonnet', 1000, 500);
+      assert.strictEqual(cost, 0.0105);
+    });
+
+    it('should match versioned model names via prefix matching', () => {
+      const cost = calculateCost('openai', 'gpt-4o-2024-08-06', 1000, 500);
+      assert.strictEqual(cost, 0.0075, 'gpt-4o-2024-08-06 should resolve to gpt-4o pricing');
+    });
+
+    it('should calculate cost with prompt cache tokens discount', () => {
+      // Claude 3.5 Sonnet: input $3.00/M, output $15.00/M, cachedInput $0.30/M
+      // 10,000 normal input = $0.03, 10,000 cached = $0.003, 1,000 output = $0.015 -> $0.048
+      const statusRes = calculateCostWithStatus('anthropic', 'claude-3-5-sonnet', 10000, 1000, 10000);
+      assert.strictEqual(statusRes.costStatus, 'ok');
+      assert.strictEqual(statusRes.cachedInputCost, 0.003);
+      assert.strictEqual(statusRes.cost, 0.048);
+    });
+
+    it('should flag unknown models with COST_UNAVAILABLE status', () => {
+      const result = calculateCostWithStatus('unknown', 'unknown-model-xyz', 1000, 500);
+      assert.strictEqual(result.isKnown, false);
+      assert.strictEqual(result.costStatus, 'COST_UNAVAILABLE');
+    });
+
     it('should calculate cost for Anthropic Claude 3 Sonnet', () => {
       const cost = calculateCost('anthropic', 'claude-3-sonnet', 1000, 500);
       assert.strictEqual(cost, 0.0105);
@@ -79,6 +111,7 @@ describe('Pricing Service', () => {
       assert.ok(models.anthropic.includes('claude-3-sonnet'));
       assert.ok(models.anthropic.includes('claude-3-opus'));
       assert.ok(models.anthropic.includes('claude-3-haiku'));
+      assert.ok(models.anthropic.includes('claude-3-5-sonnet'));
     });
     
     it('should include Claude models for Bedrock', () => {
@@ -91,6 +124,8 @@ describe('Pricing Service', () => {
       const models = getAvailableModels();
       assert.ok(models.azure.includes('gpt-4'));
       assert.ok(models.openai.includes('gpt-4'));
+      assert.ok(models.openai.includes('gpt-4o'));
+      assert.ok(models.openai.includes('o1'));
     });
   });
 });

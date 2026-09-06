@@ -17,11 +17,16 @@ export default function BudgetBar({
   return (
     <div className="w-full max-w-[220px]">
       {showValues && (
-        <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
+        <div
+          className="mb-1 flex items-center justify-between text-xs mono"
+          style={{ color: "var(--fg-3)" }}
+        >
           <span className="tabular-nums">
             {fmtUsd(used)} / {fmtUsd(budget)}
           </span>
-          <span className="tabular-nums font-medium">{pct.toFixed(0)}%</span>
+          <span className="tabular-nums font-medium" style={{ color: "var(--fg-2)" }}>
+            {pct.toFixed(0)}%
+          </span>
         </div>
       )}
       <ProgressBar valuePct={pct} tone={tone} />

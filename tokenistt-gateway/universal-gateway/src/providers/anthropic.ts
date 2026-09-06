@@ -7,15 +7,18 @@ import {
 import { BaseProviderAdapter, estimateRequestTokens } from './base.js';
 
 const MODEL_MAP: Record<string, string> = {
-  'gpt-4': 'claude-3-sonnet',
-  'gpt-4-turbo': 'claude-3-sonnet',
-  'gpt-3.5-turbo': 'claude-3-haiku',
-  'claude-3-opus': 'claude-3-opus',
-  'claude-3-sonnet': 'claude-3-sonnet',
-  'claude-3-haiku': 'claude-3-haiku',
+  'gpt-4': 'claude-3-5-sonnet-20241022',
+  'gpt-4-turbo': 'claude-3-5-sonnet-20241022',
+  'gpt-4o': 'claude-3-5-sonnet-20241022',
+  'gpt-3.5-turbo': 'claude-3-haiku-20240307',
+  'claude-3-5-sonnet': 'claude-3-5-sonnet-20241022',
+  'claude-3-5-haiku': 'claude-3-5-haiku-20241022',
+  'claude-3-opus': 'claude-3-opus-20240229',
+  'claude-3-sonnet': 'claude-3-sonnet-20240229',
+  'claude-3-haiku': 'claude-3-haiku-20240307',
   'claude-2.1': 'claude-2.1',
   'claude-2.0': 'claude-2.0',
-  'claude-instant': 'claude-instant',
+  'claude-instant': 'claude-instant-1.2',
 };
 
 export class AnthropicAdapter extends BaseProviderAdapter {
@@ -40,6 +43,7 @@ export class AnthropicAdapter extends BaseProviderAdapter {
       normalizedModel.includes('claude') ||
       normalizedModel === 'gpt-4' ||
       normalizedModel === 'gpt-4-turbo' ||
+      normalizedModel === 'gpt-4o' ||
       normalizedModel === 'gpt-3.5-turbo'
     );
   }
@@ -66,7 +70,10 @@ export class AnthropicAdapter extends BaseProviderAdapter {
       maxTokens = 8192;
     }
     
+    const mappedModel = MODEL_MAP[request.model] || request.model;
+
     return {
+      model: mappedModel,
       messages: anthropicMessages,
       max_tokens: maxTokens,
       temperature: request.temperature,
@@ -83,6 +90,7 @@ export class AnthropicAdapter extends BaseProviderAdapter {
     }
     
     const req = translateRequest as {
+      model: string;
       messages: Array<{ role: 'user' | 'assistant'; content: string }>;
       max_tokens: number;
       temperature?: number;
@@ -91,7 +99,7 @@ export class AnthropicAdapter extends BaseProviderAdapter {
     };
     
     const response = await this.client.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+      model: req.model || 'claude-3-5-sonnet-20241022',
       messages: req.messages as any,
       max_tokens: req.max_tokens,
       temperature: req.temperature,

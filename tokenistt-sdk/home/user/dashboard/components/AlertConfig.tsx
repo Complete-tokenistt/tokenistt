@@ -31,44 +31,58 @@ export default function AlertConfig({
   return (
     <div className="space-y-3">
       {rows.map((a) => (
-        <div key={a.id} className="rounded-lg border border-slate-200 p-3">
+        <div
+          key={a.id}
+          className="card p-3"
+          style={{ background: "var(--bg-2)", borderColor: "var(--line-soft)" }}
+        >
           <div className="flex items-start justify-between gap-3">
-            <label className="flex items-start gap-2">
+            <label className="flex items-start gap-2 cursor-pointer">
               <input
                 type="checkbox"
                 checked={a.enabled}
                 onChange={() => toggle(a.id)}
-                className="mt-1 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                className="mt-1 h-4 w-4 rounded"
+                style={{ accentColor: "var(--violet)" }}
               />
-              <span className="text-sm text-slate-700">{a.label}</span>
+              <span className="text-sm font-medium" style={{ color: "var(--fg)" }}>
+                {a.label}
+              </span>
             </label>
             <span
-              className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${
-                a.enabled
-                  ? "bg-emerald-50 text-emerald-600 ring-emerald-200"
-                  : "bg-slate-100 text-slate-400 ring-slate-200"
-              }`}
+              className="mono rounded-full px-2 py-0.5 text-xs font-medium"
+              style={{
+                background: a.enabled ? "oklch(0.760 0.150 155 / 0.15)" : "var(--bg-3)",
+                color: a.enabled ? "var(--green)" : "var(--fg-4)",
+                border: `1px solid ${a.enabled ? "var(--green)" : "var(--line-soft)"}`,
+              }}
             >
               {a.enabled ? "active" : "off"}
             </span>
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 pl-6 text-xs text-slate-500">
+          <div
+            className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 pl-6 text-xs mono"
+            style={{ color: "var(--fg-3)" }}
+          >
             {a.metric === "team_spend_per_day" && (
               <span>
                 Current:{" "}
-                <span className="font-medium text-slate-700">
+                <span className="font-medium" style={{ color: "var(--fg-1)" }}>
                   {fmtUsd(dailySpendUsd)}/day
                 </span>{" "}
                 · triggers above{" "}
-                <span className="font-medium text-slate-700">
+                <span className="font-medium" style={{ color: "var(--fg-1)" }}>
                   {fmtUsd(a.threshold)}/day
                 </span>
               </span>
             )}
             {a.metric === "member_budget_pct" && (
               <span>
-                Triggers above <span className="font-medium">{a.threshold}%</span>{" "}
+                Triggers above{" "}
+                <span className="font-medium" style={{ color: "var(--fg-1)" }}>
+                  {a.threshold}%
+                </span>{" "}
                 of a member&apos;s budget
               </span>
             )}
@@ -81,7 +95,12 @@ export default function AlertConfig({
               <select
                 value={a.channel}
                 onChange={(e) => setChannel(a.id, e.target.value as AlertChannel)}
-                className="rounded border border-slate-200 px-1 py-0.5 text-xs"
+                className="rounded px-1.5 py-0.5 text-xs mono"
+                style={{
+                  background: "var(--bg-3)",
+                  color: "var(--fg)",
+                  border: "1px solid var(--line)",
+                }}
               >
                 <option value="email">Email</option>
                 <option value="slack">Slack</option>
@@ -97,7 +116,12 @@ export default function AlertConfig({
                   value={a.threshold}
                   min={0}
                   onChange={(e) => setThreshold(a.id, Number(e.target.value))}
-                  className="w-20 rounded border border-slate-200 px-1 py-0.5 text-xs tabular-nums"
+                  className="w-20 rounded px-1.5 py-0.5 text-xs mono tabular-nums"
+                  style={{
+                    background: "var(--bg-3)",
+                    color: "var(--fg)",
+                    border: "1px solid var(--line)",
+                  }}
                 />
               </label>
             )}

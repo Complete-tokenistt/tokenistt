@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useDashboard } from "@/components/DashboardShell";
 import { Sparkline, NumTicker } from "@/components/Sparkline";
 import { ConfidenceBadge } from "@/components/StatusBadges";
@@ -15,9 +15,31 @@ export default function ForecastingPage() {
   const [scenarios, setScenarios] = useState<Scenario[]>(FORECAST_SCENARIOS);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_SCENARIO);
-  const combined = [...FORECAST_HISTORICAL, ...FORECAST_PROJECTED];
-  const next30 = FORECAST_PROJECTED[0];
-  const next90 = FORECAST_PROJECTED.slice(0, 3).reduce((a, b) => a + b, 0);
+  const [projectedSpend, setProjectedSpend] = useState<number>(FORECAST_PROJECTED[0]);
+  const [burnRate, setBurnRate] = useState<number | null>(null);
+
+  useEffect(() => {
+    async function loadForecast() {
+      try {
+        const res = await fetch("/api/forecast");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data?.forecastedMonthEndSpend) {
+          setProjectedSpend(Math.round(data.forecastedMonthEndSpend));
+        }
+        if (data?.dailyBurnRate) {
+          setBurnRate(data.dailyBurnRate);
+        }
+      } catch (err) {
+        console.warn("Could not load /api/forecast, using defaults:", err);
+      }
+    }
+    loadForecast();
+  }, []);
+
+  const combined = [...FORECAST_HISTORICAL, projectedSpend, ...FORECAST_PROJECTED.slice(1)];
+  const next30 = projectedSpend;
+  const next90 = projectedSpend * 3;
   const avgAccuracy = Math.round(100 - FORECAST_ACCURACY.reduce((a, f) => a + Math.abs(f.deltaPct), 0) / FORECAST_ACCURACY.length);
 
   function addScenario(e: React.FormEvent) {

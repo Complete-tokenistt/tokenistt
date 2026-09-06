@@ -12,7 +12,8 @@ function MiniModelBar({ models }: { models: TeamMember["models"] }) {
   const total = models.reduce((s, m) => s + m.spendUsd, 0) || 1;
   return (
     <div
-      className="flex h-2 w-32 overflow-hidden rounded-full bg-slate-100"
+      className="flex h-2 w-32 overflow-hidden rounded-full"
+      style={{ background: "var(--bg-3)" }}
       title={models
         .map((m) => `${m.label}: ${fmtUsd(m.spendUsd)}`)
         .join("\n")}
@@ -37,8 +38,8 @@ export default function TeamMemberTable({ data }: { data: TeamMember[] }) {
       header: "Member",
       cell: ({ row }) => (
         <div>
-          <div className="font-medium text-slate-800">{row.original.name}</div>
-          <div className="text-xs text-slate-400">{row.original.email}</div>
+          <div className="font-medium" style={{ color: "var(--fg)" }}>{row.original.name}</div>
+          <div className="text-xs mono" style={{ color: "var(--fg-4)" }}>{row.original.email}</div>
         </div>
       ),
     },
@@ -46,7 +47,7 @@ export default function TeamMemberTable({ data }: { data: TeamMember[] }) {
       accessorKey: "spendUsd",
       header: "Spend (MTD)",
       cell: ({ getValue }) => (
-        <span className="font-medium tabular-nums">
+        <span className="font-medium mono tabular-nums" style={{ color: "var(--fg)" }}>
           {fmtUsd(getValue<number>())}
         </span>
       ),
@@ -62,7 +63,7 @@ export default function TeamMemberTable({ data }: { data: TeamMember[] }) {
       accessorKey: "calls",
       header: "Calls",
       cell: ({ getValue }) => (
-        <span className="tabular-nums text-slate-500">
+        <span className="mono tabular-nums" style={{ color: "var(--fg-3)" }}>
           {fmtNumber(getValue<number>())}
         </span>
       ),

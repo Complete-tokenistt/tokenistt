@@ -22,7 +22,7 @@ import {
 }                                                   from './services/gateway.js';
 import { ProviderConfig }                           from './providers/registry.js';
 import { ProviderType, GatewayError }               from './types/index.js';
-import { getAvailableModels, calculateCost }        from './services/pricing.js';
+import { getAvailableModels, calculateCost, calculateCostWithStatus } from './services/pricing.js';
 import {
   authenticateRequest,
   AuthError,
@@ -36,15 +36,38 @@ import { checkPolicies }                            from './db/policies.js';
 import { checkAndSendBudgetAlert }                 from './services/alerting.js';
 import { SmartRouter }                              from './services/router.js';
 import { adminRouter }                              from './routes/admin.js';
+import { metrics }                                  from './services/metrics.js';
+import { validateSecrets }                          from './config/secrets.js';
+import { requestContextMiddleware, getElapsedLatencyMs } from './middleware/requestContext.js';
 
 // ---------------------------------------------------------------------------
 // Bootstrap
 // ---------------------------------------------------------------------------
 
 if (existsSync('.env')) config();
+validateSecrets();
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
+app.use(requestContextMiddleware);
+
+// ── Health endpoint ─────────────────────────────────────────────────────────
+app.get('/health', async (_req: Request, res: Response) => {
+  const db = await checkDbConnection();
+  const redis = (await import('./services/redis.js')).getRedisClient() !== null;
+  res.json({
+    status: 'ok',
+    db,
+    redis,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ── Prometheus metrics endpoint ─────────────────────────────────────────────
+app.get('/metrics', (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/plain; version=0.0.4');
+  res.send(metrics.getMetricsText());
+});
 
 // ── Admin routes ────────────────────────────────────────────────────────────
 app.use('/v1/admin', adminRouter);
@@ -129,7 +152,8 @@ app.get('/v1/models', (_req: Request, res: Response) => {
 
 app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextFunction) => {
   const startTime = Date.now();
-  let requestId   = `gw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const requestId = req.context?.requestId || `gw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const traceId   = req.context?.traceId || requestId;
 
   try {
     // ── Step 1: Validate request body ───────────────────────────────────────
@@ -228,12 +252,16 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
     const completTokens  = response.usage?.completion_tokens ?? 0;
 
     // Re-derive per-direction costs from pricing table
-    const inputCostUsd  = calculateCost(usedProvider, req.body.model, promptTokens,  0);
-    const outputCostUsd = calculateCost(usedProvider, req.body.model, 0, completTokens);
+    const inputCostRes  = calculateCostWithStatus(usedProvider, req.body.model, promptTokens, 0);
+    const outputCostRes = calculateCostWithStatus(usedProvider, req.body.model, 0, completTokens);
+    const inputCostUsd  = inputCostRes.cost;
+    const outputCostUsd = outputCostRes.cost;
     const totalCostUsd  = response.actual_cost ?? (inputCostUsd + outputCostUsd);
+    const costStatus    = (!inputCostRes.isKnown || !outputCostRes.isKnown) ? 'COST_UNAVAILABLE' : 'ok';
 
     // ── Step 6: Inject cost headers ──────────────────────────────────────────
     res.setHeader('x-tokenistt-cost',              totalCostUsd.toFixed(6));
+    res.setHeader('x-tokenistt-cost-status',       costStatus);
     res.setHeader('x-tokenistt-input-cost',        inputCostUsd.toFixed(6));
     res.setHeader('x-tokenistt-output-cost',       outputCostUsd.toFixed(6));
     res.setHeader('x-tokenistt-tokens-prompt',     String(promptTokens));
@@ -246,9 +274,11 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
       ...response,
       _tokenistt: {
         request_id:   requestId,
+        trace_id:     traceId,
         actor:        auth.actor,
         cost_center:  auth.costCenter,
         cost_usd:     totalCostUsd,
+        cost_status:  costStatus,
         latency_ms:   durationMs,
       },
     });
@@ -270,11 +300,25 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
       status:          'success',
       projectTag:      req.body.project_tag,
       metadata: {
+        trace_id:        traceId,
+        cost_status:     costStatus,
         finish_reason:   response.choices?.[0]?.finish_reason,
         model_used:      response.model_used,
         user_agent:      req.headers['user-agent'],
       },
     }).catch(() => { /* already logged inside */ });
+
+    // ── Step 9: Collect Prometheus metrics ────────────────────────────────────
+    metrics.recordTransaction({
+      provider: usedProvider,
+      model: req.body.model,
+      status: 'success',
+      costCenter: auth.costCenter,
+      costUsd: totalCostUsd,
+      promptTokens,
+      completionTokens: completTokens,
+      latencyMs: durationMs,
+    });
 
   } catch (err) {
     const durationMs = Date.now() - startTime;

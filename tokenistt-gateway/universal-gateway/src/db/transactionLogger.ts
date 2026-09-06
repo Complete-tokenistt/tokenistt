@@ -12,6 +12,7 @@
 import { getPool } from './pool.js';
 import type { AuthContext } from './auth.js';
 import { incrementCachedBudget } from '../services/redis.js';
+import { emitTransactionEvent } from '../services/eventEmitter.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,6 +66,21 @@ export async function logTransaction(
       `cost=$${payload.costUsd.toFixed(6)} | ` +
       `${payload.durationMs}ms | actor=${payload.auth.actor}`
     );
+    emitTransactionEvent({
+      requestId: payload.requestId,
+      organizationId: payload.auth.organizationId !== BigInt(0) ? payload.auth.organizationId?.toString() : null,
+      virtualKeyPublicId: payload.auth.virtualKeyPublicId,
+      provider: payload.provider,
+      model: payload.model,
+      costUsd: payload.costUsd,
+      inputTokens: payload.promptTokens,
+      outputTokens: payload.completionTokens,
+      latencyMs: payload.durationMs,
+      status: payload.status,
+      actor: payload.auth.actor,
+      costCenter: payload.auth.costCenter,
+      timestamp: new Date().toISOString(),
+    }).catch(() => {});
     return null;
   }
 
@@ -140,6 +156,22 @@ export async function logTransaction(
       // Increment cached budget in Redis (ignore errors, fail-open)
       incrementCachedBudget(payload.auth.rawToken, payload.costUsd).catch(() => {});
     }
+
+    emitTransactionEvent({
+      requestId: payload.requestId,
+      organizationId: payload.auth.organizationId !== BigInt(0) ? payload.auth.organizationId?.toString() : null,
+      virtualKeyPublicId: payload.auth.virtualKeyPublicId,
+      provider: payload.provider,
+      model: payload.model,
+      costUsd: payload.costUsd,
+      inputTokens: payload.promptTokens,
+      outputTokens: payload.completionTokens,
+      latencyMs: payload.durationMs,
+      status: payload.status,
+      actor: payload.auth.actor,
+      costCenter: payload.auth.costCenter,
+      timestamp: new Date().toISOString(),
+    }).catch(() => {});
 
     return publicId;
 

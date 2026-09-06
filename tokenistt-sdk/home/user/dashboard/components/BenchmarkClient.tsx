@@ -151,7 +151,7 @@ export default function BenchmarkClient() {
             className="h-2.5 w-2.5 rounded-full"
             style={{ background: row.original.color }}
           />
-          <span className="font-medium text-slate-800">{row.original.label}</span>
+          <span className="font-medium" style={{ color: "var(--fg)" }}>{row.original.label}</span>
         </div>
       ),
     },
@@ -159,7 +159,7 @@ export default function BenchmarkClient() {
       accessorKey: "costPerRequest",
       header: "Cost / request",
       cell: ({ getValue }) => (
-        <span className="tabular-nums">
+        <span className="mono tabular-nums" style={{ color: "var(--fg)" }}>
           ${getValue<number>().toFixed(4)}
         </span>
       ),
@@ -168,7 +168,7 @@ export default function BenchmarkClient() {
       id: "total",
       header: `Total cost (${prompts.length})`,
       cell: ({ row }) => (
-        <span className="tabular-nums text-slate-600">
+        <span className="mono tabular-nums" style={{ color: "var(--fg-2)" }}>
           {fmtUsd(row.original.costPerRequest * prompts.length, 2)}
         </span>
       ),
@@ -177,7 +177,7 @@ export default function BenchmarkClient() {
       accessorKey: "accuracy",
       header: "Accuracy",
       cell: ({ getValue }) => (
-        <span className="tabular-nums">
+        <span className="mono tabular-nums" style={{ color: "var(--fg)" }}>
           {(getValue<number>() * 100).toFixed(1)}%
         </span>
       ),
@@ -186,7 +186,7 @@ export default function BenchmarkClient() {
       accessorKey: "latencyMs",
       header: "Latency",
       cell: ({ getValue }) => (
-        <span className="tabular-nums text-slate-500">
+        <span className="mono tabular-nums" style={{ color: "var(--fg-3)" }}>
           {getValue<number>()} ms
         </span>
       ),
@@ -195,7 +195,7 @@ export default function BenchmarkClient() {
       accessorKey: "quality",
       header: "Quality",
       cell: ({ getValue }) => (
-        <span className="tabular-nums">{getValue<number>().toFixed(1)}/10</span>
+        <span className="mono tabular-nums" style={{ color: "var(--fg)" }}>{getValue<number>().toFixed(1)}/10</span>
       ),
     },
     {
@@ -237,7 +237,7 @@ export default function BenchmarkClient() {
     <div className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold">Model Benchmarking (A/B)</h2>
-        <p className="text-xs text-slate-400">
+        <p className="text-xs mono" style={{ color: "var(--fg-4)" }}>
           Compare model performance across providers before you commit
         </p>
       </div>
@@ -250,7 +250,7 @@ export default function BenchmarkClient() {
         <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={() => fileRef.current?.click()}
-            className="rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700"
+            className="btn btn-violet btn-sm"
           >
             Upload dataset (CSV)
           </button>
@@ -265,16 +265,17 @@ export default function BenchmarkClient() {
               e.target.value = "";
             }}
           />
-          <span className="text-xs text-slate-500">{datasetLabel}</span>
+          <span className="text-xs mono" style={{ color: "var(--fg-3)" }}>{datasetLabel}</span>
           <a
             href={`data:text/csv;charset=utf-8,${encodeURIComponent(SAMPLE_CSV)}`}
             download="sample-benchmark.csv"
-            className="ml-auto text-xs font-medium text-brand-600 hover:underline"
+            className="ml-auto text-xs mono font-medium hover:underline"
+            style={{ color: "var(--violet)" }}
           >
             Download sample CSV
           </a>
         </div>
-        {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+        {error && <p className="mt-2 text-xs mono" style={{ color: "var(--red)" }}>{error}</p>}
       </Section>
 
       {/* 2. Model selection */}
@@ -289,11 +290,12 @@ export default function BenchmarkClient() {
               <button
                 key={m.id}
                 onClick={() => toggleModel(m.id)}
-                className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition ${
-                  on
-                    ? "border-brand-500 bg-brand-50 text-brand-700"
-                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                }`}
+                className="flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium transition mono"
+                style={{
+                  background: on ? "var(--violet-glow)" : "var(--bg-2)",
+                  color: on ? "var(--fg)" : "var(--fg-3)",
+                  border: `1px solid ${on ? "var(--violet)" : "var(--line-soft)"}`,
+                }}
               >
                 <span
                   className="h-2.5 w-2.5 rounded-full"
@@ -312,23 +314,33 @@ export default function BenchmarkClient() {
         description="Runs live via the Tokenistt gateway when configured, else simulated"
       >
         <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <label className="text-xs text-slate-500">
+          <label className="text-xs mono" style={{ color: "var(--fg-4)" }}>
             Gateway URL (optional)
             <input
               value={gatewayUrl}
               onChange={(e) => setGatewayUrl(e.target.value)}
               placeholder="https://gateway.internal/v1"
-              className="mt-1 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm text-slate-800"
+              className="mt-1 w-full rounded-md px-2 py-1.5 text-sm mono"
+              style={{
+                background: "var(--bg-3)",
+                color: "var(--fg)",
+                border: "1px solid var(--line)",
+              }}
             />
           </label>
-          <label className="text-xs text-slate-500">
+          <label className="text-xs mono" style={{ color: "var(--fg-4)" }}>
             API key (optional)
             <input
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               type="password"
               placeholder="tk_live_…"
-              className="mt-1 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm text-slate-800"
+              className="mt-1 w-full rounded-md px-2 py-1.5 text-sm mono"
+              style={{
+                background: "var(--bg-3)",
+                color: "var(--fg)",
+                border: "1px solid var(--line)",
+              }}
             />
           </label>
         </div>
@@ -336,7 +348,7 @@ export default function BenchmarkClient() {
         <button
           onClick={runEval}
           disabled={selected.length === 0 || running}
-          className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
+          className="btn btn-violet btn-sm disabled:opacity-60"
         >
           {running ? "Running…" : "Run evaluation"}
         </button>
@@ -344,7 +356,7 @@ export default function BenchmarkClient() {
         {(running || progress > 0) && (
           <div className="mt-4 max-w-xl">
             <ProgressBar valuePct={progress} tone={running ? "brand" : "emerald"} />
-            <p className="mt-1 text-xs text-slate-500">{status}</p>
+            <p className="mt-1 text-xs mono" style={{ color: "var(--fg-3)" }}>{status}</p>
           </div>
         )}
       </Section>
@@ -356,25 +368,48 @@ export default function BenchmarkClient() {
           description="Cost, accuracy, latency, quality"
         >
           {mode === "live" ? (
-            <div className="mb-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">
+            <div
+              className="card p-3 mb-3 text-sm"
+              style={{
+                background: "oklch(0.760 0.150 155 / 0.12)",
+                borderColor: "var(--green)",
+                color: "var(--green)",
+              }}
+            >
               Live evaluation via the Tokenistt gateway. Recommendation: switch
               to <strong>{recommendedLabel}</strong> — best quality-per-cost
               among accurate models.
             </div>
           ) : (
-            <div className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+            <div
+              className="card p-3 mb-3 text-sm"
+              style={{
+                background: "oklch(0.800 0.150 80 / 0.12)",
+                borderColor: "var(--amber)",
+                color: "var(--amber)",
+              }}
+            >
               Simulated results (no gateway configured). Set{" "}
-              <code className="rounded bg-amber-100 px-1">
+              <code
+                className="rounded px-1"
+                style={{ background: "oklch(0.800 0.150 80 / 0.2)" }}
+              >
                 TOKENISTT_BASE_URL
               </code>{" "}
-              + <code className="rounded bg-amber-100 px-1">TOKENISTT_API_KEY</code>{" "}
+              +{" "}
+              <code
+                className="rounded px-1"
+                style={{ background: "oklch(0.800 0.150 80 / 0.2)" }}
+              >
+                TOKENISTT_API_KEY
+              </code>{" "}
               (or enter them above) to run live. Recommendation:{" "}
               <strong>{recommendedLabel}</strong>.
             </div>
           )}
           <DataTable columns={columns} data={results} />
           {switchedTo && (
-            <p className="mt-3 text-xs text-slate-500">
+            <p className="mt-3 text-xs mono" style={{ color: "var(--fg-3)" }}>
               Active model set to <strong>{switchedTo}</strong> (local state —
               would persist to the gateway in production).
             </p>

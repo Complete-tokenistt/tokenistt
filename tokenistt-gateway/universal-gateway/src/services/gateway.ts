@@ -8,6 +8,7 @@ import {
 import { ProviderRegistry, ProviderConfig } from '../providers/registry.js';
 import { BaseProviderAdapter } from '../providers/base.js';
 import { calculateCost } from './pricing.js';
+import { withRetry } from './retry.js';
 
 const VALID_ROLES = ['system', 'user', 'assistant', 'tool'];
 
@@ -59,7 +60,10 @@ export class GatewayService {
     
     try {
       const translatedRequest = provider.translateRequest(request);
-      const providerResponse = await provider.callProvider(translatedRequest, apiKeyOverride);
+      const providerResponse = await withRetry(
+        () => provider.callProvider(translatedRequest, apiKeyOverride),
+        { maxRetries: this.config.maxRetries }
+      );
       const latencyMs = Date.now() - startTime;
       
       const actualCost = calculateCost(

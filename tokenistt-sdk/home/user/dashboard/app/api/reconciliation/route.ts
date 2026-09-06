@@ -2,38 +2,44 @@
  * POST /api/reconciliation
  *
  * Reconciles uploaded vendor invoice totals against calculated database ledger totals
- * for the current calendar month.
+ * for the current calendar month, strictly scoped to the authenticated organization.
  *
  * Falls back to mock data when DATABASE_URL is not configured.
  */
 
-import { NextResponse } from "next/server";
-import { getPool } from "@/lib/db";
+import { NextRequest, NextResponse } from "next/server";
+import { getPool, isDbAvailable } from "@/lib/db";
 import { reconcile } from "@/lib/mock-data";
 import { PROVIDER_LABELS } from "@/lib/format";
+import { getSessionFromRequest, unauthorizedResponse } from "@/lib/auth";
 import type { InvoiceLine, ReconciliationRow, ReconciliationStatus } from "@/lib/types";
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const session = getSessionFromRequest(req);
+  if (!session) return unauthorizedResponse();
+
   try {
     const body = (await req.json()) as { invoices?: InvoiceLine[] };
     const invoices = body.invoices ?? [];
 
     // ── Fallback: no DB ────────────────────────────────────────────────────────
-    if (!process.env.DATABASE_URL) {
+    const dbUp = await isDbAvailable();
+    if (!dbUp) {
       return NextResponse.json({ rows: reconcile(invoices) });
     }
 
     const pool = getPool();
 
-    // Query actual monthly spend per provider from Postgres
+    // Query actual monthly spend per provider from Postgres scoped to tenant
     const { rows: dbRows } = await pool.query<{ provider: string; spend: string }>(`
       SELECT provider,
              SUM(cost_usd)::text AS spend
       FROM   transactions
-      WHERE  status = 'success'
-        AND  created_at >= date_trunc('month', now())
+      WHERE  status          = 'success'
+        AND  organization_id = $1
+        AND  created_at     >= date_trunc('month', now())
       GROUP  BY provider
-    `);
+    `, [session.orgId]);
 
     // Map DB spend values
     const calculated: Record<string, number> = {};

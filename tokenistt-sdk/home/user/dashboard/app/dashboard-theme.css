@@ -531,3 +531,32 @@
   .dash-main { padding: 18px 14px 64px; }
   .dash-page-title { font-size: 22px; }
 }
+
+/* Safety overrides for legacy tailwind classes within dash-shell */
+.dash-shell .bg-slate-50,
+.dash-shell .bg-slate-100 {
+  background-color: var(--bg-2) !important;
+  color: var(--fg) !important;
+  border-color: var(--line-soft) !important;
+}
+.dash-shell .bg-white {
+  background-color: var(--bg-1) !important;
+  color: var(--fg) !important;
+}
+.dash-shell .border-slate-100,
+.dash-shell .border-slate-200,
+.dash-shell .border-slate-300 {
+  border-color: var(--line-soft) !important;
+}
+.dash-shell .text-slate-900,
+.dash-shell .text-slate-800,
+.dash-shell .text-slate-700 {
+  color: var(--fg) !important;
+}
+.dash-shell .text-slate-600,
+.dash-shell .text-slate-500 {
+  color: var(--fg-2) !important;
+}
+.dash-shell .text-slate-400 {
+  color: var(--fg-4) !important;
+}

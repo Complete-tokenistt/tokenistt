@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { getPool } from '../db/pool.js';
 import { invalidateCachedVirtualKey } from '../services/redis.js';
+import { generateVirtualKey } from '../services/keyManager.js';
 
 export const adminRouter = Router();
 
@@ -24,9 +25,9 @@ function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
 adminRouter.use(requireAdminAuth);
 
 /**
- * GET /v1/admin/virtual-keys — List all virtual keys
+ * GET /v1/admin/virtual-keys — List virtual keys (supports ?organization_id= filter)
  */
-adminRouter.get('/virtual-keys', async (_req: Request, res: Response) => {
+adminRouter.get('/virtual-keys', async (req: Request, res: Response) => {
   if (!process.env.DATABASE_URL) {
     res.status(503).json({ error: { message: 'Database not configured' } });
     return;
@@ -34,7 +35,9 @@ adminRouter.get('/virtual-keys', async (_req: Request, res: Response) => {
 
   try {
     const pool = getPool();
-    const { rows } = await pool.query(`
+    const orgId = req.query.organization_id?.toString() || req.headers['x-organization-id']?.toString();
+
+    let query = `
       SELECT 
         vk.id::text,
         vk.public_id::text,
@@ -52,8 +55,15 @@ adminRouter.get('/virtual-keys', async (_req: Request, res: Response) => {
         vk.created_at
       FROM virtual_keys vk
       LEFT JOIN workspaces ws ON ws.id = vk.workspace_id
-      ORDER BY vk.created_at DESC
-    `);
+    `;
+    const params: any[] = [];
+    if (orgId) {
+      query += ` WHERE vk.organization_id = $1 `;
+      params.push(orgId);
+    }
+    query += ` ORDER BY vk.created_at DESC `;
+
+    const { rows } = await pool.query(query, params);
 
     res.json({ virtual_keys: rows });
   } catch (err: any) {
@@ -88,8 +98,7 @@ adminRouter.post('/virtual-keys', async (req: Request, res: Response) => {
 
   try {
     const pool = getPool();
-    const hash = Math.random().toString(36).slice(2, 10);
-    const rawToken = `tktt_live_org_${organization_id}_${hash}`;
+    const keyInfo = generateVirtualKey(`org_${organization_id}`, name);
 
     const metadata: Record<string, any> = {
       rate_limit_per_minute: parseInt(String(rate_limit_per_minute), 10) || 100,
@@ -119,8 +128,8 @@ adminRouter.post('/virtual-keys', async (req: Request, res: Response) => {
         organization_id,
         workspace_id || null,
         name,
-        rawToken,
-        hash, // Simple key representation
+        keyInfo.keyPrefix,
+        keyInfo.keyHash,
         budget_cap_usd ? String(budget_cap_usd) : null,
         budget_period,
         allowed_providers,
@@ -130,7 +139,7 @@ adminRouter.post('/virtual-keys', async (req: Request, res: Response) => {
 
     res.json({
       success: true,
-      raw_token: rawToken,
+      raw_token: keyInfo.rawToken,
       virtual_key: rows[0],
     });
   } catch (err: any) {

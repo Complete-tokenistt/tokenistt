@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useDashboard } from "@/components/DashboardShell";
 import { Sparkline } from "@/components/Sparkline";
 import { ConfidenceBadge, FreshnessBadge } from "@/components/StatusBadges";
@@ -16,11 +16,42 @@ export default function UnitEconomicsPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_METRIC);
 
-  function defineMetric(e: React.FormEvent) {
+  useEffect(() => {
+    async function loadMetrics() {
+      try {
+        const res = await fetch("/api/unit-economics");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data?.metrics && Array.isArray(data.metrics) && data.metrics.length > 0) {
+          setMetrics(data.metrics);
+        }
+      } catch (err) {
+        console.warn("Could not load /api/unit-economics:", err);
+      }
+    }
+    loadMetrics();
+  }, []);
+
+  async function defineMetric(e: React.FormEvent) {
     e.preventDefault();
     if (!form.label.trim() || !form.feature.trim() || !form.value) return;
     const id = metrics.length ? Math.max(...metrics.map((m) => m.id)) + 1 : 1;
     const value = Number(form.value);
+
+    try {
+      await fetch("/api/unit-economics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          metric_name: form.label.trim(),
+          feature_tag: form.feature.trim(),
+          metric_count: Math.round(100 / (value || 1)),
+        }),
+      });
+    } catch (err) {
+      console.warn("Could not save to /api/unit-economics:", err);
+    }
+
     setMetrics((ms) => [...ms, {
       id, label: form.label.trim(), feature: form.feature.trim(), value, unit: form.unit,
       confidence: "estimated", dataSource: "manually defined — no live data source yet", freshness: "stale",
