@@ -14,15 +14,17 @@
  * Falls back to mock data when DATABASE_URL is not configured.
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
-import { getCostCenters } from "@/lib/mock-data";
+import { getSessionFromRequest, unauthorizedResponse } from "@/lib/auth";
 import type { CostCenterRow, CostCenterStatus } from "@/lib/types";
 
-export async function GET() {
-  // ── Fallback: no DB ────────────────────────────────────────────────────────
+export async function GET(req: NextRequest) {
+  const session = getSessionFromRequest(req);
+  if (!session) return unauthorizedResponse();
+
   if (!process.env.DATABASE_URL) {
-    return NextResponse.json(getCostCenters());
+    return NextResponse.json([]);
   }
 
   try {
@@ -45,7 +47,8 @@ export async function GET() {
                SUM(cost_usd) AS spend_usd,
                COUNT(*)      AS tx_count
         FROM   transactions
-        WHERE  status     = 'success'
+        WHERE  organization_id = $1
+          AND  status     = 'success'
           AND  created_at >= ${monthStart}
         GROUP  BY cost_center, workspace_id
       ),
@@ -53,7 +56,8 @@ export async function GET() {
         SELECT cost_center,
                SUM(cost_usd) AS spend_usd
         FROM   transactions
-        WHERE  status     = 'success'
+        WHERE  organization_id = $1
+          AND  status     = 'success'
           AND  created_at >= ${prevMonthStart}
           AND  created_at <  ${monthStart}
         GROUP  BY cost_center
@@ -70,7 +74,8 @@ export async function GET() {
       LEFT   JOIN last_month   l  USING (cost_center)
       LEFT   JOIN workspaces   ws ON ws.id = c.workspace_id
       ORDER  BY c.spend_usd DESC
-    `);
+    `, [session.orgId]);
+
 
     const costCenters: CostCenterRow[] = rows.map((r) => {
       const spendUsd = parseFloat(r.spend_usd);
@@ -107,7 +112,7 @@ export async function GET() {
 
     return NextResponse.json(costCenters);
   } catch (err: any) {
-    console.error("[/api/cost-centers] DB error, falling back to mock:", err.message);
-    return NextResponse.json(getCostCenters());
+    console.error("[/api/cost-centers] DB error, returning empty list:", err.message);
+    return NextResponse.json([]);
   }
 }

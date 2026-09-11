@@ -57,9 +57,11 @@ describe('Pricing Service', () => {
       assert.ok(bedrockCost > anthropicCost);
     });
     
-    it('should use default pricing for unknown models', () => {
+    it('unknown model must return cost=$0.00 (NEVER invent a fallback price)', () => {
+      // B1 FIX: Unknown models must return exactly $0.00, not a guessed default.
+      // The old behavior returned 0.0025 using calculateDefaultCost() — that was wrong.
       const cost = calculateCost('unknown', 'unknown-model', 1000, 500);
-      assert.strictEqual(cost, 0.0025);
+      assert.strictEqual(cost, 0, 'Unknown model must never produce a non-zero cost');
     });
     
     it('should handle zero tokens', () => {

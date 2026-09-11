@@ -227,3 +227,136 @@ export async function incrementCachedBudget(
     return null;
   }
 }
+
+const BUDGET_RESERVE_PREFIX = 'gateway:budget_reserve:';
+
+export interface BudgetReservationResult {
+  allowed: boolean;
+  usedAfter: number;
+}
+
+/**
+ * Atomically reserves `estimatedCostUsd` against a budget key using Redis Lua script.
+ * 
+ * IMPORTANT: When the Redis key is missing (expired or server restart), this function
+ * seeds the key with `existingSpendUsd` (the authoritative spend from PostgreSQL) so
+ * that the reservation correctly reflects current actual spend.
+ *
+ * The seed + increment is atomic inside the Lua script, preventing the race where two
+ * concurrent requests both see an empty key and each initialise it independently.
+ *
+ * If current + estimated > cap, rolls back and returns allowed: false.
+ */
+export async function atomicBudgetReserve(
+  rawToken: string,
+  estimatedCostUsd: number,
+  budgetCapUsd: number,
+  period: 'daily' | 'monthly' | 'none',
+  existingSpendUsd = 0,
+): Promise<BudgetReservationResult> {
+  const client = getRedisClient();
+
+  // period=none means no budget cap — always allow regardless of Redis availability
+  if (period === 'none') {
+    return { allowed: true, usedAfter: existingSpendUsd };
+  }
+
+  if (!client) {
+    // Redis unavailable: fall back to DB-based check
+    const wouldExceed = existingSpendUsd + estimatedCostUsd > budgetCapUsd;
+    return {
+      allowed: !wouldExceed,
+      usedAfter: existingSpendUsd + (wouldExceed ? 0 : estimatedCostUsd),
+    };
+  }
+
+
+  const periodKey = period === 'daily'
+    ? new Date().toISOString().slice(0, 10)
+    : new Date().toISOString().slice(0, 7);
+
+  const key = `${BUDGET_RESERVE_PREFIX}${rawToken}:${periodKey}`;
+  const ttlSeconds = period === 'daily' ? 86400 : 2678400; // 1 day or 31 days
+
+  // Atomic Lua script:
+  // 1. If the key does NOT exist, seed it with existingSpendUsd (from DB) using SETNX.
+  //    This is atomic: only the first concurrent caller seeds it; others skip SETNX.
+  // 2. Add the estimated cost to the key.
+  // 3. Set TTL if not already set.
+  // 4. If result > cap, roll back and deny.
+  const luaScript = `
+    local key = KEYS[1]
+    local amount = tonumber(ARGV[1])
+    local cap = tonumber(ARGV[2])
+    local ttl = tonumber(ARGV[3])
+    local base_spend = tonumber(ARGV[4])
+    -- Seed the key atomically if it doesn't exist yet (DB authoritative spend as floor)
+    if redis.call('EXISTS', key) == 0 then
+      redis.call('SET', key, tostring(base_spend), 'EX', ttl, 'NX')
+    end
+    local current = tonumber(redis.call('INCRBYFLOAT', key, amount))
+    if redis.call('TTL', key) == -1 then
+      redis.call('EXPIRE', key, ttl)
+    end
+    if current > cap then
+      redis.call('INCRBYFLOAT', key, -amount)
+      return {0, tostring(current - amount)}
+    end
+    return {1, tostring(current)}
+  `;
+
+  try {
+    const result = (await client.eval(
+      luaScript,
+      1,
+      key,
+      estimatedCostUsd.toString(),
+      budgetCapUsd.toString(),
+      ttlSeconds.toString(),
+      existingSpendUsd.toString(),
+    )) as [number, string];
+
+    return {
+      allowed: result[0] === 1,
+      usedAfter: parseFloat(result[1] || '0'),
+    };
+  } catch (err: any) {
+    console.error('[Redis] atomicBudgetReserve error:', err.message);
+    // Fail-safe: fall back to DB-based check rather than fail-open
+    const wouldExceed = existingSpendUsd + estimatedCostUsd > budgetCapUsd;
+    return {
+      allowed: !wouldExceed,
+      usedAfter: existingSpendUsd + (wouldExceed ? 0 : estimatedCostUsd),
+    };
+  }
+}
+
+
+/**
+ * Adjusts budget reservation once actual cost is determined.
+ */
+export async function adjustBudgetReservation(
+  rawToken: string,
+  estimatedCostUsd: number,
+  actualCostUsd: number,
+  period: 'daily' | 'monthly' | 'none'
+): Promise<void> {
+  const client = getRedisClient();
+  if (!client || period === 'none') return;
+
+  const delta = actualCostUsd - estimatedCostUsd;
+  if (Math.abs(delta) < 0.000001) return;
+
+  const periodKey = period === 'daily'
+    ? new Date().toISOString().slice(0, 10)
+    : new Date().toISOString().slice(0, 7);
+
+  const key = `${BUDGET_RESERVE_PREFIX}${rawToken}:${periodKey}`;
+
+  try {
+    await client.incrbyfloat(key, delta);
+  } catch (err: any) {
+    console.error('[Redis] adjustBudgetReservation error:', err.message);
+  }
+}
+

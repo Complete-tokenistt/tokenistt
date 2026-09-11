@@ -20,8 +20,26 @@ const TOUR_SEEN_KEY = "tokenistt-dash-tour-seen";
 const WORKSPACE = "workspace";
 const FIRST_NAME = "there";
 
-type DashboardCtx = { workspace: string; firstName: string; notify: (message: string) => void };
-const DashboardContext = createContext<DashboardCtx>({ workspace: WORKSPACE, firstName: FIRST_NAME, notify: () => {} });
+export type DashboardMode = "live" | "demo";
+
+type DashboardCtx = {
+  workspace: string;
+  firstName: string;
+  notify: (message: string) => void;
+  mode: DashboardMode;
+  setMode: (mode: DashboardMode) => void;
+  isLive: boolean;
+  user: { email: string; role: string } | null;
+};
+const DashboardContext = createContext<DashboardCtx>({
+  workspace: WORKSPACE,
+  firstName: FIRST_NAME,
+  notify: () => {},
+  mode: "live",
+  setMode: () => {},
+  isLive: true,
+  user: null,
+});
 export const useDashboard = () => useContext(DashboardContext);
 
 function getInitialTheme(): "light" | "dark" {
@@ -36,7 +54,22 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<"light" | "dark">(getInitialTheme);
   const [toasts, setToasts] = useState<{ id: number; message: string }[]>([]);
   const [tourOpen, setTourOpen] = useState(false);
+  const [mode, setModeState] = useState<DashboardMode>(() => {
+    if (typeof window !== "undefined") {
+      const saved = window.localStorage.getItem("tokenistt_dash_mode") as DashboardMode;
+      if (saved === "live" || saved === "demo") return saved;
+    }
+    return "live";
+  });
   const pathname = usePathname();
+
+  function setMode(newMode: DashboardMode) {
+    setModeState(newMode);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("tokenistt_dash_mode", newMode);
+    }
+    notify(newMode === "live" ? "Switched to Live Organization Data" : "Switched to Demo Preview Showcase");
+  }
 
   useEffect(() => {
     window.localStorage.setItem(THEME_KEY, theme);
@@ -50,6 +83,50 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
   }, []);
 
   const safePathname = pathname ?? "/";
+  const [user, setUser] = useState<{ email: string; role: string } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.authenticated && data.user) {
+          setUser(data.user);
+        } else {
+          setUser(null);
+        }
+      })
+      .catch(() => {});
+  }, [pathname]);
+
+  async function handleSignOut() {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+      localStorage.removeItem("tokenistt_token");
+      localStorage.removeItem("tokenistt_user");
+      window.location.href = "/login";
+    } catch {
+      window.location.href = "/login";
+    }
+  }
+
+  if (safePathname === "/login") {
+    return (
+      <DashboardContext.Provider value={{
+        workspace: WORKSPACE,
+        firstName: FIRST_NAME,
+        notify,
+        mode,
+        setMode,
+        isLive: mode === "live",
+        user,
+      }}>
+        <div className="dash-shell" data-theme={theme} style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
+          {children}
+        </div>
+      </DashboardContext.Provider>
+    );
+  }
+
   const meta = SECTION_META[safePathname] || SECTION_META["/"];
   const toggleTheme = () => setTheme((t) => (t === "light" ? "dark" : "light"));
 
@@ -65,8 +142,47 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <DashboardContext.Provider value={{ workspace: WORKSPACE, firstName: FIRST_NAME, notify }}>
+    <DashboardContext.Provider value={{
+      workspace: user?.email ? user.email.split("@")[0] : WORKSPACE,
+      firstName: user?.email ? user.email.split("@")[0] : FIRST_NAME,
+      notify,
+      mode,
+      setMode,
+      isLive: mode === "live",
+      user,
+    }}>
       <div className="dash-shell" data-theme={theme}>
+        {mode === "demo" && (
+          <div style={{
+            background: "oklch(0.70 0.16 70 / 0.12)",
+            borderBottom: "1px solid oklch(0.70 0.16 70 / 0.3)",
+            padding: "6px 18px",
+            fontSize: 12.5,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            color: "#d97706",
+          }}>
+            <span>
+              <strong>Demo Preview Mode</strong> — Viewing sample enterprise showcase dataset ($26.6k spend, 4 anomalies). Your live company data is unaffected.
+            </span>
+            <button
+              type="button"
+              onClick={() => setMode("live")}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "#d97706",
+                textDecoration: "underline",
+                cursor: "pointer",
+                fontWeight: 600,
+                fontSize: 12,
+              }}
+            >
+              Switch to Live Data →
+            </button>
+          </div>
+        )}
         <div className="dash-topbar">
           <div className="dash-topbar-inner">
             <button type="button" className="dash-mobile-toggle" onClick={() => setMobileNavOpen((v) => !v)} aria-label="Toggle navigation">
@@ -74,7 +190,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
             </button>
 
             <div className="dash-topbar-crumb" data-tour="tour-crumb">
-              <span className="mono dash-topbar-workspace">{WORKSPACE}</span>
+              <span className="mono dash-topbar-workspace">{user?.email ? user.email.split("@")[0] : WORKSPACE}</span>
               <span className="dash-topbar-sep">/</span>
               <span className="mono dash-topbar-section">{meta.title}</span>
             </div>
@@ -85,10 +201,73 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
             </div>
 
             <div className="dash-topbar-actions">
-              <span className="tag" style={{ color: "var(--fg-3)" }}>preview data</span>
-              <Link href="/onboarding" className="btn btn-violet btn-sm" data-tour="tour-getstarted">
+              {/* Live vs Demo Preview Switcher */}
+              <div style={{ display: "flex", alignItems: "center", background: "var(--bg-2)", border: "1px solid var(--line-soft)", borderRadius: 20, padding: "2px 4px" }}>
+                <button
+                  type="button"
+                  onClick={() => setMode("live")}
+                  style={{
+                    padding: "3px 9px",
+                    borderRadius: 14,
+                    border: "none",
+                    cursor: "pointer",
+                    background: mode === "live" ? "oklch(0.65 0.18 145 / 0.18)" : "transparent",
+                    color: mode === "live" ? "#22c55e" : "var(--fg-4)",
+                    fontWeight: mode === "live" ? 600 : 400,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    fontSize: 11.5,
+                  }}
+                  title="Live authentic data attached to your organization"
+                >
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: mode === "live" ? "#22c55e" : "var(--fg-4)" }} />
+                  Live Data
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode("demo")}
+                  style={{
+                    padding: "3px 9px",
+                    borderRadius: 14,
+                    border: "none",
+                    cursor: "pointer",
+                    background: mode === "demo" ? "oklch(0.70 0.16 70 / 0.18)" : "transparent",
+                    color: mode === "demo" ? "#f59e0b" : "var(--fg-4)",
+                    fontWeight: mode === "demo" ? 600 : 400,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    fontSize: 11.5,
+                  }}
+                  title="Sample preview data for demonstration"
+                >
+                  👁 Demo
+                </button>
+              </div>
+
+              {user ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="tag mono" style={{ color: "var(--violet)", background: "oklch(0.55 0.20 295 / 0.12)", border: "1px solid var(--line-soft)" }}>
+                    {user.email} ({user.role})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleSignOut}
+                    className="btn btn-ghost btn-sm mono"
+                    style={{ fontSize: 12, padding: "4px 8px" }}
+                  >
+                    Sign out
+                  </button>
+                </div>
+              ) : (
+                <Link href="/login" className="btn btn-violet btn-sm">
+                  Sign in
+                </Link>
+              )}
+              <Link href="/onboarding" className="btn btn-ghost btn-sm" data-tour="tour-getstarted">
                 <IconRocket />
-                Get started
+                Onboarding
               </Link>
               <button type="button" className="dash-icon-btn" aria-label="Take a tour" title="Take a tour" onClick={() => setTourOpen(true)}>
                 <IconHelp />
@@ -110,6 +289,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
             </div>
           </div>
         </div>
+
 
         <div className="dash-body">
           <aside className={`dash-sidebar${mobileNavOpen ? " open" : ""}`}>

@@ -99,5 +99,35 @@ export async function checkAndSendBudgetAlert(
     }
   }
 
+  // 4. Persist alert to PostgreSQL budget_alerts table
+  if (process.env.DATABASE_URL && auth.organizationId && auth.organizationId !== BigInt(0)) {
+    try {
+      const { getPool } = await import('../db/pool.js');
+      const pool = getPool();
+      await pool.query(
+        `
+        INSERT INTO budget_alerts (
+          organization_id,
+          virtual_key_id,
+          severity,
+          title,
+          message,
+          metadata
+        ) VALUES ($1, $2, $3, $4, $5, $6)
+        `,
+        [
+          auth.organizationId,
+          auth.virtualKeyId !== BigInt(0) ? auth.virtualKeyId : null,
+          type === 'hard' ? 'exceeded' : 'warn',
+          title,
+          `Actor ${auth.actor} for ${auth.costCenter}: used $${auth.budgetUsedUsd.toFixed(2)} of $${auth.budgetCapUsd.toFixed(2)} (${percentage.toFixed(1)}%).`,
+          JSON.stringify(payload),
+        ]
+      );
+    } catch (dbErr: any) {
+      console.warn('[Alerting] Failed to persist alert to DB:', dbErr.message);
+    }
+  }
+
   return true;
 }

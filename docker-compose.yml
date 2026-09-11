@@ -8,7 +8,7 @@ services:
     environment:
       POSTGRES_DB: tokenistt
       POSTGRES_USER: tokenistt
-      POSTGRES_PASSWORD: tokenistt_dev
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tokenistt_dev_change_in_production}
     ports:
       - "5432:5432"
     volumes:
@@ -44,13 +44,18 @@ services:
     environment:
       PORT: 3000
       NODE_ENV: production
-      DATABASE_URL: postgres://tokenistt:tokenistt_dev@postgres:5432/tokenistt
+      DATABASE_URL: postgres://tokenistt:${POSTGRES_PASSWORD:-tokenistt_dev_change_in_production}@postgres:5432/tokenistt
       REDIS_URL: redis://redis:6379
       DEFAULT_PROVIDER: anthropic
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
-      MASTER_KEY: ${MASTER_KEY:-default-master-key-change-in-production}
+      # ── Required production secrets (must be set in .env or CI/CD secrets) ──
+      # ADMIN_SECRET: used by validateSecrets() to guard /v1/admin/* endpoints
+      ADMIN_SECRET: ${ADMIN_SECRET:?ADMIN_SECRET is required in production}
+      # ENCRYPTION_KEY: AES-256-GCM key for BYOK provider key encryption (min 32 chars)
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required in production}
+      # ── Optional provider keys ────────────────────────────────────────────
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,11 +72,17 @@ services:
       - "3001:3000"
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgres://tokenistt:tokenistt_dev@postgres:5432/tokenistt
+      DATABASE_URL: postgres://tokenistt:${POSTGRES_PASSWORD:-tokenistt_dev_change_in_production}@postgres:5432/tokenistt
       TOKENISTT_BASE_URL: http://gateway:3000/v1
+      # ── Required production secrets ────────────────────────────────────────
+      # JWT_SECRET: used by lib/auth.ts and middleware.ts for JWT signing/verification (min 32 chars)
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required in production}
     depends_on:
-      - postgres
-      - gateway
+      postgres:
+        condition: service_healthy
+      gateway:
+        condition: service_started
 
 volumes:
   pgdata:
+

@@ -10,7 +10,54 @@ import { Role } from './rbac';
 
 const scryptAsync = promisify(scrypt);
 
-const JWT_SECRET = process.env.JWT_SECRET || process.env.ADMIN_SECRET || 'dev-tokenistt-insecure-jwt-secret-change-me';
+const INSECURE_JWT_DEFAULTS = [
+  'dev-tokenistt-insecure-jwt-secret-change-me',
+  'secret',
+  'jwt-secret',
+  'changeme',
+  'default-secret',
+  'insecure',
+  'password',
+];
+
+const MIN_JWT_SECRET_LENGTH = 32;
+
+/**
+ * Validates and returns the JWT secret.
+ * Called lazily on first use (not at module load) so next build static analysis is not affected.
+ * In production, throws if the secret is missing, insecure, or too short.
+ * Never logs the secret itself.
+ */
+let _jwtSecret: string | null = null;
+
+function getJwtSecret(): string {
+  if (_jwtSecret !== null) return _jwtSecret;
+
+  const raw = process.env.JWT_SECRET || process.env.ADMIN_SECRET;
+  const isProduction = process.env.NODE_ENV === 'production' || process.env.STRICT_AUTH === 'true';
+
+  if (isProduction) {
+    if (!raw) {
+      throw new Error('[FATAL SECURITY] JWT_SECRET is not set. Set a strong, unique JWT_SECRET in production.');
+    }
+    if (raw.length < MIN_JWT_SECRET_LENGTH) {
+      throw new Error(`[FATAL SECURITY] JWT_SECRET is too short (${raw.length} chars). Minimum ${MIN_JWT_SECRET_LENGTH} characters required.`);
+    }
+    if (INSECURE_JWT_DEFAULTS.includes(raw.toLowerCase())) {
+      throw new Error('[FATAL SECURITY] JWT_SECRET is using a known insecure default. Set a unique, random JWT_SECRET.');
+    }
+    _jwtSecret = raw;
+    return _jwtSecret;
+  }
+
+  // Development: use default with a warning
+  const fallback = raw || 'dev-tokenistt-insecure-jwt-secret-change-me';
+  if (!raw || INSECURE_JWT_DEFAULTS.includes(raw.toLowerCase())) {
+    console.warn('[Security Warning] Using insecure JWT_SECRET in development. Set JWT_SECRET=<strong-secret> before deploying to production.');
+  }
+  _jwtSecret = fallback;
+  return _jwtSecret;
+}
 
 export interface AuthSession {
   sub: string;       // user public_id
@@ -19,6 +66,7 @@ export interface AuthSession {
   role: Role;
   exp: number;
 }
+
 
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16).toString('hex');
@@ -52,7 +100,7 @@ export function signJwt(payload: Omit<AuthSession, 'exp'>, expiresInSeconds = 86
   const encodedPayload = base64UrlEncode(JSON.stringify(fullPayload));
   const signatureInput = `${encodedHeader}.${encodedPayload}`;
 
-  const hmac = createHmac('sha256', JWT_SECRET);
+  const hmac = createHmac('sha256', getJwtSecret());
   hmac.update(signatureInput);
   const signature = hmac.digest('base64url');
 
@@ -66,7 +114,7 @@ export function verifyJwt(token: string): AuthSession | null {
     const [headerB64, payloadB64, signature] = parts;
 
     const signatureInput = `${headerB64}.${payloadB64}`;
-    const hmac = createHmac('sha256', JWT_SECRET);
+    const hmac = createHmac('sha256', getJwtSecret());
     hmac.update(signatureInput);
     const expectedSig = hmac.digest('base64url');
 

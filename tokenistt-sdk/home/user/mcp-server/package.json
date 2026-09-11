@@ -1,11 +1,16 @@
 {
   "name": "tokenistt-mcp-server",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "MCP server exposing the Tokenistt FinOps gateway (route_prompt tool, spend_report resource, optimize_cost prompt) over stdio and SSE.",
+  "description": "Production-grade MCP server exposing Tokenistt FinOps capabilities (spend summary, budgets, cost estimation, anomalies, routing) over stdio and SSE.",
+  "main": "dist/index.js",
+  "bin": {
+    "tokenistt-mcp": "dist/index.js"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "start": "tsc -p tsconfig.json && node dist/index.js"
+    "build": "node build.cjs",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -16,6 +21,7 @@
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^20.14.10",
+    "esbuild": "^0.25.0",
     "typescript": "^5.5.3"
   }
 }

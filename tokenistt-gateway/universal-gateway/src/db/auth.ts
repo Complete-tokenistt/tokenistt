@@ -22,6 +22,7 @@ import { decryptApiKey } from '../services/vault.js';
 import { 
   getCachedVirtualKey, 
   setCachedVirtualKey,
+  atomicBudgetReserve,
 } from '../services/redis.js';
 import { checkSlidingWindowRateLimit } from '../services/redisRateLimiter.js';
 import { checkAndSendBudgetAlert } from '../services/alerting.js';
@@ -60,6 +61,12 @@ export interface AuthContext {
   rawToken?: string;
   /** rate limit allowed per minute */
   rateLimitPerMinute?: number;
+  /** Atomic budget reservation tracking for concurrency protection */
+  budgetReservation?: {
+    estimated: number;
+    token: string;
+    period: 'daily' | 'monthly' | 'none';
+  };
 }
 
 export interface ParsedToken {
@@ -142,6 +149,9 @@ export async function authenticateRequest(
 ): Promise<AuthContext> {
   // ── 0. No DATABASE_URL → open mode (dev only) ──────────────────────────
   if (!process.env.DATABASE_URL) {
+    if (process.env.GATEWAY_REQUIRE_AUTH === 'true' || process.env.NODE_ENV === 'production') {
+      throw new AuthError('Gateway requires authentication, but DATABASE_URL is not configured.', 503);
+    }
     console.warn(
       '[Auth] DATABASE_URL not set — running in OPEN mode. ' +
       'All requests are allowed without authentication.'
@@ -261,14 +271,39 @@ export async function authenticateRequest(
     await setCachedVirtualKey(parsed.raw, authContext, 300);
   }
 
-  // ── 4. Budget check ───────────────────────────────────────────────────────
+  // ── 4. Budget check & Atomic Reservation ──────────────────────────────────
   if (
     authContext.enforcementMode !== 'alert_only' && 
-    authContext.budgetCapUsd !== null && 
-    authContext.budgetUsedUsd >= authContext.budgetCapUsd
+    authContext.budgetCapUsd !== null &&
+    authContext.budgetPeriod !== 'none'
   ) {
-    checkAndSendBudgetAlert(authContext, 'hard').catch(() => {});
-    throw new BudgetExceededError(authContext.budgetCapUsd, authContext.budgetUsedUsd);
+    if (authContext.budgetUsedUsd >= authContext.budgetCapUsd) {
+      checkAndSendBudgetAlert(authContext, 'hard').catch(() => {});
+      throw new BudgetExceededError(authContext.budgetCapUsd, authContext.budgetUsedUsd);
+    }
+
+    // Atomic reservation to guarantee concurrent safety
+    const estimatedCost = Math.min(0.01, (authContext.budgetCapUsd * 0.001) || 0.005);
+    const reservePeriod = (authContext.budgetPeriod === 'daily' ? 'daily' : 'monthly') as 'daily' | 'monthly';
+    const reservation = await atomicBudgetReserve(
+      parsed.raw,
+      estimatedCost,
+      authContext.budgetCapUsd,
+      reservePeriod,
+      authContext.budgetUsedUsd,  // seed Redis from authoritative DB spend
+    );
+
+
+    if (!reservation.allowed) {
+      checkAndSendBudgetAlert(authContext, 'hard').catch(() => {});
+      throw new BudgetExceededError(authContext.budgetCapUsd, reservation.usedAfter);
+    }
+
+    authContext.budgetReservation = {
+      estimated: estimatedCost,
+      token: parsed.raw,
+      period: reservePeriod,
+    };
   }
 
   // ── 4.5. Rate Limit check ─────────────────────────────────────────────────

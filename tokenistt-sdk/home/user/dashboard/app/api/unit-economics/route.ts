@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
 
   const dbUp = await isDbAvailable();
   if (!dbUp) {
-    return NextResponse.json({ metrics: UNIT_ECONOMICS_METRICS });
+    return NextResponse.json({ metrics: [] });
   }
 
   try {
@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
     );
 
     if (rows.length === 0) {
-      return NextResponse.json({ metrics: UNIT_ECONOMICS_METRICS });
+      return NextResponse.json({ metrics: [] });
     }
 
     const calculated = rows.map((r: any, idx: number) => {
@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ metrics: calculated });
   } catch (err: any) {
     console.error("[/api/unit-economics GET error]:", err.message);
-    return NextResponse.json({ metrics: UNIT_ECONOMICS_METRICS });
+    return NextResponse.json({ metrics: [] });
   }
 }
 

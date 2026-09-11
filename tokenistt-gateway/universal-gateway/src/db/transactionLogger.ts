@@ -6,13 +6,21 @@
  * HTTP response so the gateway stays "fail-open" — a DB hiccup never
  * blocks an AI call.
  *
+ * DURABILITY: If PostgreSQL is temporarily unavailable, the transaction is
+ * enqueued to a durable JSONL file and retried by the drain scheduler.
+ * Provider API keys and prompt/response content are NEVER persisted.
+ * Each request_id is idempotent (ON CONFLICT DO NOTHING).
+ *
  * If DATABASE_URL is not set the logger silently skips (dev mode).
  */
 
 import { getPool } from './pool.js';
 import type { AuthContext } from './auth.js';
-import { incrementCachedBudget } from '../services/redis.js';
+import { incrementCachedBudget, adjustBudgetReservation } from '../services/redis.js';
 import { emitTransactionEvent } from '../services/eventEmitter.js';
+import { upsertHourlyRollup } from '../services/hourlyRollup.js';
+import { enqueueTransaction } from './durableQueue.js';
+
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,6 +35,8 @@ export interface TransactionPayload {
   promptTokens:      number;
   completionTokens:  number;
   totalTokens:       number;
+  cacheCreationTokens?: number;
+  cacheReadTokens?:   number;
   inputCostUsd:      number;
   outputCostUsd:     number;
   costUsd:           number;
@@ -107,6 +117,8 @@ export async function logTransaction(
         prompt_tokens,
         completion_tokens,
         total_tokens,
+        cache_creation_tokens,
+        cache_read_tokens,
         status,
         error_code,
         duration_ms,
@@ -114,7 +126,7 @@ export async function logTransaction(
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
         $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-        $21
+        $21, $22, $23
       )
       RETURNING public_id::text
       `,
@@ -130,12 +142,14 @@ export async function logTransaction(
         payload.auth.costCenter,
         payload.projectTag ?? null,
         payload.costUsd.toFixed(6),
-        payload.costUsd.toFixed(6),  // amortized = cost (cache not tracked yet)
+        payload.costUsd.toFixed(6),
         payload.inputCostUsd.toFixed(6),
         payload.outputCostUsd.toFixed(6),
         payload.promptTokens,
         payload.completionTokens,
         payload.totalTokens,
+        payload.cacheCreationTokens ?? 0,
+        payload.cacheReadTokens ?? 0,
         payload.status,
         payload.errorCode ?? null,
         payload.durationMs,
@@ -155,6 +169,39 @@ export async function logTransaction(
     if (payload.status === 'success' && payload.auth.rawToken) {
       // Increment cached budget in Redis (ignore errors, fail-open)
       incrementCachedBudget(payload.auth.rawToken, payload.costUsd).catch(() => {});
+      
+      // Reconcile atomic reservation with actual cost
+      if (payload.auth.budgetReservation) {
+        adjustBudgetReservation(
+          payload.auth.budgetReservation.token,
+          payload.auth.budgetReservation.estimated,
+          payload.costUsd,
+          payload.auth.budgetReservation.period
+        ).catch(() => {});
+      }
+    } else if (payload.auth.budgetReservation) {
+      // On failure or non-success, release full reservation
+      adjustBudgetReservation(
+        payload.auth.budgetReservation.token,
+        payload.auth.budgetReservation.estimated,
+        0,
+        payload.auth.budgetReservation.period
+      ).catch(() => {});
+    }
+
+    if (payload.auth.organizationId !== BigInt(0)) {
+      upsertHourlyRollup({
+        organizationId: payload.auth.organizationId,
+        teamId: null,
+        projectId: null,
+        provider: payload.provider,
+        model: payload.model,
+        costUsd: payload.costUsd,
+        totalTokens: payload.totalTokens,
+        inputTokens: payload.promptTokens,
+        outputTokens: payload.completionTokens,
+        isError: payload.status !== 'success',
+      }).catch(() => {});
     }
 
     emitTransactionEvent({
@@ -176,9 +223,41 @@ export async function logTransaction(
     return publicId;
 
   } catch (err: any) {
-    // Fail-open: log the error but never reject — the HTTP response is
-    // already sent to the client by the time we reach this catch.
-    console.error('[TxLog] Failed to write transaction row:', err.message);
+    // DB unavailable: enqueue transaction for durable retry.
+    // Provider API keys and prompt/response content are NEVER persisted.
+    console.error('[TxLog] Failed to write transaction row, enqueuing for retry:', err.message);
+    enqueueTransaction({
+      requestId: payload.requestId,
+      organizationId: payload.auth.organizationId !== BigInt(0) ? payload.auth.organizationId.toString() : null,
+      workspaceId: payload.auth.workspaceId ? payload.auth.workspaceId.toString() : null,
+      virtualKeyId: payload.auth.virtualKeyId !== BigInt(0) ? payload.auth.virtualKeyId.toString() : null,
+      actor: payload.auth.actor,
+      provider: payload.provider,
+      model: payload.model,
+      endpoint: payload.endpoint,
+      costCenter: payload.auth.costCenter,
+      projectTag: payload.projectTag ?? null,
+      costUsd: payload.costUsd.toFixed(6),
+      inputCostUsd: payload.inputCostUsd.toFixed(6),
+      outputCostUsd: payload.outputCostUsd.toFixed(6),
+      promptTokens: payload.promptTokens,
+      completionTokens: payload.completionTokens,
+      totalTokens: payload.totalTokens,
+      cacheCreationTokens: payload.cacheCreationTokens ?? 0,
+      cacheReadTokens: payload.cacheReadTokens ?? 0,
+      status: payload.status,
+      errorCode: payload.errorCode ?? null,
+      durationMs: payload.durationMs,
+      // Metadata: exclude any sensitive fields (real_api_key is stripped by AuthContext)
+      metadata: {
+        trace_id: (payload.metadata as any)?.trace_id,
+        cost_status: (payload.metadata as any)?.cost_status,
+        finish_reason: (payload.metadata as any)?.finish_reason,
+        model_used: (payload.metadata as any)?.model_used,
+      },
+      queuedAt: new Date().toISOString(),
+      attempts: 0,
+    });
     return null;
   }
 }

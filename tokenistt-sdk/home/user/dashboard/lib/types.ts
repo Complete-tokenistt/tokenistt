@@ -67,7 +67,7 @@ export interface ShadowAiEvent {
   id: string;
   detectedAt: string; // ISO
   actor: string; // may be "unknown"
-  source: "card-transaction" | "browser-extension" | "expense-report" | "slack-integration";
+  source: "card-transaction" | "browser-extension" | "expense-report" | "slack-integration" | "gateway-detection";
   vendor: string;
   amountUsd: number;
   status: ShadowAiStatus;
@@ -79,6 +79,8 @@ export interface InvoiceLine {
   period: string; // "2026-07"
   billedUsd: number;
   currency: string;
+  invoiceNumber?: string;
+  date?: string;
 }
 
 export interface ReconciliationRow {

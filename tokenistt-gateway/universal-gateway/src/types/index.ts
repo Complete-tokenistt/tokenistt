@@ -84,11 +84,12 @@ export interface UnifiedMetadata {
   request_id?: string;
 }
 
-// Pricing configuration
 export interface PricingTier {
   input: number;  // per 1M tokens
   output: number; // per 1M tokens
   cachedInput?: number; // per 1M cached tokens
+  cacheWrite?: number;  // per 1M cache write / creation tokens
+  reasoning?: number;   // per 1M reasoning tokens
 }
 
 // Request context
