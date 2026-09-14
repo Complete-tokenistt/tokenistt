@@ -40,3 +40,6 @@ __pycache__/
 
 # TypeScript build info
 *.tsbuildinfo
+
+# Runtime queues & scratch
+*.jsonl

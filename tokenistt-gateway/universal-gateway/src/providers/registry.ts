@@ -115,16 +115,23 @@ export class ProviderRegistry {
     }
     
     if (normalizedModel.includes('claude')) {
+      if (this.hasProvider('anthropic')) return 'anthropic';
+      if (this.hasProvider('bedrock')) return 'bedrock';
       return 'anthropic';
     }
     
     if (normalizedModel.includes('bedrock') || 
-        normalizedModel.includes('llama') || 
-        normalizedModel.includes('mistral') ||
         normalizedModel.includes('ai21') ||
         normalizedModel.includes('titan')) {
-      return 'bedrock';
+      return this.hasProvider('bedrock') ? 'bedrock' : this.defaultProvider;
     }
+
+    if (normalizedModel.includes('llama') || normalizedModel.includes('mistral')) {
+      if (this.hasProvider('bedrock')) return 'bedrock';
+      if (this.hasProvider('openai')) return 'openai';
+      return this.defaultProvider;
+    }
+
     
     if (normalizedModel.includes('azure')) {
       return 'azure';

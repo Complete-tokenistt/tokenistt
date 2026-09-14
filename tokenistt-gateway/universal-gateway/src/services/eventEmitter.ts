@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { getRedisClient } from './redis.js';
+import { forwardToClickHouse } from './clickhouse.js';
 
 export interface TransactionEvent {
   requestId: string;
@@ -76,6 +77,9 @@ export async function emitTransactionEvent(event: TransactionEvent): Promise<voi
         kafkaFailed = true; // Avoid pounding an unreachable broker on every single request
       }
     }
+
+    // 4. Dual-write to ClickHouse if enabled (asynchronous buffered batching)
+    forwardToClickHouse(event).catch(() => {});
   } catch (err: any) {
     console.error('[EventEmitter] Unexpected error emitting transaction event:', err.message);
   }

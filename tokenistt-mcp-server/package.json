@@ -1,0 +1,14 @@
+{
+  "name": "tokenistt-mcp-server-root",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tokenistt MCP Server root entrypoint",
+  "main": "index.js",
+  "bin": {
+    "tokenistt-mcp": "index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}
+

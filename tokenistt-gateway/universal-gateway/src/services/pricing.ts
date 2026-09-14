@@ -65,6 +65,8 @@ export interface CostCalculationResult {
   inputCost: number;
   outputCost: number;
   cachedInputCost: number;
+  cacheCreationCost: number;
+  reasoningCost: number;
   isKnown: boolean;
   costStatus: 'ok' | 'COST_UNAVAILABLE';
 }
@@ -104,18 +106,24 @@ export function calculateCostWithStatus(
   model: string,
   inputTokens: number,
   outputTokens: number,
-  cachedTokens = 0
+  cachedTokens = 0,
+  cacheCreationTokens = 0,
+  reasoningTokens = 0,
+  customPricing?: PricingTier | null
 ): CostCalculationResult {
-  const pricing = resolvePricing(provider, model);
+  const pricing = customPricing || resolvePricing(provider, model);
 
   if (!pricing) {
-    console.warn(`No pricing found for ${provider}:${model.toLowerCase()}, using default`);
-    const fallbackCost = calculateDefaultCost(inputTokens, outputTokens);
+    console.warn(`[Pricing] No pricing found for ${provider}:${model.toLowerCase()} — COST_UNAVAILABLE. Cost set to $0.00 (token counts preserved).`);
+    // NEVER invent or guess a price. Cost MUST be exactly $0.00.
+    // Token counts are kept for analytics purposes only.
     return {
-      cost: fallbackCost,
-      inputCost: (inputTokens / 1_000_000) * 1.00,
-      outputCost: (outputTokens / 1_000_000) * 3.00,
+      cost: 0,
+      inputCost: 0,
+      outputCost: 0,
       cachedInputCost: 0,
+      cacheCreationCost: 0,
+      reasoningCost: 0,
       isKnown: false,
       costStatus: 'COST_UNAVAILABLE',
     };
@@ -126,8 +134,14 @@ export function calculateCostWithStatus(
   const cachedInputCost = pricing.cachedInput 
     ? (cachedTokens / 1_000_000) * pricing.cachedInput 
     : 0;
+  const cacheCreationCost = pricing.cacheWrite
+    ? (cacheCreationTokens / 1_000_000) * pricing.cacheWrite
+    : 0;
+  const reasoningCost = pricing.reasoning
+    ? (reasoningTokens / 1_000_000) * pricing.reasoning
+    : 0;
 
-  let totalCost = inputCost + outputCost + cachedInputCost;
+  let totalCost = inputCost + outputCost + cachedInputCost + cacheCreationCost + reasoningCost;
 
   // Add AWS Bedrock markup if applicable
   if (provider.toLowerCase() === 'bedrock') {
@@ -142,6 +156,8 @@ export function calculateCostWithStatus(
     inputCost: Math.round(inputCost * 1_000_000) / 1_000_000,
     outputCost: Math.round(outputCost * 1_000_000) / 1_000_000,
     cachedInputCost: Math.round(cachedInputCost * 1_000_000) / 1_000_000,
+    cacheCreationCost: Math.round(cacheCreationCost * 1_000_000) / 1_000_000,
+    reasoningCost: Math.round(reasoningCost * 1_000_000) / 1_000_000,
     isKnown: true,
     costStatus: 'ok',
   };
@@ -157,12 +173,9 @@ export function calculateCost(
   return calculateCostWithStatus(provider, model, inputTokens, outputTokens, cachedTokens).cost;
 }
 
-function calculateDefaultCost(inputTokens: number, outputTokens: number): number {
-  // Default: assume $1/M input and $3/M output
-  const inputCost = (inputTokens / 1_000_000) * 1.00;
-  const outputCost = (outputTokens / 1_000_000) * 3.00;
-  return Math.round((inputCost + outputCost) * 1_000_000) / 1_000_000;
-}
+// NOTE: calculateDefaultCost() has been intentionally removed.
+// Unknown models MUST return cost = $0.00 (COST_UNAVAILABLE).
+// Inventing fallback prices violates the FinOps non-negotiable rule: "Tokenistt must never invent a price."
 
 export function getAvailableModels(): Record<string, string[]> {
   return {

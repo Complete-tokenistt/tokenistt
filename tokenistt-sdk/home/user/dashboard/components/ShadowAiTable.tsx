@@ -12,6 +12,7 @@ const SOURCE_LABEL: Record<ShadowAiEvent["source"], string> = {
   "browser-extension": "Browser extension",
   "expense-report": "Expense report",
   "slack-integration": "Slack integration",
+  "gateway-detection": "Gateway detection",
 };
 
 export default function ShadowAiTable({ data }: { data: ShadowAiEvent[] }) {

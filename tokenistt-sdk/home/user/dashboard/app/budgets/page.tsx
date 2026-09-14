@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useDashboard } from "@/components/DashboardShell";
 import { StatusPill } from "@/components/StatusBadges";
 import { BUDGET_POLICIES, BUDGET_ALERT_HISTORY, TEAMS } from "@/lib/dashboard-mock-data";
 
@@ -31,36 +32,46 @@ function statusFor(spent: number, cap: number) {
 type Policy = (typeof BUDGET_POLICIES)[number];
 
 export default function BudgetsPage() {
-  const [policies, setPolicies] = useState<Policy[]>(BUDGET_POLICIES);
+  const { isLive } = useDashboard();
+  const [policies, setPolicies] = useState<Policy[]>(isLive ? [] : BUDGET_POLICIES);
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
 
   useEffect(() => {
+    if (!isLive) {
+      setPolicies(BUDGET_POLICIES);
+      return;
+    }
+
     async function fetchBudgets() {
       try {
         const res = await fetch("/api/budgets");
         if (!res.ok) return;
         const data = await res.json();
-        if (data?.budgets && Array.isArray(data.budgets) && data.budgets.length > 0) {
-          const mapped: Policy[] = data.budgets.map((b: any, index: number) => ({
-            id: Number(b.id) || index + 1,
-            scope: b.name || `${b.scope_type} budget`,
-            cap: Number(b.cap_usd) || 0,
-            spent: Number(b.used_usd) || 0,
-            period: b.period || "monthly",
-            action: b.enforcement_mode === "hard_cap" ? "hard cap" : "auto-throttle",
-            thresholds: [Number(b.warn_threshold_pct) || 80, Number(b.critical_threshold_pct) || 90],
-            status: statusFor(Number(b.used_usd) || 0, Number(b.cap_usd) || 0),
-          }));
+        if (data?.budgets && Array.isArray(data.budgets)) {
+          const mapped: Policy[] = data.budgets.map((b: any, index: number) => {
+            const cap = Number(b.budget_usd ?? b.cap_usd) || 0;
+            const spent = Number(b.spend_usd ?? b.used_usd) || 0;
+            return {
+              id: Number(b.id) || index + 1,
+              scope: b.name || `${b.scope_type || b.cost_center || "Workspace"} budget`,
+              cap,
+              spent,
+              period: b.period || "monthly",
+              action: b.enforcement_mode === "hard_cap" ? "hard cap" : "auto-throttle",
+              thresholds: [Number(b.warn_threshold_pct) || 80, Number(b.critical_threshold_pct) || 90],
+              status: statusFor(spent, cap),
+            };
+          });
           setPolicies(mapped);
         }
       } catch (err) {
-        console.warn("Could not load /api/budgets, using defaults:", err);
+        console.warn("Could not load /api/budgets:", err);
       }
     }
     fetchBudgets();
-  }, []);
+  }, [isLive]);
 
   function openNew() {
     setEditingId(null);
@@ -71,8 +82,12 @@ export default function BudgetsPage() {
   function openEdit(policy: Policy) {
     setEditingId(policy.id);
     setForm({
-      scope: policy.scope, cap: String(policy.cap), period: policy.period, action: policy.action,
-      mode: enforcementMode(policy.action), thresholds: policy.thresholds || [75, 90],
+      scope: policy.scope,
+      cap: String(policy.cap),
+      period: policy.period,
+      action: policy.action,
+      mode: enforcementMode(policy.action),
+      thresholds: policy.thresholds || [75, 90],
     });
     setFormOpen(true);
   }
@@ -85,7 +100,11 @@ export default function BudgetsPage() {
   }
 
   function setMode(mode: string) {
-    setForm((f) => ({ ...f, mode, action: mode === "hard" ? "hard cap" : HARD_ACTIONS.includes(f.action) ? "alert only" : f.action }));
+    setForm((f) => ({
+      ...f,
+      mode,
+      action: mode === "hard" ? "hard cap" : HARD_ACTIONS.includes(f.action) ? "alert only" : f.action,
+    }));
   }
 
   function closeForm() {
@@ -135,6 +154,8 @@ export default function BudgetsPage() {
     }
     closeForm();
   }
+
+  const alertHistory = isLive ? [] : BUDGET_ALERT_HISTORY;
 
   return (
     <div>
@@ -232,31 +253,40 @@ export default function BudgetsPage() {
               <div className="mono" style={{ display: "grid", gridTemplateColumns: "1.2fr 1.2fr 1fr 0.9fr 0.9fr", padding: "8px 18px", borderBottom: "1px solid var(--line-soft)", fontSize: 11.5, color: "var(--fg-4)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                 <span>Scope</span><span>Cap / spent</span><span>Enforcement</span><span>Status</span><span style={{ textAlign: "right" }}>Actions</span>
               </div>
-              {policies.length === 0 && (
-                <div style={{ padding: "24px 18px", textAlign: "center", color: "var(--fg-4)", fontSize: 13.5 }}>No budget policies yet.</div>
-              )}
-              {policies.map((b, i) => {
-                const pct = Math.round((b.spent / b.cap) * 100);
-                return (
-                  <div key={b.id} style={{ display: "grid", gridTemplateColumns: "1.2fr 1.2fr 1fr 0.9fr 0.9fr", padding: "13px 18px", borderBottom: i < policies.length - 1 ? "1px solid var(--line-soft)" : "none", alignItems: "center" }}>
-                    <span className="mono" style={{ fontSize: 14, color: "var(--fg)" }}>{b.scope}</span>
-                    <span className="mono" style={{ fontSize: 13, color: b.status === "breached" ? "var(--red)" : "var(--fg-2)" }}>
-                      ${b.spent.toLocaleString()} / ${b.cap.toLocaleString()} <span style={{ color: "var(--fg-4)" }}>· {pct}%</span>
-                    </span>
-                    <div>
-                      <span className="mono" style={{ fontSize: 12.5, color: enforcementMode(b.action) === "hard" ? "var(--red)" : "var(--violet)" }}>
-                        {enforcementMode(b.action) === "hard" ? "● hard" : "◐ soft"}
+              {policies.length === 0 ? (
+                <div style={{ padding: "36px 18px", textAlign: "center", color: "var(--fg-4)" }}>
+                  <div style={{ fontSize: 14.5, color: "var(--fg-2)", marginBottom: 6 }}>No budget policies configured yet</div>
+                  <p style={{ fontSize: 13, color: "var(--fg-4)", maxWidth: 440, margin: "0 auto 14px" }}>
+                    Configure monthly or weekly caps per team or workspace to prevent unexpected spend overruns.
+                  </p>
+                  <button type="button" className="btn btn-violet btn-sm" onClick={openNew}>
+                    + Create First Budget Policy
+                  </button>
+                </div>
+              ) : (
+                policies.map((b, i) => {
+                  const pct = b.cap > 0 ? Math.round((b.spent / b.cap) * 100) : 0;
+                  return (
+                    <div key={b.id} style={{ display: "grid", gridTemplateColumns: "1.2fr 1.2fr 1fr 0.9fr 0.9fr", padding: "13px 18px", borderBottom: i < policies.length - 1 ? "1px solid var(--line-soft)" : "none", alignItems: "center" }}>
+                      <span className="mono" style={{ fontSize: 14, color: "var(--fg)" }}>{b.scope}</span>
+                      <span className="mono" style={{ fontSize: 13, color: b.status === "breached" ? "var(--red)" : "var(--fg-2)" }}>
+                        ${b.spent.toLocaleString()} / ${b.cap.toLocaleString()} <span style={{ color: "var(--fg-4)" }}>· {pct}%</span>
                       </span>
-                      <div className="mono" style={{ fontSize: 11.5, color: "var(--fg-4)", marginTop: 2 }}>{b.action}</div>
+                      <div>
+                        <span className="mono" style={{ fontSize: 12.5, color: enforcementMode(b.action) === "hard" ? "var(--red)" : "var(--violet)" }}>
+                          {enforcementMode(b.action) === "hard" ? "● hard" : "◐ soft"}
+                        </span>
+                        <div className="mono" style={{ fontSize: 11.5, color: "var(--fg-4)", marginTop: 2 }}>{b.action}</div>
+                      </div>
+                      <StatusPill status={b.status} />
+                      <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+                        <button type="button" className="mono dash-link-btn" onClick={() => openEdit(b)}>edit</button>
+                        <button type="button" className="mono dash-link-btn danger" onClick={() => removePolicy(b.id)}>delete</button>
+                      </div>
                     </div>
-                    <StatusPill status={b.status} />
-                    <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
-                      <button type="button" className="mono dash-link-btn" onClick={() => openEdit(b)}>edit</button>
-                      <button type="button" className="mono dash-link-btn danger" onClick={() => removePolicy(b.id)}>delete</button>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </div>
         </div>
@@ -266,18 +296,24 @@ export default function BudgetsPage() {
             <span className="mono" style={{ fontSize: 12, color: "var(--fg-3)" }}>alert history log</span>
           </div>
           <div style={{ padding: "14px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
-            {BUDGET_ALERT_HISTORY.map((a, i) => (
-              <div key={i} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }} className="mono">
-                  <span style={{ color: a.sev === "breach" ? "var(--red)" : "var(--amber)" }}>●</span>
-                  <span style={{ fontSize: 13, color: "var(--fg)" }}>{a.scope}</span>
-                  <span style={{ fontSize: 12, color: "var(--fg-4)", marginLeft: "auto" }}>{a.t}</span>
-                </div>
-                <div style={{ fontSize: 12.5, color: "var(--fg-3)", paddingLeft: 16, lineHeight: 1.45 }}>
-                  crossed <span style={{ color: "var(--fg-2)" }}>{a.threshold}</span> → {a.action}
-                </div>
+            {alertHistory.length === 0 ? (
+              <div style={{ fontSize: 13, color: "var(--fg-4)", textAlign: "center", padding: "16px 0" }}>
+                No budget alerts or breach events recorded.
               </div>
-            ))}
+            ) : (
+              alertHistory.map((a, i) => (
+                <div key={i} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }} className="mono">
+                    <span style={{ color: a.sev === "breach" ? "var(--red)" : "var(--amber)" }}>●</span>
+                    <span style={{ fontSize: 13, color: "var(--fg)" }}>{a.scope}</span>
+                    <span style={{ fontSize: 12, color: "var(--fg-4)", marginLeft: "auto" }}>{a.t}</span>
+                  </div>
+                  <div style={{ fontSize: 12.5, color: "var(--fg-3)", paddingLeft: 16, lineHeight: 1.45 }}>
+                    crossed <span style={{ color: "var(--fg-2)" }}>{a.threshold}</span> → {a.action}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

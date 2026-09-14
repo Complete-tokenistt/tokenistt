@@ -55,10 +55,11 @@ export function calculateCost(
   const pricing = PRICING[key];
   
   if (!pricing) {
-    // Default fallback pricing
-    console.warn(`No pricing found for ${key}, using default`);
-    return calculateDefaultCost(inputTokens, outputTokens);
+    // B1 FIX: Unknown models MUST return $0.00 exactly. Never invent a price.
+    console.warn(`[Pricing] No pricing found for ${key} — COST_UNAVAILABLE. Cost set to $0.00 (token counts preserved).`);
+    return 0;
   }
+
   
   const inputCost = (inputTokens / 1_000_000) * pricing.input;
   const outputCost = (outputTokens / 1_000_000) * pricing.output;
@@ -75,12 +76,11 @@ export function calculateCost(
   return Math.round(totalCost * 1_000_000) / 1_000_000; // Round to 6 decimal places
 }
 
-function calculateDefaultCost(inputTokens: number, outputTokens: number): number {
-  // Default: assume $1/M input and $3/M output
-  const inputCost = (inputTokens / 1_000_000) * 1.00;
-  const outputCost = (outputTokens / 1_000_000) * 3.00;
-  return Math.round((inputCost + outputCost) * 1_000_000) / 1_000_000;
-}
+// NOTE: calculateDefaultCost() has been intentionally removed.
+// Unknown models MUST return cost = $0.00 (COST_UNAVAILABLE).
+// Inventing fallback prices violates the FinOps non-negotiable rule: "Tokenistt must never invent a price."
+
+
 
 export function getAvailableModels(): Record<string, string[]> {
   return {

@@ -8,22 +8,24 @@
  * Falls back to mock data when DATABASE_URL is not configured.
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
-import { getShadowAi } from "@/lib/mock-data";
+import { getSessionFromRequest, unauthorizedResponse } from "@/lib/auth";
 import { loadIngestedShadowAi } from "@/lib/ingest";
 import type { ShadowAiEvent } from "@/lib/types";
 
-export async function GET() {
-  // ── Fallback: no DB ────────────────────────────────────────────────────────
+export async function GET(req: NextRequest) {
+  const session = getSessionFromRequest(req);
+  if (!session) return unauthorizedResponse();
+
   if (!process.env.DATABASE_URL) {
-    return NextResponse.json(getShadowAi());
+    return NextResponse.json([]);
   }
 
   try {
     const pool = getPool();
     
-    // 1. Fetch transactions flagged as shadow AI in Postgres
+    // 1. Fetch transactions flagged as shadow AI in Postgres for this organization
     const { rows } = await pool.query<{
       public_id: string;
       created_at: string;
@@ -39,34 +41,28 @@ export async function GET() {
              cost_usd::text AS cost_usd,
              metadata
       FROM   transactions
-      WHERE  shadow_ai_flag = true
+      WHERE  organization_id = $1
+        AND  shadow_ai_flag = true
       ORDER  BY created_at DESC
       LIMIT  50
-    `);
-
-    // 2. Fetch ingested external scanner logs
-    const scannerEvents = loadIngestedShadowAi();
+    `, [session.orgId]);
 
     // Map Postgres rows to UI ShadowAiEvent shape
     const dbEvents: ShadowAiEvent[] = rows.map((r) => ({
       id: r.public_id,
       detectedAt: r.created_at,
       actor: r.actor ?? "unknown",
-      source: "slack-integration", // default gateway categorization
+      source: "gateway-detection",
       vendor: r.provider,
       amountUsd: parseFloat(r.cost_usd),
       status: "unreviewed",
       note: r.metadata?.note ?? `Gateway flagged: unauthorized model access by ${r.actor}`,
     }));
 
-    // Merge both sources (DB first, then scanner)
-    const merged = [...dbEvents, ...scannerEvents].sort(
-      (a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime()
-    );
-
-    return NextResponse.json(merged);
+    return NextResponse.json(dbEvents);
   } catch (err: any) {
-    console.error("[/api/shadow-ai] DB error, falling back to mock:", err.message);
-    return NextResponse.json(getShadowAi());
+    console.error("[/api/shadow-ai] DB error, returning empty list:", err.message);
+    return NextResponse.json([]);
   }
 }
+

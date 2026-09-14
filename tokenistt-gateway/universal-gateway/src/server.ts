@@ -23,6 +23,7 @@ import {
 import { ProviderConfig }                           from './providers/registry.js';
 import { ProviderType, GatewayError }               from './types/index.js';
 import { getAvailableModels, calculateCost, calculateCostWithStatus } from './services/pricing.js';
+import { loadPricingFromDb, resolvePricingTierDynamic } from './services/pricingDb.js';
 import {
   authenticateRequest,
   AuthError,
@@ -36,9 +37,17 @@ import { checkPolicies }                            from './db/policies.js';
 import { checkAndSendBudgetAlert }                 from './services/alerting.js';
 import { SmartRouter }                              from './services/router.js';
 import { adminRouter }                              from './routes/admin.js';
+import { providersRouter }                          from './routes/providers.js';
 import { metrics }                                  from './services/metrics.js';
 import { validateSecrets }                          from './config/secrets.js';
 import { requestContextMiddleware, getElapsedLatencyMs } from './middleware/requestContext.js';
+import {
+  ensurePartitionsAhead,
+  startPartitionMaintenanceScheduler,
+  stopPartitionMaintenanceScheduler,
+}                                                   from './services/partitionManager.js';
+import { startDrainScheduler, stopDrainScheduler }  from './db/durableQueue.js';
+
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -69,8 +78,9 @@ app.get('/metrics', (_req: Request, res: Response) => {
   res.send(metrics.getMetricsText());
 });
 
-// ── Admin routes ────────────────────────────────────────────────────────────
+// ── Admin and Provider routes ────────────────────────────────────────────────
 app.use('/v1/admin', adminRouter);
+app.use('/v1/providers', providersRouter);
 
 // ── Provider configuration ──────────────────────────────────────────────────
 
@@ -246,18 +256,35 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
     const response  = await router.handleChatCompletion(req.body, providerOverride, auth.realApiKey);
     const durationMs = Date.now() - startTime;
 
-    // ── Step 5: Precise cost breakdown ───────────────────────────────────────
+    // ── Step 5: Precise cost breakdown with cache & reasoning tokens ──────────
     const usedProvider   = (response.provider ?? providerOverride ?? 'anthropic') as string;
     const promptTokens   = response.usage?.prompt_tokens     ?? 0;
     const completTokens  = response.usage?.completion_tokens ?? 0;
+    const cacheCreationTokens = (response.usage as any)?.cache_creation_input_tokens ?? 0;
+    const cacheReadTokens = (response.usage as any)?.cache_read_input_tokens 
+      ?? (response.usage as any)?.prompt_tokens_details?.cached_tokens 
+      ?? 0;
+    const reasoningTokens = (response.usage as any)?.completion_tokens_details?.reasoning_tokens ?? 0;
 
-    // Re-derive per-direction costs from pricing table
-    const inputCostRes  = calculateCostWithStatus(usedProvider, req.body.model, promptTokens, 0);
-    const outputCostRes = calculateCostWithStatus(usedProvider, req.body.model, 0, completTokens);
-    const inputCostUsd  = inputCostRes.cost;
-    const outputCostUsd = outputCostRes.cost;
-    const totalCostUsd  = response.actual_cost ?? (inputCostUsd + outputCostUsd);
-    const costStatus    = (!inputCostRes.isKnown || !outputCostRes.isKnown) ? 'COST_UNAVAILABLE' : 'ok';
+    // Dynamically resolve pricing tier from DB (with fallback)
+    const customPricing = await resolvePricingTierDynamic(usedProvider, req.body.model);
+
+    // Derive per-direction costs from pricing table including cache & reasoning tokens
+    const costBreakdown = calculateCostWithStatus(
+      usedProvider,
+      req.body.model,
+      promptTokens,
+      completTokens,
+      cacheReadTokens,
+      cacheCreationTokens,
+      reasoningTokens,
+      customPricing
+    );
+
+    const inputCostUsd  = costBreakdown.inputCost + costBreakdown.cachedInputCost + costBreakdown.cacheCreationCost;
+    const outputCostUsd = costBreakdown.outputCost + costBreakdown.reasoningCost;
+    const totalCostUsd  = costBreakdown.cost;
+    const costStatus    = costBreakdown.costStatus;
 
     // ── Step 6: Inject cost headers ──────────────────────────────────────────
     res.setHeader('x-tokenistt-cost',              totalCostUsd.toFixed(6));
@@ -266,6 +293,8 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
     res.setHeader('x-tokenistt-output-cost',       outputCostUsd.toFixed(6));
     res.setHeader('x-tokenistt-tokens-prompt',     String(promptTokens));
     res.setHeader('x-tokenistt-tokens-completion', String(completTokens));
+    res.setHeader('x-tokenistt-tokens-cache-read', String(cacheReadTokens));
+    res.setHeader('x-tokenistt-tokens-cache-write', String(cacheCreationTokens));
     res.setHeader('x-tokenistt-latency-ms',        String(durationMs));
     res.setHeader('x-tokenistt-provider',          usedProvider);
 
@@ -293,6 +322,8 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
       promptTokens,
       completionTokens: completTokens,
       totalTokens:     promptTokens + completTokens,
+      cacheCreationTokens,
+      cacheReadTokens,
       inputCostUsd,
       outputCostUsd,
       costUsd:         totalCostUsd,
@@ -319,6 +350,27 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
       completionTokens: completTokens,
       latencyMs: durationMs,
     });
+
+    // ── Step 10: Structured FinOps Observability Log ──────────────────────────
+    console.log(JSON.stringify({
+      level: 'info',
+      event: 'finops_request_complete',
+      provider: usedProvider,
+      model: req.body.model,
+      cost_usd: totalCostUsd,
+      cost_status: costStatus,
+      duration_ms: durationMs,
+      prompt_tokens: promptTokens,
+      completion_tokens: completTokens,
+      cache_read_tokens: cacheReadTokens,
+      cache_creation_tokens: cacheCreationTokens,
+      reasoning_tokens: reasoningTokens,
+      organization_id: auth.organizationId !== BigInt(0) ? auth.organizationId.toString() : null,
+      cost_center: auth.costCenter,
+      actor: auth.actor,
+      status: 'success',
+      request_id: requestId,
+    }));
 
   } catch (err) {
     const durationMs = Date.now() - startTime;
@@ -453,7 +505,14 @@ const server = app.listen(PORT, async () => {
 
   if (process.env.DATABASE_URL) {
     await checkDbConnection();
+    await loadPricingFromDb();
+    await ensurePartitionsAhead(3);
+    startPartitionMaintenanceScheduler();
+    startDrainScheduler(() => {
+      try { return (require('./db/pool.js') as any).getPool?.() ?? null; } catch { return null; }
+    });
   } else {
+
     console.warn(
       '[Gateway] DATABASE_URL not set — running in OPEN mode.\n' +
       '           Set DATABASE_URL to enable auth + transaction logging.'
@@ -468,6 +527,8 @@ const server = app.listen(PORT, async () => {
 async function shutdown(signal: string) {
   console.log(`\n${signal} received — shutting down gracefully...`);
   server.close(async () => {
+    stopPartitionMaintenanceScheduler();
+    stopDrainScheduler();
     await closePool();
     console.log('Server closed.');
     process.exit(0);

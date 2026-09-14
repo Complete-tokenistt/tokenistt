@@ -226,3 +226,97 @@ adminRouter.delete('/virtual-keys/:public_id', async (req: Request, res: Respons
     res.status(500).json({ error: { message: err.message } });
   }
 });
+
+/**
+ * GET /v1/admin/pricing — List all active model pricing tiers
+ */
+adminRouter.get('/pricing', async (_req: Request, res: Response) => {
+  try {
+    const { getDetailedCatalog } = await import('../services/pricingDb.js');
+    const catalog = await getDetailedCatalog();
+    res.json({ success: true, count: catalog.length, catalog });
+  } catch (err: any) {
+    res.status(500).json({ error: { message: err.message } });
+  }
+});
+
+/**
+ * POST /v1/admin/pricing — Upsert model pricing tier with effective dating
+ */
+adminRouter.post('/pricing', async (req: Request, res: Response) => {
+  if (!process.env.DATABASE_URL) {
+    res.status(503).json({ error: { message: 'Database not configured' } });
+    return;
+  }
+
+  const {
+    provider,
+    modelId,
+    displayName,
+    inputPricePer1m,
+    outputPricePer1m,
+    cachedInputPricePer1m,
+    cacheWritePricePer1m,
+    reasoningPricePer1m,
+  } = req.body || {};
+
+  if (!provider || !modelId || inputPricePer1m === undefined || outputPricePer1m === undefined) {
+    res.status(400).json({
+      error: { message: 'Fields provider, modelId, inputPricePer1m, and outputPricePer1m are required' },
+    });
+    return;
+  }
+
+  try {
+    const pool = getPool();
+    // 1. Terminate any existing active pricing for this provider + model
+    await pool.query(
+      `
+      UPDATE model_catalog
+      SET effective_to = CURRENT_DATE
+      WHERE provider = $1 AND model_id = $2 AND (effective_to IS NULL OR effective_to > CURRENT_DATE)
+      `,
+      [provider.toLowerCase(), modelId.toLowerCase()]
+    );
+
+    // 2. Insert new pricing record effective today
+    const { rows } = await pool.query(
+      `
+      INSERT INTO model_catalog (
+        provider,
+        model_id,
+        display_name,
+        input_price_per_1m,
+        output_price_per_1m,
+        cached_input_price_per_1m,
+        cache_write_price_per_1m,
+        reasoning_price_per_1m,
+        status,
+        effective_from
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, 'active', CURRENT_DATE
+      )
+      RETURNING id::text, provider, model_id, input_price_per_1m, output_price_per_1m, effective_from
+      `,
+      [
+        provider.toLowerCase(),
+        modelId.toLowerCase(),
+        displayName || modelId,
+        inputPricePer1m,
+        outputPricePer1m,
+        cachedInputPricePer1m ?? null,
+        cacheWritePricePer1m ?? null,
+        reasoningPricePer1m ?? null,
+      ]
+    );
+
+    // 3. Invalidate pricing cache
+    const { invalidatePricingCache } = await import('../services/pricingDb.js');
+    invalidatePricingCache();
+
+    res.json({ success: true, message: 'Model pricing updated successfully', pricing: rows[0] });
+  } catch (err: any) {
+    res.status(500).json({ error: { message: err.message } });
+  }
+});
+

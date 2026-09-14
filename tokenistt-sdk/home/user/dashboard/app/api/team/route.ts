@@ -9,9 +9,9 @@
  * Falls back to mock data when DATABASE_URL is not configured.
  */
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getPool }      from '@/lib/db';
-import { getTeamView }  from '@/lib/mock-data';
+import { getSessionFromRequest, unauthorizedResponse } from '@/lib/auth';
 import { MODEL_LABELS } from '@/lib/format';
 import type { ModelTier, TeamMemberStatus } from '@/lib/types';
 
@@ -28,19 +28,35 @@ function inferStatus(spendUsd: number, budgetUsd: number): TeamMemberStatus {
   return 'ok';
 }
 
-export async function GET() {
-  // ── Fallback: no DB ────────────────────────────────────────────────────────
+export async function GET(req: NextRequest) {
+  const session = getSessionFromRequest(req);
+  if (!session) return unauthorizedResponse();
+
   if (!process.env.DATABASE_URL) {
-    return NextResponse.json(getTeamView());
+    return NextResponse.json({
+      managerName: 'Workspace Admin',
+      teamName: 'All Teams',
+      period: new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' }),
+      members: [],
+      teamSpendUsd: 0,
+      teamBudgetUsd: 0,
+      teamBudgetUsedPct: 0,
+      dailySpendUsd: 0,
+      modelUsage: [],
+      alerts: [],
+      budgetWarnPct: 90,
+      _source: 'live_empty',
+    });
   }
 
   try {
     const pool = getPool();
+    const orgId = session.orgId;
     const monthStart = "date_trunc('month', now())";
     const dayStart   = "date_trunc('day', now())";
 
-    const [memberRes, modelRes, dailyRes] = await Promise.all([
-      // 1. Per-actor spend + call count this month
+    const [memberRes, modelRes, dailyRes, usersRes] = await Promise.all([
+      // 1. Per-actor spend + call count this month for this organization
       pool.query<{
         actor:          string;
         spend_usd:      string;
@@ -54,15 +70,16 @@ export async function GET() {
                MAX(created_at)::text                  AS last_active,
                MAX(cost_center)                       AS cost_center
         FROM   transactions
-        WHERE  status     = 'success'
+        WHERE  organization_id = $1
+          AND  status     = 'success'
           AND  created_at >= ${monthStart}
           AND  actor IS NOT NULL
         GROUP  BY actor
         ORDER  BY SUM(cost_usd) DESC
         LIMIT  50
-      `),
+      `, [orgId]),
 
-      // 2. Per-actor per-model spend this month
+      // 2. Per-actor per-model spend this month for this organization
       pool.query<{
         actor:      string;
         model:      string;
@@ -72,20 +89,30 @@ export async function GET() {
                model,
                SUM(cost_usd)::text AS spend_usd
         FROM   transactions
-        WHERE  status     = 'success'
+        WHERE  organization_id = $1
+          AND  status     = 'success'
           AND  created_at >= ${monthStart}
           AND  actor IS NOT NULL
         GROUP  BY actor, model
         ORDER  BY actor, SUM(cost_usd) DESC
-      `),
+      `, [orgId]),
 
-      // 3. Today's team total spend
+      // 3. Today's team total spend for this organization
       pool.query<{ total: string }>(`
         SELECT COALESCE(SUM(cost_usd), 0)::text AS total
         FROM   transactions
-        WHERE  status     = 'success'
+        WHERE  organization_id = $1
+          AND  status     = 'success'
           AND  created_at >= ${dayStart}
-      `),
+      `, [orgId]),
+
+      // 4. Actual registered organization members
+      pool.query<{ id: string; email: string; role: string; created_at: string }>(`
+        SELECT id::text, email, role, created_at::text
+        FROM   users
+        WHERE  organization_id = $1
+        ORDER  BY created_at ASC
+      `, [orgId]),
     ]);
 
     // Build model-map keyed by actor
@@ -101,9 +128,9 @@ export async function GET() {
       modelByActor.set(row.actor, arr);
     }
 
-    const members = memberRes.rows.map((r, i) => {
+    let members = memberRes.rows.map((r, i) => {
       const spendUsd  = parseFloat(r.spend_usd);
-      const budgetUsd = 50; // default per-member budget; wire to virtual_keys.budget_cap_usd when available
+      const budgetUsd = 50;
       return {
         id:         `u-${i}`,
         name:       r.actor.split('@')[0] ?? r.actor,
@@ -117,9 +144,24 @@ export async function GET() {
       };
     });
 
+    // If no transactions yet, show the actual organization registered users with $0 spend
+    if (members.length === 0 && usersRes.rows.length > 0) {
+      members = usersRes.rows.map((u, i) => ({
+        id:         u.id || `u-${i}`,
+        name:       u.email.split('@')[0] ?? u.email,
+        email:      u.email,
+        spendUsd:   0,
+        budgetUsd:  50,
+        calls:      0,
+        lastActive: u.created_at,
+        status:     'ok' as TeamMemberStatus,
+        models:     [],
+      }));
+    }
+
     const teamSpendUsd  = members.reduce((s, m) => s + m.spendUsd, 0);
     const teamBudgetUsd = members.reduce((s, m) => s + m.budgetUsd, 0);
-    const dailySpendUsd = parseFloat(dailyRes.rows[0].total);
+    const dailySpendUsd = parseFloat(dailyRes.rows[0]?.total || "0");
 
     // Aggregate model usage across team
     const agg = new Map<string, { label: string; tier: ModelTier; spendUsd: number }>();
@@ -141,7 +183,7 @@ export async function GET() {
       .sort((a, b) => b.spendUsd - a.spendUsd);
 
     return NextResponse.json({
-      managerName:        'Dashboard',
+      managerName:        session.email ? session.email.split('@')[0] : 'Admin',
       teamName:           'All Teams',
       period:             new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' }),
       members,
@@ -155,7 +197,20 @@ export async function GET() {
       _source:            'postgres',
     });
   } catch (err: any) {
-    console.error('[/api/team] DB error, falling back to mock:', err.message);
-    return NextResponse.json({ ...getTeamView(), _source: 'mock_fallback' });
+    console.error('[/api/team] DB error:', err.message);
+    return NextResponse.json({
+      managerName: 'Workspace Admin',
+      teamName: 'All Teams',
+      period: new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' }),
+      members: [],
+      teamSpendUsd: 0,
+      teamBudgetUsd: 0,
+      teamBudgetUsedPct: 0,
+      dailySpendUsd: 0,
+      modelUsage: [],
+      alerts: [],
+      budgetWarnPct: 90,
+      _source: 'live_empty',
+    });
   }
 }

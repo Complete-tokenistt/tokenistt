@@ -1,3 +1,7 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useDashboard } from "@/components/DashboardShell";
 import { getTeamView } from "@/lib/mock-data";
 import Section from "@/components/Section";
 import StatCard from "@/components/StatCard";
@@ -13,21 +17,53 @@ import {
   TIER_LABEL,
 } from "@/lib/format";
 
-// Prompt 8 — Team Manager View (team-scoped only).
 export default function TeamPage() {
-  const t = getTeamView();
+  const { isLive } = useDashboard();
+  const [liveTeam, setLiveTeam] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
 
-  const overCount = t.members.filter(
-    (m) => (m.spendUsd / m.budgetUsd) * 100 >= t.budgetWarnPct,
+  useEffect(() => {
+    if (!isLive) return;
+    let mounted = true;
+    setLoading(true);
+
+    fetch("/api/team")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (mounted && data) {
+          setLiveTeam(data);
+        }
+      })
+      .catch((err) => {
+        console.warn("Could not load /api/team:", err);
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [isLive]);
+
+  const t = isLive && liveTeam ? liveTeam : getTeamView();
+
+  const members = t.members || [];
+  const alerts = t.alerts || [];
+  const modelUsage = t.modelUsage || [];
+
+  const overCount = members.filter(
+    (m: any) => (m.spendUsd / (m.budgetUsd || 1)) * 100 >= (t.budgetWarnPct || 90),
   ).length;
-  const activeAlerts = t.alerts.filter((a) => a.enabled).length;
+
+  const activeAlerts = alerts.filter((a: any) => a.enabled).length;
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold" style={{ color: "var(--fg)" }}>{t.teamName} team</h2>
         <p className="text-xs mono" style={{ color: "var(--fg-4)" }}>
-          Manager: {t.managerName} · {t.period} · team-scoped view
+          Manager: {t.managerName} · {t.period} · {isLive ? "live workspace view" : "demo preview"}
         </p>
       </div>
 
@@ -35,32 +71,32 @@ export default function TeamPage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Team spend (MTD)"
-          value={fmtUsd(t.teamSpendUsd)}
-          sub={`${t.teamBudgetUsedPct.toFixed(0)}% of ${fmtUsd(t.teamBudgetUsd)} budget`}
+          value={fmtUsd(t.teamSpendUsd || 0)}
+          sub={`${(t.teamBudgetUsedPct || 0).toFixed(0)}% of ${fmtUsd(t.teamBudgetUsd || 0)} budget`}
           accent={
-            t.teamBudgetUsedPct >= 100
+            (t.teamBudgetUsedPct || 0) >= 100
               ? "red"
-              : t.teamBudgetUsedPct >= 85
+              : (t.teamBudgetUsedPct || 0) >= 85
                 ? "amber"
                 : "emerald"
           }
         />
         <StatCard
           label="Daily spend"
-          value={fmtUsd(t.dailySpendUsd)}
-          sub="Alert at $100/day"
-          accent={t.dailySpendUsd > 100 ? "red" : "emerald"}
+          value={fmtUsd(t.dailySpendUsd || 0)}
+          sub="Alert threshold at $100/day"
+          accent={(t.dailySpendUsd || 0) > 100 ? "red" : "emerald"}
         />
         <StatCard
           label="Members"
-          value={String(t.members.length)}
+          value={String(members.length)}
           sub={`${overCount} near/over budget`}
           accent="brand"
         />
         <StatCard
           label="Active alerts"
           value={String(activeAlerts)}
-          sub={`${t.alerts.length} configured`}
+          sub={`${alerts.length} configured`}
           accent="amber"
         />
       </div>
@@ -73,11 +109,11 @@ export default function TeamPage() {
           className="lg:col-span-2"
           action={
             <span className="text-xs mono" style={{ color: "var(--fg-4)" }}>
-              {t.members.length} people
+              {members.length} people
             </span>
           }
         >
-          <TeamMemberTable data={t.members} />
+          <TeamMemberTable data={members} />
         </Section>
 
         <Section
@@ -89,41 +125,49 @@ export default function TeamPage() {
             </span>
           }
         >
-          <AlertConfig alerts={t.alerts} dailySpendUsd={t.dailySpendUsd} />
+          <AlertConfig alerts={alerts} dailySpendUsd={t.dailySpendUsd || 0} />
         </Section>
       </div>
 
       {/* Model usage breakdown */}
       <Section
         title="Model Usage Breakdown"
-        description="Who is using expensive GPT-4 vs cheap Haiku"
+        description="Cost breakdown across frontier, standard, and lightweight models"
       >
-        <TeamModelStacked members={t.members} />
+        <TeamModelStacked members={members} />
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {t.modelUsage.map((m) => (
-            <div
-              key={m.model}
-              className="card p-3"
-              style={{
-                background: "var(--bg-2)",
-                borderColor: "var(--line-soft)",
-                borderLeft: `4px solid ${MODEL_COLORS[m.model]}`,
-              }}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium" style={{ color: "var(--fg)" }}>
-                  {MODEL_LABELS[m.model] ?? m.label}
-                </span>
-                <Badge tone={TIER_TONE[m.tier]}>{TIER_LABEL[m.tier]}</Badge>
-              </div>
-              <div className="mt-1 text-lg font-semibold mono tabular-nums" style={{ color: "var(--fg)" }}>
-                {fmtUsd(m.spendUsd)}
-              </div>
-              <div className="text-xs mono" style={{ color: "var(--fg-4)" }}>
-                {m.sharePct.toFixed(1)}% of team
-              </div>
+          {modelUsage.length === 0 ? (
+            <div className="col-span-4 p-4 text-center text-xs mono text-[var(--fg-4)]">
+              No model usage logged for this team yet.
             </div>
-          ))}
+          ) : (
+            modelUsage.map((m: any) => (
+              <div
+                key={m.model}
+                className="card p-3"
+                style={{
+                  background: "var(--bg-2)",
+                  borderColor: "var(--line-soft)",
+                  borderLeft: `4px solid ${MODEL_COLORS[m.model] || "var(--violet)"}`,
+                }}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium" style={{ color: "var(--fg)" }}>
+                    {MODEL_LABELS[m.model] ?? m.label}
+                  </span>
+                  <Badge tone={TIER_TONE[m.tier as keyof typeof TIER_TONE] || "neutral"}>
+                    {TIER_LABEL[m.tier as keyof typeof TIER_LABEL] || m.tier}
+                  </Badge>
+                </div>
+                <div className="mt-1 text-lg font-semibold mono tabular-nums" style={{ color: "var(--fg)" }}>
+                  {fmtUsd(m.spendUsd || 0)}
+                </div>
+                <div className="text-xs mono" style={{ color: "var(--fg-4)" }}>
+                  {(m.sharePct ?? 0).toFixed(1)}% of team
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </Section>
     </div>

@@ -1,169 +1,209 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getPool, isDbAvailable } from '@/lib/db';
-import { getSessionFromRequest, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
-import { can } from '@/lib/rbac';
+import { NextRequest, NextResponse } from "next/server";
+import { getPool } from "@/lib/db";
+import { getCostCenters } from "@/lib/mock-data";
+import { getSessionFromRequest, unauthorizedResponse, forbiddenResponse } from "@/lib/auth";
+import { can } from "@/lib/rbac";
 
 export async function GET(req: NextRequest) {
   const session = getSessionFromRequest(req);
   if (!session) return unauthorizedResponse();
 
-  const dbUp = await isDbAvailable();
-  if (!dbUp) {
-    // Return sample mock budget structure when DB is not configured
-    return NextResponse.json({
-      budgets: [
-        {
-          id: '1',
-          name: 'Engineering Monthly Cap',
-          scope_type: 'team',
-          scope_id: '1',
-          cap_usd: 10000.0,
-          used_usd: 4230.5,
-          percent_used: 42.3,
-          period: 'monthly',
-          warn_threshold_pct: 80,
-          critical_threshold_pct: 90,
-          enforcement_mode: 'hard_cap',
-          is_active: true,
-        },
-        {
-          id: '2',
-          name: 'Customer Support Bot Cap',
-          scope_type: 'project',
-          scope_id: '1',
-          cap_usd: 5000.0,
-          used_usd: 4120.0,
-          percent_used: 82.4,
-          period: 'monthly',
-          warn_threshold_pct: 80,
-          critical_threshold_pct: 90,
-          enforcement_mode: 'auto_throttle',
-          is_active: true,
-        },
-      ],
-    });
+  if (!process.env.DATABASE_URL) {
+    return NextResponse.json({ budgets: [] });
   }
 
   try {
     const pool = getPool();
-    // Ensure budgets table exists
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS budgets (
-        id                   bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        public_id            uuid NOT NULL UNIQUE DEFAULT gen_random_uuid(),
-        organization_id      bigint NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-        scope_type           text NOT NULL CHECK (scope_type IN ('organization','team','project','virtual_key')),
-        scope_id             bigint NOT NULL,
-        name                 text,
-        cap_usd              numeric(18,2) NOT NULL,
-        period               text NOT NULL DEFAULT 'monthly',
-        warn_threshold_pct   numeric(5,2) NOT NULL DEFAULT 80.0,
-        critical_threshold_pct numeric(5,2) NOT NULL DEFAULT 90.0,
-        enforcement_mode     text NOT NULL DEFAULT 'hard_cap',
-        is_active            boolean NOT NULL DEFAULT true,
-        created_at           timestamptz NOT NULL DEFAULT now()
-      );
-    `);
 
-    const { rows } = await pool.query(
-      `SELECT 
-        b.id::text,
-        b.public_id::text,
-        b.scope_type,
-        b.scope_id::text,
-        b.name,
-        b.cap_usd::float,
-        b.period,
-        b.warn_threshold_pct::float,
-        b.critical_threshold_pct::float,
-        b.enforcement_mode,
-        b.is_active,
-        COALESCE((
-          SELECT SUM(t.cost_usd)::float
-          FROM transactions t
-          WHERE t.organization_id = b.organization_id
-            AND CASE b.period
-                  WHEN 'daily' THEN t.created_at >= date_trunc('day', now())
-                  WHEN 'weekly' THEN t.created_at >= date_trunc('week', now())
-                  WHEN 'monthly' THEN t.created_at >= date_trunc('month', now())
-                  ELSE false
-                END
-        ), 0.0) AS used_usd
-       FROM budgets b
-       WHERE b.organization_id = $1 AND b.is_active = true
-       ORDER BY b.created_at DESC`,
+    // 1. Try querying multi-level budgets table first
+    const { rows: budgetRows } = await pool.query<{
+      id: string;
+      public_id: string;
+      name: string | null;
+      scope_type: string;
+      scope_id: string;
+      cap_usd: string;
+      period: string;
+      enforcement_mode: string;
+    }>(
+      `
+      SELECT 
+        id::text,
+        public_id::text,
+        name,
+        scope_type,
+        scope_id::text,
+        cap_usd::text,
+        period,
+        enforcement_mode
+      FROM budgets
+      WHERE organization_id = $1 AND is_active = true
+      ORDER BY created_at ASC
+      `,
       [session.orgId]
     );
 
-    const budgetsWithPct = rows.map((r: any) => ({
-      ...r,
-      percent_used: r.cap_usd > 0 ? Math.round((r.used_usd / r.cap_usd) * 1000) / 10 : 0,
-    }));
+    if (budgetRows.length > 0) {
+      // Calculate spend for each configured multi-level budget
+      const budgets = await Promise.all(
+        budgetRows.map(async (b) => {
+          let spendQuery = `
+            SELECT COALESCE(SUM(cost_usd), 0)::text AS spend
+            FROM transactions
+            WHERE organization_id = $1 AND status = 'success'
+              AND created_at >= date_trunc('month', now())
+          `;
+          const params: any[] = [session.orgId];
 
-    return NextResponse.json({ budgets: budgetsWithPct });
+          if (b.scope_type === "team") {
+            spendQuery += " AND team_id = $2";
+            params.push(b.scope_id);
+          } else if (b.scope_type === "project") {
+            spendQuery += " AND project_id = $2";
+            params.push(b.scope_id);
+          } else if (b.scope_type === "virtual_key") {
+            spendQuery += " AND virtual_key_id = $2";
+            params.push(b.scope_id);
+          }
+
+          const { rows: spendRows } = await pool.query<{ spend: string }>(spendQuery, params);
+          const cap = parseFloat(b.cap_usd);
+          const spend = parseFloat(spendRows[0]?.spend || "0");
+          const pct = cap > 0 ? (spend / cap) * 100 : 0;
+
+          return {
+            id: b.id,
+            public_id: b.public_id,
+            name: b.name || `${b.scope_type} #${b.scope_id}`,
+            scope_type: b.scope_type,
+            scope_id: b.scope_id,
+            budget_usd: cap,
+            spend_usd: Math.round(spend * 100) / 100,
+            percent_used: Math.round(pct * 10) / 10,
+            period: b.period,
+            enforcement_mode: b.enforcement_mode,
+            status: pct >= 100 ? "exceeded" : pct >= 80 ? "warning" : "healthy",
+          };
+        })
+      );
+
+      return NextResponse.json({ budgets });
+    }
+
+    // 2. Fallback: Workspace-based budgets
+    const { rows } = await pool.query<{
+      id: string;
+      name: string;
+      cost_center: string;
+      budget_cap_usd: string | null;
+      spend_usd: string;
+    }>(
+      `
+      SELECT 
+        ws.id::text,
+        ws.name,
+        COALESCE(ws.cost_center, 'default') AS cost_center,
+        ws.budget_cap_usd::text,
+        COALESCE(SUM(t.cost_usd), 0)::text AS spend_usd
+      FROM workspaces ws
+      LEFT JOIN transactions t 
+        ON t.workspace_id = ws.id 
+        AND t.organization_id = ws.organization_id
+        AND t.status = 'success'
+        AND t.created_at >= date_trunc('month', now())
+      WHERE ws.organization_id = $1
+      GROUP BY ws.id, ws.name, ws.cost_center, ws.budget_cap_usd
+      ORDER BY ws.name ASC
+      `,
+      [session.orgId]
+    );
+
+    const budgets = rows.map((r) => {
+      const cap = r.budget_cap_usd ? parseFloat(r.budget_cap_usd) : 5000;
+      const spend = parseFloat(r.spend_usd);
+      const pct = cap > 0 ? (spend / cap) * 100 : 0;
+      return {
+        id: r.id,
+        name: r.name,
+        code: r.cost_center,
+        cost_center: r.cost_center,
+        scope_type: "workspace",
+        budget_usd: cap,
+        spend_usd: Math.round(spend * 100) / 100,
+        percent_used: Math.round(pct * 10) / 10,
+        status: pct >= 100 ? "exceeded" : pct >= 80 ? "warning" : "healthy",
+      };
+    });
+
+    return NextResponse.json({ budgets });
   } catch (err: any) {
-    console.error('[Budgets API GET Error]:', err.message);
-    return NextResponse.json({ error: { message: err.message } }, { status: 500 });
+    console.error("[/api/budgets] DB error:", err.message);
+    return NextResponse.json({ budgets: [] });
   }
 }
 
 export async function POST(req: NextRequest) {
   const session = getSessionFromRequest(req);
   if (!session) return unauthorizedResponse();
-  if (!can(session.role, 'budget:write')) return forbiddenResponse();
+
+  if (!can(session.role, "budget:write")) {
+    return forbiddenResponse("Insufficient permissions to create or edit budgets");
+  }
 
   try {
     const body = await req.json();
     const {
       name,
-      scope_type = 'organization',
-      scope_id = session.orgId,
+      scope_type = "organization",
+      scope_id = 0,
       cap_usd,
-      period = 'monthly',
+      period = "monthly",
       warn_threshold_pct = 80,
       critical_threshold_pct = 90,
-      enforcement_mode = 'hard_cap',
+      enforcement_mode = "hard_cap",
     } = body;
 
-    if (!cap_usd || Number(cap_usd) <= 0) {
-      return NextResponse.json(
-        { error: { message: 'cap_usd is required and must be greater than 0' } },
-        { status: 400 }
-      );
+    if (!cap_usd || isNaN(parseFloat(cap_usd))) {
+      return NextResponse.json({ error: "Field cap_usd is required and must be a number" }, { status: 400 });
     }
 
-    const dbUp = await isDbAvailable();
-    if (!dbUp) {
+    if (!process.env.DATABASE_URL) {
       return NextResponse.json({
         success: true,
         budget: {
-          id: Date.now().toString(),
-          name: name || 'New Budget',
+          id: "mock-budget-new",
+          name: name || `${scope_type} Budget`,
           scope_type,
-          scope_id,
-          cap_usd: Number(cap_usd),
+          cap_usd: parseFloat(cap_usd),
           period,
-          warn_threshold_pct,
-          critical_threshold_pct,
           enforcement_mode,
-          is_active: true,
         },
       });
     }
 
     const pool = getPool();
     const { rows } = await pool.query(
-      `INSERT INTO budgets (
-        organization_id, scope_type, scope_id, name, cap_usd, period,
-        warn_threshold_pct, critical_threshold_pct, enforcement_mode, is_active
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
-      RETURNING id::text, public_id::text, name, cap_usd::float, period, enforcement_mode`,
-      [
-        session.orgId,
+      `
+      INSERT INTO budgets (
+        organization_id,
+        name,
         scope_type,
         scope_id,
-        name || `${scope_type.toUpperCase()} Budget`,
-        String(cap_usd),
+        cap_usd,
+        period,
+        warn_threshold_pct,
+        critical_threshold_pct,
+        enforcement_mode,
+        is_active
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
+      RETURNING id::text, public_id::text, name, scope_type, cap_usd, period, enforcement_mode
+      `,
+      [
+        session.orgId,
+        name || `${scope_type} Budget`,
+        scope_type,
+        scope_id,
+        parseFloat(cap_usd),
         period,
         warn_threshold_pct,
         critical_threshold_pct,
@@ -173,37 +213,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, budget: rows[0] });
   } catch (err: any) {
-    console.error('[Budgets API POST Error]:', err.message);
-    return NextResponse.json({ error: { message: err.message } }, { status: 500 });
+    console.error("[/api/budgets] POST error:", err.message);
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
-
-export async function DELETE(req: NextRequest) {
-  const session = getSessionFromRequest(req);
-  if (!session) return unauthorizedResponse();
-  if (!can(session.role, 'budget:write')) return forbiddenResponse();
-
-  const { searchParams } = new URL(req.url);
-  const id = searchParams.get('id');
-  if (!id) {
-    return NextResponse.json({ error: { message: 'Budget id is required' } }, { status: 400 });
-  }
-
-  const dbUp = await isDbAvailable();
-  if (!dbUp) {
-    return NextResponse.json({ success: true });
-  }
-
-  try {
-    const pool = getPool();
-    await pool.query(
-      `UPDATE budgets SET is_active = false WHERE (id::text = $1 OR public_id::text = $1) AND organization_id = $2`,
-      [id, session.orgId]
-    );
-    return NextResponse.json({ success: true });
-  } catch (err: any) {
-    console.error('[Budgets API DELETE Error]:', err.message);
-    return NextResponse.json({ error: { message: err.message } }, { status: 500 });
-  }
-}
-
