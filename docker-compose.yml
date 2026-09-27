@@ -8,7 +8,7 @@ services:
     environment:
       POSTGRES_DB: tokenistt
       POSTGRES_USER: tokenistt
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tokenistt_dev_change_in_production}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — set a strong value in .env or CI/CD secrets}
     ports:
       - "5432:5432"
     volumes:
@@ -44,7 +44,7 @@ services:
     environment:
       PORT: 3000
       NODE_ENV: production
-      DATABASE_URL: postgres://tokenistt:${POSTGRES_PASSWORD:-tokenistt_dev_change_in_production}@postgres:5432/tokenistt
+      DATABASE_URL: postgres://tokenistt:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required in production}@postgres:5432/tokenistt
       REDIS_URL: redis://redis:6379
       DEFAULT_PROVIDER: anthropic
       # ── Required production secrets (must be set in .env or CI/CD secrets) ──
@@ -52,6 +52,8 @@ services:
       ADMIN_SECRET: ${ADMIN_SECRET:?ADMIN_SECRET is required in production}
       # ENCRYPTION_KEY: AES-256-GCM key for BYOK provider key encryption (min 32 chars)
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required in production}
+      # MASTER_KEY: AES-256-GCM key for BYOK API key encryption in vault.ts (min 32 chars)
+      MASTER_KEY: ${MASTER_KEY:?MASTER_KEY is required in production}
       # ── Optional provider keys ────────────────────────────────────────────
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -72,11 +74,13 @@ services:
       - "3001:3000"
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgres://tokenistt:${POSTGRES_PASSWORD:-tokenistt_dev_change_in_production}@postgres:5432/tokenistt
+      DATABASE_URL: postgres://tokenistt:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required in production}@postgres:5432/tokenistt
       TOKENISTT_BASE_URL: http://gateway:3000/v1
       # ── Required production secrets ────────────────────────────────────────
       # JWT_SECRET: used by lib/auth.ts and middleware.ts for JWT signing/verification (min 32 chars)
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required in production}
+      # STRICT_AUTH: enforces JWT authentication on all routes regardless of NODE_ENV
+      STRICT_AUTH: "true"
     depends_on:
       postgres:
         condition: service_healthy

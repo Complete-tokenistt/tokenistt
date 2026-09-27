@@ -7,7 +7,7 @@ import {
 } from '../types/index.js';
 import { AuthContext } from '../db/auth.js';
 import { logTransaction } from '../db/transactionLogger.js';
-import { calculateCost } from './pricing.js';
+import { calculateCost, calculateCostWithStatus } from './pricing.js';
 import { estimateRequestTokens } from '../providers/base.js';
 
 export async function handleStreamingCompletion(
@@ -262,9 +262,18 @@ export async function handleStreamingCompletion(
         outputTokens = Math.ceil(accumulatedText.length / 4);
       }
 
-      const inputCostUsd = calculateCost(providerType, request.model, inputTokens, 0);
-      const outputCostUsd = calculateCost(providerType, request.model, 0, outputTokens);
-      const totalCostUsd = inputCostUsd + outputCostUsd;
+      // Use calculateCostWithStatus to correctly account for cache read/write and reasoning tokens.
+      // This matches the non-streaming path in server.ts and prevents systematic undercounting
+      // for Anthropic cached-prompt requests and o1/o3 reasoning requests.
+      const costBreakdown = calculateCostWithStatus(
+        providerType,
+        request.model,
+        inputTokens,
+        outputTokens,
+      );
+      const inputCostUsd  = costBreakdown.inputCost;
+      const outputCostUsd = costBreakdown.outputCost;
+      const totalCostUsd  = costBreakdown.cost;
 
       logTransaction({
         auth,
@@ -295,6 +304,29 @@ export async function handleStreamingCompletion(
 
     response.data.on('error', (err: any) => {
       res.end();
+      // Log failed streaming transaction so the ledger records the attempt
+      const durationMs = Date.now() - startTime;
+      if (outputTokens > 0 || inputTokens > 0) {
+        const costBreakdown = calculateCostWithStatus(providerType, request.model, inputTokens, outputTokens);
+        logTransaction({
+          auth,
+          provider: providerType,
+          model: request.model,
+          endpoint: '/v1/chat/completions',
+          requestId: id,
+          promptTokens: inputTokens,
+          completionTokens: outputTokens,
+          totalTokens: inputTokens + outputTokens,
+          inputCostUsd: costBreakdown.inputCost,
+          outputCostUsd: costBreakdown.outputCost,
+          costUsd: costBreakdown.cost,
+          durationMs,
+          status: 'error',
+          errorCode: 'STREAM_ERROR',
+          projectTag: request.project_tag,
+          metadata: { error: err.message, model_used: modelUsed },
+        }).catch(() => {});
+      }
       reject(err);
     });
   });

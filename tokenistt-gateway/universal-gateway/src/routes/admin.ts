@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { timingSafeEqual } from 'node:crypto';
 import { getPool } from '../db/pool.js';
 import { invalidateCachedVirtualKey } from '../services/redis.js';
 import { generateVirtualKey } from '../services/keyManager.js';
@@ -10,10 +11,33 @@ function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
   const adminSecret = process.env.ADMIN_SECRET || 'dev-admin-secret-change-in-production';
   const headerSecret = req.headers['x-admin-secret'];
 
-  if (!headerSecret || headerSecret !== adminSecret) {
+  if (!headerSecret || typeof headerSecret !== 'string') {
     res.status(401).json({
       error: {
         message: 'Unauthorized admin request. Valid X-Admin-Secret header required.',
+        type: 'authentication_error',
+      },
+    });
+    return;
+  }
+
+  // Use timing-safe comparison to prevent timing attacks on the admin secret
+  try {
+    const expected = Buffer.from(adminSecret, 'utf-8');
+    const provided = Buffer.from(headerSecret, 'utf-8');
+    if (expected.length !== provided.length || !timingSafeEqual(expected, provided)) {
+      res.status(401).json({
+        error: {
+          message: 'Unauthorized admin request. Valid X-Admin-Secret header required.',
+          type: 'authentication_error',
+        },
+      });
+      return;
+    }
+  } catch {
+    res.status(401).json({
+      error: {
+        message: 'Unauthorized admin request.',
         type: 'authentication_error',
       },
     });

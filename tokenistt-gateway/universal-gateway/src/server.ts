@@ -400,6 +400,18 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
 });
 
 app.post('/v1/config/providers', (req: Request, res: Response) => {
+  // Require admin authentication — this endpoint reconfigures provider API keys at runtime.
+  const adminSecret = process.env.ADMIN_SECRET || 'dev-admin-secret-change-in-production';
+  const headerSecret = req.headers['x-admin-secret'];
+  if (!headerSecret || headerSecret !== adminSecret) {
+    res.status(401).json({
+      error: {
+        message: 'Unauthorized. Valid X-Admin-Secret header required.',
+        type: 'authentication_error',
+      },
+    });
+    return;
+  }
   try {
     const { provider, config: providerCfg } = req.body;
     if (!provider || !providerCfg) {
