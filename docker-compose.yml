@@ -58,6 +58,13 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      # TX_QUEUE_FILE: path inside the container that maps to the persistent volume
+      TX_QUEUE_FILE: /app/gateway_data/tx_queue.jsonl
+    volumes:
+      # BUG-I FIX: mount the durable transaction queue as a named volume.
+      # Without this, any pending transactions queued before a container restart
+      # are permanently lost — defeating the purpose of the durable queue entirely.
+      - gateway_tx_queue:/app/gateway_data
     depends_on:
       postgres:
         condition: service_healthy
@@ -89,4 +96,5 @@ services:
 
 volumes:
   pgdata:
+  gateway_tx_queue:   # Persistent storage for durable transaction queue (tx_queue.jsonl)
 

@@ -432,5 +432,12 @@ describe('B6 — Docker Compose Production Secrets', () => {
       'POSTGRES_PASSWORD must use :? (fail-fast) syntax so missing password causes startup failure'
     );
   });
+
+  it('tx_queue.jsonl is mounted as a persistent Docker volume (NEW-BUG-I)', () => {
+    assert.ok(
+      compose.includes('gateway_tx_queue'),
+      'docker-compose.yml must declare and mount gateway_tx_queue volume for durable queue persistence across container restarts'
+    );
+  });
 });
 
