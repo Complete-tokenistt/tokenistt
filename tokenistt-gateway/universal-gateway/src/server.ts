@@ -15,6 +15,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { config }                                   from 'dotenv';
 import { existsSync }                               from 'fs';
+import { timingSafeEqual }                          from 'node:crypto';
 import {
   GatewayService,
   validateChatCompletionRequest,
@@ -59,18 +60,6 @@ validateSecrets();
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 app.use(requestContextMiddleware);
-
-// ── Health endpoint ─────────────────────────────────────────────────────────
-app.get('/health', async (_req: Request, res: Response) => {
-  const db = await checkDbConnection();
-  const redis = (await import('./services/redis.js')).getRedisClient() !== null;
-  res.json({
-    status: 'ok',
-    db,
-    redis,
-    timestamp: new Date().toISOString(),
-  });
-});
 
 // ── Prometheus metrics endpoint ─────────────────────────────────────────────
 app.get('/metrics', (_req: Request, res: Response) => {
@@ -400,6 +389,28 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
 });
 
 app.post('/v1/config/providers', (req: Request, res: Response) => {
+  // Require admin authentication (timing-safe comparison to prevent enumeration attacks).
+  const adminSecret = process.env.ADMIN_SECRET || 'dev-admin-secret-change-in-production';
+  const headerSecret = req.headers['x-admin-secret'];
+  if (!headerSecret || typeof headerSecret !== 'string') {
+    res.status(401).json({
+      error: { message: 'Unauthorized. Valid X-Admin-Secret header required.', type: 'authentication_error' },
+    });
+    return;
+  }
+  try {
+    const expected = Buffer.from(adminSecret, 'utf-8');
+    const provided = Buffer.from(headerSecret, 'utf-8');
+    if (expected.length !== provided.length || !timingSafeEqual(expected, provided)) {
+      res.status(401).json({
+        error: { message: 'Unauthorized. Valid X-Admin-Secret header required.', type: 'authentication_error' },
+      });
+      return;
+    }
+  } catch {
+    res.status(401).json({ error: { message: 'Unauthorized.', type: 'authentication_error' } });
+    return;
+  }
   try {
     const { provider, config: providerCfg } = req.body;
     if (!provider || !providerCfg) {

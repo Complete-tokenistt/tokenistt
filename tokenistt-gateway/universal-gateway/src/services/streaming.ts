@@ -7,7 +7,7 @@ import {
 } from '../types/index.js';
 import { AuthContext } from '../db/auth.js';
 import { logTransaction } from '../db/transactionLogger.js';
-import { calculateCost } from './pricing.js';
+import { calculateCost, calculateCostWithStatus } from './pricing.js';
 import { estimateRequestTokens } from '../providers/base.js';
 
 export async function handleStreamingCompletion(
@@ -54,6 +54,9 @@ export async function handleStreamingCompletion(
 
   let inputTokens = estimateRequestTokens(request.messages);
   let outputTokens = 0;
+  let cacheReadTokens = 0;        // Anthropic: cache_read_input_tokens; OpenAI: cached_tokens
+  let cacheCreationTokens = 0;    // Anthropic: cache_creation_input_tokens
+  let reasoningTokens = 0;        // OpenAI o1/o3: completion_tokens_details.reasoning_tokens
   let accumulatedText = '';
   let modelUsed = request.model;
 
@@ -125,7 +128,10 @@ export async function handleStreamingCompletion(
     }
 
     body = {
-      model: 'claude-3-5-sonnet-20241022',
+      // BUG-D FIX: use request.model (stripped of provider prefix), not hardcoded model.
+      // Hardcoding 'claude-3-5-sonnet-20241022' caused every Anthropic streaming request
+      // (regardless of model requested) to use the wrong model and the wrong pricing.
+      model: request.model.replace(/^anthropic:/i, ''),
       messages: conversationMessages.map(msg => ({
         role: msg.role === 'assistant' ? 'assistant' : 'user',
         content: typeof msg.content === 'string' ? msg.content : '',
@@ -171,10 +177,14 @@ export async function handleStreamingCompletion(
             const eventData = JSON.parse(dataStr);
 
             if (providerType === 'openai' || providerType === 'azure') {
-              // Capture usage if returned by OpenAI/Azure stream_options
+              // Capture usage if returned by OpenAI/Azure stream_options.
+              // BUG-C FIX: also extract reasoning tokens from completion_tokens_details
+              // and cached tokens from prompt_tokens_details.
               if (eventData.usage) {
                 inputTokens = eventData.usage.prompt_tokens || inputTokens;
                 outputTokens = eventData.usage.completion_tokens || outputTokens;
+                cacheReadTokens = eventData.usage.prompt_tokens_details?.cached_tokens ?? cacheReadTokens;
+                reasoningTokens = eventData.usage.completion_tokens_details?.reasoning_tokens ?? reasoningTokens;
               }
               const deltaContent = eventData.choices?.[0]?.delta?.content || '';
               accumulatedText += deltaContent;
@@ -186,7 +196,11 @@ export async function handleStreamingCompletion(
             } else {
               // Translate Anthropic streaming events to OpenAI format
               if (eventData.type === 'message_start') {
+                // BUG-B FIX: capture Anthropic cache tokens from message_start.usage.
+                // These are NOT present in message_delta — only message_start carries them.
                 inputTokens = eventData.message?.usage?.input_tokens || inputTokens;
+                cacheReadTokens = eventData.message?.usage?.cache_read_input_tokens ?? 0;
+                cacheCreationTokens = eventData.message?.usage?.cache_creation_input_tokens ?? 0;
                 if (eventData.message?.model) {
                   modelUsed = eventData.message.model;
                 }
@@ -247,6 +261,8 @@ export async function handleStreamingCompletion(
               if (eventData.usage) {
                 inputTokens = eventData.usage.prompt_tokens || inputTokens;
                 outputTokens = eventData.usage.completion_tokens || outputTokens;
+                cacheReadTokens = eventData.usage.prompt_tokens_details?.cached_tokens ?? cacheReadTokens;
+                reasoningTokens = eventData.usage.completion_tokens_details?.reasoning_tokens ?? reasoningTokens;
               }
             }
           } catch (e) {}
@@ -262,9 +278,21 @@ export async function handleStreamingCompletion(
         outputTokens = Math.ceil(accumulatedText.length / 4);
       }
 
-      const inputCostUsd = calculateCost(providerType, request.model, inputTokens, 0);
-      const outputCostUsd = calculateCost(providerType, request.model, 0, outputTokens);
-      const totalCostUsd = inputCostUsd + outputCostUsd;
+      // Use calculateCostWithStatus with all token types including cache and reasoning.
+      // BUG-B/C/E FIX: pass the cache and reasoning tokens captured during streaming.
+      // This matches the non-streaming path in server.ts exactly.
+      const costBreakdown = calculateCostWithStatus(
+        providerType,
+        request.model,
+        inputTokens,
+        outputTokens,
+        cacheReadTokens,
+        cacheCreationTokens,
+        reasoningTokens,
+      );
+      const inputCostUsd  = costBreakdown.inputCost + costBreakdown.cachedInputCost + costBreakdown.cacheCreationCost;
+      const outputCostUsd = costBreakdown.outputCost + costBreakdown.reasoningCost;
+      const totalCostUsd  = costBreakdown.cost;
 
       logTransaction({
         auth,
@@ -275,6 +303,8 @@ export async function handleStreamingCompletion(
         promptTokens: inputTokens,
         completionTokens: outputTokens,
         totalTokens: inputTokens + outputTokens,
+        cacheCreationTokens,
+        cacheReadTokens,
         inputCostUsd,
         outputCostUsd,
         costUsd: totalCostUsd,
@@ -295,6 +325,35 @@ export async function handleStreamingCompletion(
 
     response.data.on('error', (err: any) => {
       res.end();
+      // Log failed streaming transaction so the ledger records the attempt
+      const durationMs = Date.now() - startTime;
+      if (outputTokens > 0 || inputTokens > 0) {
+        const costBreakdown = calculateCostWithStatus(
+          providerType, request.model,
+          inputTokens, outputTokens,
+          cacheReadTokens, cacheCreationTokens, reasoningTokens,
+        );
+        logTransaction({
+          auth,
+          provider: providerType,
+          model: request.model,
+          endpoint: '/v1/chat/completions',
+          requestId: id,
+          promptTokens: inputTokens,
+          completionTokens: outputTokens,
+          totalTokens: inputTokens + outputTokens,
+          cacheCreationTokens,
+          cacheReadTokens,
+          inputCostUsd: costBreakdown.inputCost + costBreakdown.cachedInputCost + costBreakdown.cacheCreationCost,
+          outputCostUsd: costBreakdown.outputCost + costBreakdown.reasoningCost,
+          costUsd: costBreakdown.cost,
+          durationMs,
+          status: 'error',
+          errorCode: 'STREAM_ERROR',
+          projectTag: request.project_tag,
+          metadata: { error: err.message, model_used: modelUsed },
+        }).catch(() => {});
+      }
       reject(err);
     });
   });

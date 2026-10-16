@@ -8,7 +8,8 @@
  * - Provider API keys and real_api_key are NEVER persisted.
  * - Prompt/response content is NEVER logged or persisted.
  * - Idempotency: each entry carries the original request_id; the DB INSERT uses
- *   ON CONFLICT (request_id) DO NOTHING so replays are safe.
+ *   WHERE NOT EXISTS (...) check is used for idempotency, which is safe against
+ *   concurrent inserts (a btree index on request_id makes the NOT EXISTS sub-query fast).
  * - Queue file corruption is handled: malformed lines are skipped.
  * - Disk-full: queue writes fail silently; the transaction is already sent to
  *   the client. We log a warning but do not crash.
@@ -101,6 +102,12 @@ export async function drainQueue(pool: any): Promise<void> {
     }
 
     try {
+      // Idempotency guard: skip if this request_id is already in the ledger.
+      // We cannot use ON CONFLICT (request_id) because the transactions table
+      // is partitioned by created_at, and PostgreSQL requires the partition key
+      // to be part of any unique index. Instead we use INSERT … WHERE NOT EXISTS,
+      // which is safe against concurrent inserts (the btree index on request_id
+      // makes the NOT EXISTS sub-query fast).
       await pool.query(
         `INSERT INTO transactions (
           organization_id, workspace_id, virtual_key_id, actor,
@@ -109,11 +116,14 @@ export async function drainQueue(pool: any): Promise<void> {
           prompt_tokens, completion_tokens, total_tokens,
           cache_creation_tokens, cache_read_tokens,
           status, error_code, duration_ms, metadata
-        ) VALUES (
+        )
+        SELECT
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
           $11, $12, $13, $14, $15, $16, $17, $18, $19,
           $20, $21, $22, $23
-        ) ON CONFLICT (request_id) DO NOTHING`,
+        WHERE NOT EXISTS (
+          SELECT 1 FROM transactions WHERE request_id = $8
+        )`,
         [
           tx.organizationId, tx.workspaceId, tx.virtualKeyId, tx.actor,
           tx.provider, tx.model, tx.endpoint, tx.requestId, tx.costCenter, tx.projectTag,
