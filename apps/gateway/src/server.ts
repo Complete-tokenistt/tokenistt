@@ -36,6 +36,10 @@ import { checkDbConnection, closePool, getPool }    from './db/pool.js';
 import { startAuditDrainScheduler, stopAuditDrainScheduler } from './services/auditLogger.js';
 import { handleStreamingCompletion }                from './services/streaming.js';
 import { checkPolicies }                            from './db/policies.js';
+import { enforceBudgets }                          from './services/budgetEngine.js';
+import { resolveAttribution }                      from './services/workspaceResolver.js';
+import { resolveRoute }                            from './services/routingEngine.js';
+import { resolveKeys }                             from './services/byok.js';
 import { checkAndSendBudgetAlert }                 from './services/alerting.js';
 import { SmartRouter }                              from './services/router.js';
 import { adminRouter }                              from './routes/admin.js';
@@ -189,6 +193,9 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
     res.setHeader('x-tokenistt-actor',       auth.actor);
     res.setHeader('x-tokenistt-request-id',  requestId);
 
+    // ── Step 2.2: Workspace / team / project / attribution resolver ──────────
+    auth.attribution = await resolveAttribution(auth, req.headers);
+
     // ── Step 2.5: Policy & Governance Check ──────────────────────────────────
     const policyResult = await checkPolicies(auth, req.body, requestId);
     if (!policyResult.allowed) {
@@ -229,6 +236,27 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
       req.body = policyResult.modifiedRequest;
     }
 
+    // ── Step 2.7: Hierarchical budget enforcement (org → team → project → key) ──
+    const budget = await enforceBudgets(auth, requestId);
+    if (!budget.allowed) {
+      res.status(429).json({
+        error: {
+          message: budget.result?.reason || 'Budget exceeded.',
+          type: 'budget_exceeded_error',
+          code: 'budget_exceeded',
+          scope: budget.result?.scopeType,
+        },
+      });
+      return;
+    }
+    if (budget.result && budget.result.level !== 'ok') {
+      res.setHeader('x-tokenistt-budget-level', budget.result.level);
+      res.setHeader('x-tokenistt-budget-percent', budget.result.percentUsed.toFixed(1));
+    }
+    if (budget.throttleMs > 0) {
+      await new Promise(resolve => setTimeout(resolve, budget.throttleMs));
+    }
+
     // ── Streaming (passthrough) ─────────────────────────────────────────────
     if (req.body.stream === true) {
       const providerOverride = extractProviderFromHeaders(
@@ -244,7 +272,12 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
     );
 
     // ── Step 4: Call provider (via SmartRouter for automatic failover) ───────
-    const response  = await router.handleChatCompletion(req.body, providerOverride, auth.realApiKey);
+    const route = providerOverride ? null : await resolveRoute(auth, req.body, requestId);
+    const response = await router.route(req.body, {
+      providerOverride,
+      candidates: route?.candidates,
+      keys: provider => resolveKeys(auth, provider),
+    });
     const durationMs = Date.now() - startTime;
 
     // ── Step 5: Precise cost breakdown with cache & reasoning tokens ──────────
@@ -257,13 +290,16 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
       ?? 0;
     const reasoningTokens = (response.usage as any)?.completion_tokens_details?.reasoning_tokens ?? 0;
 
+    // Bill the model that actually served the request (routing/failover may have changed it)
+    const billedModel: string = (response._tokenistt as any)?.routed_model ?? req.body.model;
+
     // Dynamically resolve pricing tier from DB (with fallback)
-    const customPricing = await resolvePricingTierDynamic(usedProvider, req.body.model);
+    const customPricing = await resolvePricingTierDynamic(usedProvider, billedModel);
 
     // Derive per-direction costs from pricing table including cache & reasoning tokens
     const costBreakdown = calculateCostWithStatus(
       usedProvider,
-      req.body.model,
+      billedModel,
       promptTokens,
       completTokens,
       cacheReadTokens,
@@ -307,7 +343,7 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
     logTransaction({
       auth,
       provider:        usedProvider,
-      model:           req.body.model,
+      model:           billedModel,
       endpoint:        '/v1/chat/completions',
       requestId,
       promptTokens,
