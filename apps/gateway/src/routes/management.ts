@@ -13,6 +13,8 @@ import { generateVirtualKey } from '../services/keyManager.js';
 import { addProviderKey } from '../services/byok.js';
 import { decideApproval, listApprovals, type ApprovalStatus } from '../services/approvals.js';
 import { clearRoutingCache } from '../services/routingEngine.js';
+import { createConnector, listConnectors, deleteConnector, runSync, testConnector } from '../services/connectorService.js';
+import { listConnectorTypes, ConnectorError } from '../connectors/registry.js';
 
 export const managementRouter = Router();
 managementRouter.use(adminAuth);
@@ -40,6 +42,7 @@ function endpoint(permission: Permission, handler: Handler) {
         res.status(req.method === 'POST' && out && (out as any).__created ? 201 : 200).json(stripFlag(out));
       } catch (err: any) {
         if (err instanceof HttpError) return void res.status(err.status).json({ error: { message: err.message } });
+        if (err instanceof ConnectorError) return void res.status(err.status).json({ error: { message: err.message } });
         if (err?.code === '23505') return void res.status(409).json({ error: { message: 'Already exists.' } });
         if (err?.code === '22P02' || err?.code === '23514' || err?.code === '23503') {
           return void res.status(400).json({ error: { message: `Invalid input: ${err.detail || err.message}` } });
@@ -356,6 +359,49 @@ managementRouter.post('/keys', ...endpoint('keys:write', async (req, org) => {
   audit(req, org, 'key.create', 'virtual_key', rows[0].id, undefined, rows[0]);
   // The raw token is shown exactly once and never stored.
   return created({ ...rows[0], token: keyInfo.rawToken });
+}));
+
+// ── Connectors ───────────────────────────────────────────────────────────────
+
+managementRouter.get('/connectors/types', requirePermission('spend:read'), (_req: Request, res: Response) => {
+  res.json(listConnectorTypes());
+});
+
+managementRouter.get('/connectors', ...endpoint('spend:read', async (_req, org) => listConnectors(org)));
+
+managementRouter.post('/connectors', ...endpoint('connectors:write', async (req, org) => {
+  const b = req.body ?? {};
+  need(typeof b.type === 'string' && typeof b.name === 'string' && b.name.trim(), 'type and name are required');
+  need(b.config && typeof b.config === 'object', 'config object is required');
+  const row = await createConnector(org, b.type, b.name.trim(), b.config, b.verify !== false);
+  audit(req, org, 'connector.create', 'connector', row.id, undefined, { type: row.type, name: row.name }); // config omitted: it holds secrets
+  return created(row);
+}));
+
+managementRouter.post('/connectors/:id/test', ...endpoint('connectors:write', async (req, org) => {
+  await testConnector(pid(req), org);
+  return { ok: true };
+}));
+
+managementRouter.post('/connectors/:id/sync', ...endpoint('connectors:write', async (req, org) => {
+  const out = await runSync(pid(req), org);
+  audit(req, org, 'connector.sync', 'connector', pid(req), undefined, out);
+  return out;
+}));
+
+managementRouter.delete('/connectors/:id', ...endpoint('connectors:write', async (req, org) => {
+  const ok = await deleteConnector(org, pid(req));
+  notFound(ok, 'Connector');
+  audit(req, org, 'connector.delete', 'connector', pid(req), undefined, undefined);
+  return { deleted: true };
+}));
+
+managementRouter.get('/attribution', ...endpoint('spend:read', async (req, org) => {
+  const dim = req.query.dimension ? String(req.query.dimension) : null;
+  return (await pool().query(
+    `SELECT dimension, value, label, cost_usd::text, total_tokens::text, requests::text, first_seen, last_seen
+       FROM v_cost_by_dimension WHERE organization_id = $1 AND ($2::text IS NULL OR dimension = $2)
+      ORDER BY cost_usd DESC LIMIT 200`, [org, dim])).rows;
 }));
 
 // ── Request history + cost report (CSV) ──────────────────────────────────────
