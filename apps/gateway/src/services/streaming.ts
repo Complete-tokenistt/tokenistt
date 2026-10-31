@@ -1,3 +1,5 @@
+import { findCompatConfig } from '../providers/openaiCompat.js';
+import { firstKey } from './byok.js';
 import { Response } from 'express';
 import axios from 'axios';
 import { 
@@ -24,7 +26,10 @@ export async function handleStreamingCompletion(
   const normalizedModel = request.model.toLowerCase();
   let providerType: ProviderType = providerOverride || (process.env.DEFAULT_PROVIDER as ProviderType) || 'anthropic';
   
-  if (normalizedModel.startsWith('openai:')) {
+  const compat = findCompatConfig(request.model, providerOverride);
+  if (compat) {
+    providerType = compat.name;
+  } else if (normalizedModel.startsWith('openai:')) {
     providerType = 'openai';
   } else if (normalizedModel.includes('claude')) {
     providerType = 'anthropic';
@@ -61,7 +66,7 @@ export async function handleStreamingCompletion(
   let modelUsed = request.model;
 
   if (providerType === 'openai') {
-    const apiKey = auth.realApiKey || process.env.OPENAI_API_KEY;
+    const apiKey = (await firstKey(auth, 'openai')) || process.env.OPENAI_API_KEY;
     if (!apiKey) {
       throw new Error('OpenAI credentials not configured');
     }
@@ -78,6 +83,28 @@ export async function handleStreamingCompletion(
       tool_choice: request.tool_choice,
       stream: true,
       stream_options: { include_usage: true }, // request usage metadata in the last chunk
+      stop: request.stop,
+      presence_penalty: request.presence_penalty,
+      frequency_penalty: request.frequency_penalty,
+    };
+  } else if (compat) {
+    const apiKey = (await firstKey(auth, compat.name)) || process.env[compat.apiKeyEnv];
+    if (!apiKey && !compat.keyOptional) {
+      throw new Error(`${compat.label} credentials not configured`);
+    }
+    const baseUrl = (process.env[compat.baseUrlEnv] || compat.defaultBaseUrl).replace(/\/+$/, '');
+    url = `${baseUrl}/chat/completions`;
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+    body = {
+      model: request.model.replace(new RegExp(`^${compat.prefix}`, 'i'), ''),
+      messages: request.messages,
+      temperature: request.temperature,
+      top_p: request.top_p,
+      max_tokens: request.max_tokens,
+      tools: request.tools,
+      tool_choice: request.tool_choice,
+      stream: true,
+      stream_options: { include_usage: true },
       stop: request.stop,
       presence_penalty: request.presence_penalty,
       frequency_penalty: request.frequency_penalty,
@@ -108,7 +135,7 @@ export async function handleStreamingCompletion(
     };
   } else {
     // Default to anthropic
-    const apiKey = auth.realApiKey || process.env.ANTHROPIC_API_KEY;
+    const apiKey = (await firstKey(auth, 'anthropic')) || process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       throw new Error('Anthropic credentials not configured');
     }
@@ -176,7 +203,7 @@ export async function handleStreamingCompletion(
           try {
             const eventData = JSON.parse(dataStr);
 
-            if (providerType === 'openai' || providerType === 'azure') {
+            if (providerType === 'openai' || providerType === 'azure' || compat) {
               // Capture usage if returned by OpenAI/Azure stream_options.
               // BUG-C FIX: also extract reasoning tokens from completion_tokens_details
               // and cached tokens from prompt_tokens_details.
@@ -257,7 +284,7 @@ export async function handleStreamingCompletion(
         if (dataStr !== '[DONE]') {
           try {
             const eventData = JSON.parse(dataStr);
-            if (providerType === 'openai' || providerType === 'azure') {
+            if (providerType === 'openai' || providerType === 'azure' || compat) {
               if (eventData.usage) {
                 inputTokens = eventData.usage.prompt_tokens || inputTokens;
                 outputTokens = eventData.usage.completion_tokens || outputTokens;

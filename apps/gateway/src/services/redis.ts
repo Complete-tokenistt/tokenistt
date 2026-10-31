@@ -360,3 +360,22 @@ export async function adjustBudgetReservation(
   }
 }
 
+
+/**
+ * With REDIS_REQUIRED=true the gateway refuses to run without Redis (HA deployments:
+ * rate limits and atomic budget reservation need shared state across instances).
+ * Resolves true when Redis answers PING within the timeout.
+ */
+export async function waitForRedis(timeoutMs = 5000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const client = getRedisClient();
+    if (client) {
+      try {
+        if ((await client.ping()) === 'PONG') return true;
+      } catch { /* retry */ }
+    }
+    await new Promise(r => setTimeout(r, 200));
+  }
+  return false;
+}

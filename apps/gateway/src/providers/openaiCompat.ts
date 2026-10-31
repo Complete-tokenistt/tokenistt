@@ -168,3 +168,12 @@ export class OllamaAdapter extends OpenAICompatAdapter {
 export class GeminiAdapter extends OpenAICompatAdapter {
   constructor(apiKey?: string) { super(GEMINI_CONFIG, apiKey); }
 }
+
+export const COMPAT_CONFIGS: OpenAICompatConfig[] = [GROQ_CONFIG, TOGETHER_CONFIG, OLLAMA_CONFIG, GEMINI_CONFIG];
+
+/** Config for an OpenAI-compatible provider by explicit name, or by model prefix/hint. */
+export function findCompatConfig(model: string, provider?: string): OpenAICompatConfig | null {
+  if (provider) return COMPAT_CONFIGS.find(c => c.name === provider) ?? null;
+  const m = model.toLowerCase();
+  return COMPAT_CONFIGS.find(c => m.startsWith(c.prefix) || (c.modelHints ?? []).some(h => m.includes(h))) ?? null;
+}
