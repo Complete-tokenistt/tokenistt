@@ -87,7 +87,7 @@ export interface ParsedToken {
  * Returns null for any malformed input.
  */
 export function parseToken(authHeader: string): ParsedToken | null {
-  const match = authHeader.match(/^Bearer\s+(tktt_live_(\w+)_(\w+)_(\w+))$/i);
+  const match = authHeader.match(/^Bearer\s+(tktt_live_(\w+)_(\w+)_([\w-]+))$/i);
   if (!match) return null;
   return {
     raw:       match[1],

@@ -12,7 +12,8 @@
     "dev:node": "node --loader tsx src/server.ts",
     "test": "tsx --test --test-force-exit --test-timeout=60000 \"src/**/*.test.ts\"",
     "lint": "eslint src/**/*.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "node scripts/e2e.mjs"
   },
   "keywords": [
     "openai",
