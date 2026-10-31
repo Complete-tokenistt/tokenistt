@@ -61,6 +61,8 @@ export interface AuthContext {
   rawToken?: string;
   /** rate limit allowed per minute */
   rateLimitPerMinute?: number;
+  /** Team/project/cost-attribution resolved per request from x-tokenistt-* headers */
+  attribution?: import('../services/workspaceResolver.js').Attribution;
   /** Atomic budget reservation tracking for concurrency protection */
   budgetReservation?: {
     estimated: number;

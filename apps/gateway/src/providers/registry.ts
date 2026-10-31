@@ -120,6 +120,18 @@ export class ProviderRegistry {
     else this.providers.set(type, entry.make(apiKey));
   }
   
+  /**
+   * Instantiate an OpenAI-compatible adapter without a default key so a per-request
+   * BYOK key can be used for providers the gateway has no environment key for.
+   */
+  ensureKeyless(type: ProviderType): BaseProviderAdapter | null {
+    const entry = COMPAT_PROVIDERS.find(p => p.cfg.name === type);
+    if (!entry) return null;
+    const adapter = entry.make();
+    this.providers.set(type, adapter);
+    return adapter;
+  }
+
   setDefaultProvider(provider: ProviderType): void {
     if (!this.providers.has(provider)) {
       throw new Error(`Provider ${provider} not configured`);

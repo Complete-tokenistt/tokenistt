@@ -122,11 +122,15 @@ export async function logTransaction(
         status,
         error_code,
         duration_ms,
-        metadata
+        metadata,
+        team_id, project_id, environment,
+        repo, ticket, sprint, feature, customer, employee
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
         $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-        $21, $22, $23
+        $21, $22, $23,
+        $24, $25, $26,
+        $27, $28, $29, $30, $31, $32
       )
       RETURNING public_id::text
       `,
@@ -154,6 +158,15 @@ export async function logTransaction(
         payload.errorCode ?? null,
         payload.durationMs,
         JSON.stringify(payload.metadata ?? {}),
+        payload.auth.attribution?.teamId ?? null,
+        payload.auth.attribution?.projectId ?? null,
+        payload.auth.attribution?.environment ?? null,
+        payload.auth.attribution?.repo ?? null,
+        payload.auth.attribution?.ticket ?? null,
+        payload.auth.attribution?.sprint ?? null,
+        payload.auth.attribution?.feature ?? null,
+        payload.auth.attribution?.customer ?? null,
+        payload.auth.attribution?.employee ?? null,
       ],
     );
 
@@ -192,8 +205,8 @@ export async function logTransaction(
     if (payload.auth.organizationId !== BigInt(0)) {
       upsertHourlyRollup({
         organizationId: payload.auth.organizationId,
-        teamId: null,
-        projectId: null,
+        teamId: payload.auth.attribution?.teamId ?? null,
+        projectId: payload.auth.attribution?.projectId ?? null,
         provider: payload.provider,
         model: payload.model,
         costUsd: payload.costUsd,

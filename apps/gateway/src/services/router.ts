@@ -6,6 +6,8 @@ import {
 } from '../types/index.js';
 import { GatewayService } from './gateway.js';
 import { AuthContext } from '../db/auth.js';
+import { isKeyFailure, markKeyResult, type KeyCandidate } from './byok.js';
+import type { RouteTarget } from './routingEngine.js';
 
 export interface RouterConfig {
   enableFailover?: boolean;
@@ -166,6 +168,78 @@ export class SmartRouter {
       `All attempted providers failed for model ${request.model}: ${lastError?.message || 'Unknown error'}`,
       503,
       primaryProvider,
+      'ALL_PROVIDERS_FAILED'
+    );
+  }
+
+  /** Default candidate list: primary provider + configured failover chain with model translation. */
+  private defaultCandidates(request: OpenAIChatCompletionRequest, primary: ProviderType): RouteTarget[] {
+    const out: RouteTarget[] = [{ provider: primary, model: request.model }];
+    if (!this.enableFailover) return out;
+    const available = this.gateway.getAvailableProviders();
+    for (const p of this.fallbackChain[primary] || []) {
+      if (p === primary || !available.includes(p)) continue;
+      const model = this.resolveFailoverModel(p, request.model);
+      if (model) out.push({ provider: p, model });
+    }
+    return out;
+  }
+
+  /**
+   * Full routing path: explicit candidates (from a routing rule) or the default
+   * failover chain, each tried with every BYOK key in priority order.
+   * A bad/limited key moves to the next key; other provider errors move to the
+   * next provider; client errors (400/401/403 GatewayError) surface immediately.
+   */
+  async route(
+    request: OpenAIChatCompletionRequest,
+    opts: {
+      providerOverride?: ProviderType;
+      candidates?: RouteTarget[];
+      keys: (provider: string) => Promise<KeyCandidate[]>;
+    }
+  ): Promise<OpenAIChatCompletionResponse> {
+    const primary = opts.providerOverride || this.gateway.detectProvider(request.model);
+    const candidates = opts.candidates?.length ? opts.candidates : this.defaultCandidates(request, primary);
+    let lastError: Error | null = null;
+
+    for (let i = 0; i < candidates.length; i++) {
+      const target = candidates[i];
+      const targetRequest = target.model === request.model ? request : { ...request, model: target.model };
+      const keys = await opts.keys(target.provider);
+
+      for (const k of keys) {
+        try {
+          const response = await this.gateway.handleChatCompletion(targetRequest, target.provider as ProviderType, k.key);
+          markKeyResult(k.id, true).catch(() => {});
+          if (i > 0 || (opts.candidates?.length ?? 0) > 0) {
+            response._tokenistt = {
+              ...response._tokenistt,
+              routed_provider: target.provider,
+              routed_model: target.model,
+              ...(i > 0 ? { failover_used: true, original_model: request.model } : {}),
+              ...(k.id ? { key_label: k.label } : {}),
+            } as any;
+          }
+          return response;
+        } catch (err: any) {
+          lastError = err;
+          if (err instanceof GatewayError && [400, 401, 403].includes(err.statusCode)) throw err;
+          if (isKeyFailure(err) && k.id) {
+            markKeyResult(k.id, false, err.message).catch(() => {});
+            console.warn(`[SmartRouter 🔑] key '${k.label}' failed for ${target.provider}: ${err.message}; trying next key`);
+            continue;
+          }
+          console.error(`[SmartRouter ❌] ${target.provider} failed: ${err.message}`);
+          break; // not a key problem — move on to the next provider
+        }
+      }
+    }
+
+    throw new GatewayError(
+      `All attempted providers failed for model ${request.model}: ${lastError?.message || 'Unknown error'}`,
+      503,
+      primary,
       'ALL_PROVIDERS_FAILED'
     );
   }
