@@ -91,7 +91,7 @@ managementRouter.post('/budgets', ...endpoint('budget:write', async (req, org) =
   const b = req.body ?? {};
   need(['organization', 'team', 'project', 'virtual_key'].includes(b.scope_type), 'scope_type must be organization|team|project|virtual_key');
   need(b.scope_id !== undefined && /^\d+$/.test(String(b.scope_id)), 'scope_id (numeric) is required');
-  need(Number(b.cap_usd) > 0, 'cap_usd must be > 0');
+  need(Number(b.cap_usd) >= 0.01, 'cap_usd must be at least 0.01 (budgets are stored to the cent)');
   const { rows } = await pool().query(
     `INSERT INTO budgets (organization_id, scope_type, scope_id, name, cap_usd, period, warn_threshold_pct, critical_threshold_pct, enforcement_mode)
      VALUES ($1,$2,$3,$4,$5,COALESCE($6,'monthly'),COALESCE($7,80),COALESCE($8,90),COALESCE($9,'hard_cap'))
@@ -104,6 +104,7 @@ managementRouter.post('/budgets', ...endpoint('budget:write', async (req, org) =
 
 managementRouter.patch('/budgets/:id', ...endpoint('budget:write', async (req, org) => {
   const b = req.body ?? {};
+  if (b.cap_usd !== undefined) need(Number(b.cap_usd) >= 0.01, 'cap_usd must be at least 0.01 (budgets are stored to the cent)');
   const before = (await pool().query(`SELECT ${BUDGET_COLS} FROM budgets WHERE public_id::text = $1 AND organization_id = $2`, [pid(req), org])).rows[0];
   notFound(before, 'Budget');
   const { rows } = await pool().query(

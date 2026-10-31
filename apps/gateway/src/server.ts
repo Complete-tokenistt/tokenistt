@@ -446,6 +446,12 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
         cost_usd:     totalCostUsd,
         cost_status:  costStatus,
         latency_ms:   durationMs,
+        // routing / failover outcome, when the router changed the provider or model
+        ...((response._tokenistt as any)?.routed_model ? {
+          routed_provider: (response._tokenistt as any).routed_provider,
+          routed_model:    (response._tokenistt as any).routed_model,
+          failover_used:   (response._tokenistt as any).failover_used ?? false,
+        } : {}),
       },
     });
 
