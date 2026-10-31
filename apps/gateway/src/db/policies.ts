@@ -3,6 +3,8 @@ import { AuthContext } from './auth.js';
 import { OpenAIChatCompletionRequest } from '../types/index.js';
 import { estimateRequestTokens } from '../providers/base.js';
 import { calculateCost } from '../services/pricing.js';
+import { logDecision } from '../services/auditLogger.js';
+import { createApproval, findApproval, requestFingerprint } from '../services/approvals.js';
 
 export interface Policy {
   id: string;
@@ -18,7 +20,7 @@ export interface Policy {
     prompt_keyword?: string;
   };
   actions: {
-    effect: 'block' | 'require_approval' | 'force_model';
+    effect: 'allow' | 'deny' | 'block' | 'require_approval' | 'force_model';
     model?: string;
     message?: string;
   };
@@ -102,14 +104,20 @@ export async function migratePolicies(): Promise<void> {
 }
 
 /** Check if any active policy matches the incoming request and apply actions. */
-export async function checkPolicies(
-  auth: AuthContext,
-  request: OpenAIChatCompletionRequest
-): Promise<{
+export interface PolicyResult {
   allowed: boolean;
   reason?: string;
+  /** Machine-readable code for the client (policy_violation | approval_required | approval_denied) */
+  code?: string;
+  approvalId?: string;
   modifiedRequest?: OpenAIChatCompletionRequest;
-}> {
+}
+
+export async function checkPolicies(
+  auth: AuthContext,
+  request: OpenAIChatCompletionRequest,
+  requestId?: string
+): Promise<PolicyResult> {
   if (!process.env.DATABASE_URL) {
     return { allowed: true }; // Open mode
   }
@@ -179,23 +187,58 @@ export async function checkPolicies(
       // If we reach here, all specified conditions in the policy match!
       console.log(`[Policy Match] Applied policy: "${name}"`);
 
-      if (actions.effect === 'block') {
-        return {
-          allowed: false,
-          reason: actions.message || `Request blocked by policy: "${name}"`
-        };
+      const audit = (decision: string, reason?: string, extra?: Record<string, unknown>) =>
+        logDecision({
+          organizationId: auth.organizationId,
+          kind: 'policy',
+          subjectId: policy.public_id,
+          requestId,
+          decision,
+          reason,
+          metadata: { policy: name, model: request.model, costCenter: auth.costCenter, ...extra },
+        });
+
+      if (actions.effect === 'allow') {
+        audit('allow');
+        return { allowed: true, modifiedRequest: wasModified ? modifiedRequest : undefined };
+      }
+
+      if (actions.effect === 'block' || actions.effect === 'deny') {
+        const reason = actions.message || `Request blocked by policy: "${name}"`;
+        audit('block', reason);
+        return { allowed: false, reason, code: 'policy_violation' };
       }
 
       if (actions.effect === 'require_approval') {
-        return {
-          allowed: false,
-          reason: actions.message || `Request requires administrative approval under policy: "${name}"`
-        };
+        const fingerprint = requestFingerprint(auth, request);
+        const existing = await findApproval(auth.organizationId, fingerprint);
+
+        if (existing?.status === 'approved') {
+          audit('approved', 'Previously approved request', { approvalId: existing.public_id });
+          continue; // approved: this policy no longer gates the request
+        }
+        if (existing?.status === 'denied') {
+          const reason = `Approval ${existing.public_id} was denied by ${existing.decided_by ?? 'an administrator'}.`;
+          audit('block', reason, { approvalId: existing.public_id });
+          return { allowed: false, reason, code: 'approval_denied', approvalId: existing.public_id };
+        }
+
+        const reason = actions.message || `Request requires administrative approval under policy: "${name}"`;
+        const approval = existing ?? (await createApproval({
+          auth, policyId: policy.id, fingerprint, model: request.model, reason,
+        }));
+        audit('require_approval', reason, { approvalId: approval.public_id });
+        return { allowed: false, reason, code: 'approval_required', approvalId: approval.public_id };
       }
 
       if (actions.effect === 'force_model' && actions.model) {
         modifiedRequest.model = actions.model;
         wasModified = true;
+        logDecision({
+          organizationId: auth.organizationId, kind: 'policy', subjectId: policy.public_id, requestId,
+          decision: 'force_model', reason: `${request.model} -> ${actions.model}`,
+          metadata: { policy: name },
+        });
         console.log(`[Policy Action] Forced model redirection: ${request.model} -> ${actions.model}`);
       }
     }
