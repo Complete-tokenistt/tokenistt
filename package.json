@@ -2,29 +2,25 @@
   "name": "tokenistt-monorepo",
   "version": "0.0.0",
   "private": true,
-  "description": "Tokenistt unified monorepo — SDK, Gateway, FinOps Middleware, Analytics, and tooling",
+  "license": "Apache-2.0",
+  "description": "Tokenistt — open-source AI cost visibility and governance gateway",
   "workspaces": [
-    "tokenistt-gateway/universal-gateway",
-    "tokenistt-gateway/finops-middleware",
-    "tokenistt-gateway/tokenist-sdk",
-    "tokenistt-sdk",
-    "tokenistt-sdk/analytics/consumer",
-    "tokenistt-sdk/home/user/credential-manager",
-    "tokenistt-sdk/home/user/dashboard",
-    "tokenistt-sdk/home/user/mcp-server",
-    "tokenistt-sdk/home/user/shadow-ai-scanner"
+    "apps/*",
+    "packages/finops-middleware",
+    "packages/sdk-ts",
+    "packages/analytics/consumer",
+    "packages/credential-manager",
+    "packages/shadow-ai-scanner"
   ],
   "scripts": {
-    "build:gateway": "npm run build --workspace=tokenistt-gateway/universal-gateway",
-    "build:middleware": "npm run build --workspace=tokenistt-gateway/finops-middleware",
-    "build:sdk:v1": "npm run build --workspace=tokenistt-gateway/tokenist-sdk",
-    "build:sdk:v2": "npm run build --workspace=tokenistt-sdk",
-    "build:all": "npm run build:gateway && npm run build:middleware && npm run build:sdk:v1 && npm run build:sdk:v2",
-    "dev:gateway": "npm run dev --workspace=tokenistt-gateway/universal-gateway",
-    "dev:middleware": "npm run dev --workspace=tokenistt-gateway/finops-middleware",
-    "typecheck:gateway": "npm run typecheck --workspace=tokenistt-gateway/universal-gateway",
-    "typecheck:middleware": "npm run typecheck --workspace=tokenistt-gateway/finops-middleware",
-    "typecheck:sdk": "npm run typecheck --workspace=tokenistt-sdk"
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build:gateway": "npm run build --workspace=apps/gateway",
+    "dev:gateway": "npm run dev --workspace=apps/gateway",
+    "dev:dashboard": "npm run dev --workspace=apps/dashboard",
+    "typecheck:gateway": "npm run typecheck --workspace=apps/gateway"
   },
   "engines": {
     "node": ">=18.0.0"
