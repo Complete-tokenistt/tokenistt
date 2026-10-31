@@ -10,7 +10,7 @@
  *
  * ACTIVATION RUNBOOK (When scaling beyond 5M transactions):
  *  1. Start ClickHouse cluster:
- *     $ cd tokenistt-sdk/analytics && docker compose up -d clickhouse
+ *     $ cd packages/analytics && docker compose up -d clickhouse
  *  2. Verify ClickHouse schema is initialized from clickhouse/init/01_schema.sql.
  *  3. Set environment variables in .env:
  *     CLICKHOUSE_ENABLED=true
