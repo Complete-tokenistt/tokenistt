@@ -6,7 +6,8 @@ import { MASTER_KEY } from "../config";
 // (HKDF), so ciphertext for org A is undecryptable by org B. Not for production —
 // use `vault` or `kms` in real deployments.
 function keyForOrg(orgId: string): Buffer {
-  return crypto.hkdfSync("sha256", Buffer.from(MASTER_KEY), Buffer.from(orgId), Buffer.alloc(0), 32);
+  // hkdfSync returns an ArrayBuffer, not a Buffer
+  return Buffer.from(crypto.hkdfSync("sha256", Buffer.from(MASTER_KEY), Buffer.from(orgId), Buffer.alloc(0), 32));
 }
 
 interface LocalBlob {
