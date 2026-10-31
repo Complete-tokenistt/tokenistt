@@ -8,6 +8,7 @@ import { GatewayService } from './gateway.js';
 import { AuthContext } from '../db/auth.js';
 import { isKeyFailure, markKeyResult, type KeyCandidate } from './byok.js';
 import type { RouteTarget } from './routingEngine.js';
+import { providerBreaker } from './circuitBreaker.js';
 
 export interface RouterConfig {
   enableFailover?: boolean;
@@ -205,6 +206,12 @@ export class SmartRouter {
 
     for (let i = 0; i < candidates.length; i++) {
       const target = candidates[i];
+      const isLast = i === candidates.length - 1;
+      if (!providerBreaker.allow(target.provider) && !isLast) {
+        console.warn(`[SmartRouter ⛔] circuit open for '${target.provider}', skipping`);
+        lastError = new Error(`circuit open for ${target.provider}`);
+        continue;
+      }
       const targetRequest = target.model === request.model ? request : { ...request, model: target.model };
       const keys = await opts.keys(target.provider);
 
@@ -212,6 +219,7 @@ export class SmartRouter {
         try {
           const response = await this.gateway.handleChatCompletion(targetRequest, target.provider as ProviderType, k.key);
           markKeyResult(k.id, true).catch(() => {});
+          providerBreaker.success(target.provider);
           if (i > 0 || (opts.candidates?.length ?? 0) > 0) {
             response._tokenistt = {
               ...response._tokenistt,
@@ -225,6 +233,7 @@ export class SmartRouter {
         } catch (err: any) {
           lastError = err;
           if (err instanceof GatewayError && [400, 401, 403].includes(err.statusCode)) throw err;
+          providerBreaker.failure(target.provider);
           if (isKeyFailure(err) && k.id) {
             markKeyResult(k.id, false, err.message).catch(() => {});
             console.warn(`[SmartRouter 🔑] key '${k.label}' failed for ${target.provider}: ${err.message}; trying next key`);

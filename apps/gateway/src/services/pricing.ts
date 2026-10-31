@@ -2,6 +2,11 @@ import { PricingTier } from '../types/index.js';
 
 // Pricing map (per 1M tokens in USD)
 export const PRICING: Record<string, PricingTier> = {
+  // Offline demo provider (MOCK_PROVIDER=1) — fixed fake prices so dashboards show data
+  'mock:echo': { input: 1.00, output: 2.00 },
+  'mock:fail': { input: 1.00, output: 2.00 },
+  'mock:limited': { input: 1.00, output: 2.00 },
+
   // OpenAI Models
   'openai:gpt-4o': { input: 2.50, output: 10.00, cachedInput: 1.25 },
   'openai:gpt-4o-mini': { input: 0.15, output: 0.60, cachedInput: 0.075 },
@@ -77,6 +82,9 @@ export interface CostCalculationResult {
 export function resolvePricing(provider: string, model: string): PricingTier | null {
   const normProvider = provider.toLowerCase();
   let normModel = model.toLowerCase();
+
+  // Self-hosted models carry no per-token charge.
+  if (normProvider === 'ollama') return { input: 0, output: 0 };
 
   // Strip provider prefix if passed in model (e.g. "openai:gpt-4o")
   if (normModel.startsWith(`${normProvider}:`)) {

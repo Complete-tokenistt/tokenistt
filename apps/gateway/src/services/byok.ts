@@ -81,3 +81,9 @@ export async function addProviderKey(args: {
   );
   return { id: rows[0].public_id };
 }
+
+/** Highest-priority usable key for a provider (BYOK table → virtual key → null = gateway default). */
+export async function firstKey(auth: AuthContext, provider: string): Promise<string | null> {
+  const keys = await resolveKeys(auth, provider);
+  return keys.find(k => k.key)?.key ?? null;
+}
