@@ -32,7 +32,8 @@ import {
   RateLimitExceededError,
 }                                                   from './db/auth.js';
 import { logTransaction }                           from './db/transactionLogger.js';
-import { checkDbConnection, closePool }             from './db/pool.js';
+import { checkDbConnection, closePool, getPool }    from './db/pool.js';
+import { startAuditDrainScheduler, stopAuditDrainScheduler } from './services/auditLogger.js';
 import { handleStreamingCompletion }                from './services/streaming.js';
 import { checkPolicies }                            from './db/policies.js';
 import { checkAndSendBudgetAlert }                 from './services/alerting.js';
@@ -189,13 +190,14 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
     res.setHeader('x-tokenistt-request-id',  requestId);
 
     // ── Step 2.5: Policy & Governance Check ──────────────────────────────────
-    const policyResult = await checkPolicies(auth, req.body);
+    const policyResult = await checkPolicies(auth, req.body, requestId);
     if (!policyResult.allowed) {
       res.status(403).json({
         error: {
           message: policyResult.reason || 'Blocked by active governance policy.',
-          type: 'policy_violation_error',
-          code: 'policy_violation',
+          type: policyResult.code === 'approval_required' ? 'approval_required_error' : 'policy_violation_error',
+          code: policyResult.code || 'policy_violation',
+          ...(policyResult.approvalId ? { approval_id: policyResult.approvalId } : {}),
         },
       });
 
@@ -214,7 +216,7 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
         costUsd: 0,
         durationMs: 0,
         status: 'error',
-        errorCode: 'policy_violation',
+        errorCode: policyResult.code || 'policy_violation',
         projectTag: req.body.project_tag,
         metadata: {
           error: policyResult.reason || 'Blocked by active governance policy.',
@@ -519,9 +521,8 @@ const server = app.listen(PORT, async () => {
     await loadPricingFromDb();
     await ensurePartitionsAhead(3);
     startPartitionMaintenanceScheduler();
-    startDrainScheduler(() => {
-      try { return (require('./db/pool.js') as any).getPool?.() ?? null; } catch { return null; }
-    });
+    startDrainScheduler(() => getPool());
+    startAuditDrainScheduler();
   } else {
 
     console.warn(
@@ -540,6 +541,7 @@ async function shutdown(signal: string) {
   server.close(async () => {
     stopPartitionMaintenanceScheduler();
     stopDrainScheduler();
+    stopAuditDrainScheduler();
     await closePool();
     console.log('Server closed.');
     process.exit(0);
