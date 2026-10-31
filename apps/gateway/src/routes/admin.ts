@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { getPool } from '../db/pool.js';
 import { invalidateCachedVirtualKey } from '../services/redis.js';
 import { generateVirtualKey } from '../services/keyManager.js';
+import { encryptApiKey } from '../services/vault.js';
 
 export const adminRouter = Router();
 
@@ -129,7 +130,8 @@ adminRouter.post('/virtual-keys', async (req: Request, res: Response) => {
       enforcement_mode: 'hard_cap',
     };
     if (real_api_key) {
-      metadata.real_api_key = real_api_key;
+      // Encrypted at rest (AES-256-GCM, per-org key); auth.ts decrypts on lookup.
+      metadata.real_api_key = encryptApiKey(String(real_api_key), String(organization_id));
     }
 
     const { rows } = await pool.query(
