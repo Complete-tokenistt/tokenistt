@@ -9,11 +9,11 @@ import { AuthContext } from '../db/auth.js';
 
 export interface RouterConfig {
   enableFailover?: boolean;
-  fallbackChain?: Record<ProviderType, ProviderType[]>;
+  fallbackChain?: Partial<Record<ProviderType, ProviderType[]>>;
 }
 
 // Model mapping for cross-provider failover so fallbacks don't fail with 400 Bad Request
-const CROSS_PROVIDER_MODEL_MAP: Record<ProviderType, Record<string, string>> = {
+const CROSS_PROVIDER_MODEL_MAP: Partial<Record<ProviderType, Record<string, string>>> = {
   openai: {
     'claude-3-opus': 'gpt-4',
     'claude-3-opus-20240229': 'gpt-4',
@@ -54,7 +54,7 @@ const CROSS_PROVIDER_MODEL_MAP: Record<ProviderType, Record<string, string>> = {
 export class SmartRouter {
   private gateway: GatewayService;
   private enableFailover: boolean;
-  private fallbackChain: Record<ProviderType, ProviderType[]>;
+  private fallbackChain: Partial<Record<ProviderType, ProviderType[]>>;
 
   constructor(gateway: GatewayService, config?: RouterConfig) {
     this.gateway = gateway;

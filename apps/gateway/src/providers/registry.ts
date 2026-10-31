@@ -4,6 +4,25 @@ import { BedrockAdapter } from './bedrock.js';
 import { AzureAdapter } from './azure.js';
 import { OpenAIAdapter } from './openai.js';
 import { BaseProviderAdapter } from './base.js';
+import {
+  OpenAICompatAdapter,
+  GroqAdapter,
+  TogetherAdapter,
+  OllamaAdapter,
+  GeminiAdapter,
+  GROQ_CONFIG,
+  TOGETHER_CONFIG,
+  OLLAMA_CONFIG,
+  GEMINI_CONFIG,
+} from './openaiCompat.js';
+
+/** OpenAI-compatible providers: registered from env, routed by model prefix/hints. */
+const COMPAT_PROVIDERS = [
+  { cfg: GROQ_CONFIG, make: (k?: string) => new GroqAdapter(k) },
+  { cfg: TOGETHER_CONFIG, make: (k?: string) => new TogetherAdapter(k) },
+  { cfg: OLLAMA_CONFIG, make: (k?: string) => new OllamaAdapter(k) },
+  { cfg: GEMINI_CONFIG, make: (k?: string) => new GeminiAdapter(k) },
+] as const;
 
 export interface ProviderConfig {
   anthropic?: {
@@ -82,6 +101,23 @@ export class ProviderRegistry {
       const openai = new OpenAIAdapter(process.env.OPENAI_API_KEY);
       this.providers.set('openai', openai);
     }
+
+    for (const { cfg, make } of COMPAT_PROVIDERS) {
+      const key = process.env[cfg.apiKeyEnv];
+      // Ollama needs no key: enable it when a base URL is set explicitly.
+      if (key || (cfg.keyOptional && process.env[cfg.baseUrlEnv])) {
+        this.providers.set(cfg.name, make(key));
+      }
+    }
+  }
+
+  /** Register or update any OpenAI-compatible provider at runtime (BYOK connect). */
+  updateCompatConfig(type: ProviderType, apiKey: string): void {
+    const entry = COMPAT_PROVIDERS.find(p => p.cfg.name === type);
+    if (!entry) throw new Error(`Provider ${type} is not OpenAI-compatible`);
+    const existing = this.providers.get(type);
+    if (existing instanceof OpenAICompatAdapter) existing.setApiKey(apiKey);
+    else this.providers.set(type, entry.make(apiKey));
   }
   
   setDefaultProvider(provider: ProviderType): void {
@@ -109,6 +145,10 @@ export class ProviderRegistry {
   
   detectProvider(model: string): ProviderType {
     const normalizedModel = model.toLowerCase();
+
+    for (const { cfg, make } of COMPAT_PROVIDERS) {
+      if (make().canHandle(normalizedModel)) return cfg.name;
+    }
     
     if (normalizedModel.startsWith('openai:')) {
       return 'openai';

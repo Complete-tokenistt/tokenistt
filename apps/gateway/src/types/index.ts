@@ -73,7 +73,9 @@ export interface OpenAIChatCompletionResponse {
 }
 
 // Provider identifier
-export type ProviderType = 'anthropic' | 'bedrock' | 'azure' | 'openai';
+export type ProviderType =
+  | 'anthropic' | 'bedrock' | 'azure' | 'openai'
+  | 'groq' | 'together' | 'ollama' | 'gemini';
 
 // Unified metadata
 export interface UnifiedMetadata {
