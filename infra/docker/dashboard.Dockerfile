@@ -2,13 +2,11 @@
 FROM node:20-alpine AS build
 WORKDIR /repo
 COPY package.json package-lock.json ./
-COPY apps/gateway/package.json apps/gateway/
-COPY apps/dashboard/package.json apps/dashboard/
-COPY apps/mcp-server/package.json apps/mcp-server/
+COPY apps ./apps
 COPY packages ./packages
-RUN npm ci --workspace=apps/dashboard --include-workspace-root
-COPY apps/dashboard apps/dashboard
-RUN npm run build --workspace=apps/dashboard
+# Full workspace install so a single React copy is hoisted (a partial install mixed 18 and 19)
+RUN npm ci --no-audit --no-fund
+RUN npm run build --workspace=packages/sdk-ts && npm run build --workspace=apps/dashboard
 
 FROM node:20-alpine
 ENV NODE_ENV=production
