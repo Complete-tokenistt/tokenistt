@@ -1,0 +1,22 @@
+# Local dev dependencies on non-default ports (5433/6380) so they never clash with other stacks.
+#   docker compose -p tokenistt-dev -f infra/docker-compose.dev.yml up -d
+#   DATABASE_URL=postgres://tokenistt:tokenistt@localhost:5433/tokenistt npm run migrate -w packages/db
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: tokenistt
+      POSTGRES_USER: tokenistt
+      POSTGRES_PASSWORD: tokenistt
+    ports: ["5433:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tokenistt"]
+      interval: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    ports: ["6380:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      retries: 20

@@ -6,7 +6,7 @@ import type { AuthContext } from '../db/auth.js';
 describe('Phase 3 — FinOps Intelligence & Budget Alerting', () => {
   const dummyAuth: AuthContext = {
     virtualKeyId: BigInt(1),
-    virtualKeyPublicId: 'vk-test-uuid-1234',
+    virtualKeyPublicId: `vk-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     workspaceId: BigInt(1),
     organizationId: BigInt(1),
     costCenter: 'CC-Engineering',

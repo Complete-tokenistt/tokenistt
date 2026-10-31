@@ -3,20 +3,23 @@
   "version": "0.0.0",
   "private": true,
   "license": "Apache-2.0",
-  "description": "Tokenistt — open-source AI cost visibility and governance gateway",
+  "description": "Tokenistt \u2014 open-source AI cost visibility and governance gateway",
   "workspaces": [
     "apps/*",
     "packages/finops-middleware",
+    "packages/db",
     "packages/sdk-ts",
     "packages/analytics/consumer",
     "packages/credential-manager",
     "packages/shadow-ai-scanner"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build -w packages/sdk-ts && npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "typecheck": "npm run build -w packages/sdk-ts && npm run typecheck --workspaces --if-present",
+    "migrate": "npm run migrate -w packages/db",
+    "dev:deps": "docker compose -p tokenistt-dev -f infra/docker-compose.dev.yml up -d --wait",
     "build:gateway": "npm run build --workspace=apps/gateway",
     "dev:gateway": "npm run dev --workspace=apps/gateway",
     "dev:dashboard": "npm run dev --workspace=apps/dashboard",
@@ -26,6 +29,8 @@
     "node": ">=18.0.0"
   },
   "overrides": {
-    "postcss": "^8.5.16"
+    "postcss": "^8.5.16",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   }
 }
