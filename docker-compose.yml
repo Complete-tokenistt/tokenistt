@@ -13,8 +13,8 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./tokenistt-sdk/db/drizzle/0000_init.sql:/docker-entrypoint-initdb.d/01_init.sql
-      - ./tokenistt-sdk/db/drizzle/views.sql:/docker-entrypoint-initdb.d/02_views.sql
+      - ./packages/db/drizzle/0000_init.sql:/docker-entrypoint-initdb.d/01_init.sql
+      - ./packages/db/drizzle/views.sql:/docker-entrypoint-initdb.d/02_views.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U tokenistt -d tokenistt"]
       interval: 5s
@@ -36,7 +36,7 @@ services:
   gateway:
     build:
       context: .
-      dockerfile: tokenistt-gateway/universal-gateway/Dockerfile
+      dockerfile: infra/docker/gateway.Dockerfile
     container_name: tokenistt-gateway
     restart: unless-stopped
     ports:
@@ -73,8 +73,8 @@ services:
 
   dashboard:
     build:
-      context: ./tokenistt-sdk/home/user/dashboard
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: infra/docker/dashboard.Dockerfile
     container_name: tokenistt-dashboard
     restart: unless-stopped
     ports:
