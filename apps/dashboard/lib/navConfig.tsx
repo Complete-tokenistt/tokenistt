@@ -15,12 +15,14 @@ export type NavGroup = { label: string; items: NavItem[] };
 // The rest are net-new sections ported from the source dashboard preview,
 // running on local mock data (see lib/dashboard-mock-data.ts) same as they
 // did in the source — no new backend was built for them.
-export const NAV_GROUPS: NavGroup[] = [
+const ALL_NAV_GROUPS: NavGroup[] = [
   {
     label: "Monitor",
     items: [
       { href: "/", label: "Overview", icon: IconGrid },
       { href: "/usage", label: "Usage", icon: IconList },
+      { href: "/requests", label: "Request history", icon: IconList },
+      { href: "/alerts", label: "Alerts", icon: IconBell },
       { href: "/shadow-ai", label: "Shadow AI", icon: IconBell },
     ],
   },
@@ -31,6 +33,9 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/governance", label: "Governance & Policies", icon: IconGavel },
       { href: "/providers", label: "Providers & Keys", icon: IconPlug },
       { href: "/routing", label: "Routing", icon: IconShuffle },
+      { href: "/approvals", label: "Approvals", icon: IconGavel },
+      { href: "/connectors", label: "Connectors", icon: IconPlug },
+      { href: "/audit", label: "Audit log", icon: IconReceipt },
     ],
   },
   {
@@ -63,13 +68,27 @@ export const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
+// Pages outside the core cost-visibility / governance / routing scope stay in the
+// codebase but are hidden from navigation unless NEXT_PUBLIC_EXPERIMENTAL=1.
+const EXPERIMENTAL_HREFS = new Set(["/roi", "/board-reports", "/benchmark", "/simulator"]);
+const SHOW_EXPERIMENTAL = process.env.NEXT_PUBLIC_EXPERIMENTAL === "1";
+
+export const NAV_GROUPS: NavGroup[] = ALL_NAV_GROUPS
+  .map((g) => ({ ...g, items: g.items.filter((i) => SHOW_EXPERIMENTAL || !EXPERIMENTAL_HREFS.has(i.href)) }))
+  .filter((g) => g.items.length > 0);
+
 export const SECTION_META: Record<string, { title: string; kicker: string; desc: string }> = {
   "/": { title: "Overview", kicker: "Monitor", desc: "Is everything okay? Spend, budget health, and alerts at a glance." },
   "/usage": { title: "Usage", kicker: "Monitor", desc: "Every request — filterable, sortable, exportable. The drill-down when Overview raises a question." },
+  "/requests": { title: "Request history", kicker: "Monitor", desc: "Every request through the gateway, with cost, tokens, latency and outcome." },
+  "/alerts": { title: "Alerts", kicker: "Monitor", desc: "Budget warnings and breaches, and where they were sent." },
   "/shadow-ai": { title: "Shadow AI", kicker: "Monitor", desc: "Unauthorized usage detected via expense & card integrations." },
   "/budgets": { title: "Budgets", kicker: "Control", desc: "Set limits, see status, get warned before they're blown." },
   "/governance": { title: "Governance & Policies", kicker: "Control", desc: "Control what's allowed to run, and prove it after the fact." },
   "/providers": { title: "Providers & Keys", kicker: "Control", desc: "Connect and manage every AI provider this workspace uses, and the keys behind them." },
+  "/approvals": { title: "Approvals", kicker: "Control", desc: "Requests held by policy until someone signs off." },
+  "/connectors": { title: "Connectors", kicker: "Control", desc: "Link GitHub, Jira, Slack, Linear, Analytics, Salesforce and CI/CD to attribute spend to real work." },
+  "/audit": { title: "Audit log", kicker: "Control", desc: "Immutable record of admin actions and automated decisions." },
   "/routing": { title: "Routing", kicker: "Control", desc: "Configure how requests get directed across models and providers." },
   "/cost-attribution": { title: "Cost Attribution", kicker: "Value", desc: "Connect spend to the product features and initiatives actually driving it." },
   "/cost-centers": { title: "Cost Centers", kicker: "Value", desc: "Spend broken down by cost center, month over month." },

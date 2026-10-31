@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useDashboard } from "@/components/DashboardShell";
 import { getShadowAi } from "@/lib/mock-data";
-import { loadIngestedShadowAi } from "@/lib/ingest";
 import Section from "@/components/Section";
 import ShadowAiTable from "@/components/ShadowAiTable";
 import StatCard from "@/components/StatCard";
@@ -37,7 +36,7 @@ export default function ShadowAiPage() {
     };
   }, [isLive]);
 
-  const demoData = [...loadIngestedShadowAi(), ...getShadowAi()];
+  const demoData = getShadowAi();
   const data = isLive ? liveData : demoData;
   const total = data.reduce((s, e) => s + e.amountUsd, 0);
   const unreviewed = data.filter((e) => e.status === "unreviewed").length;
