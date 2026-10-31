@@ -4,6 +4,7 @@ import { BedrockAdapter } from './bedrock.js';
 import { AzureAdapter } from './azure.js';
 import { OpenAIAdapter } from './openai.js';
 import { BaseProviderAdapter } from './base.js';
+import { MockAdapter } from './mock.js';
 import {
   OpenAICompatAdapter,
   GroqAdapter,
@@ -102,6 +103,10 @@ export class ProviderRegistry {
       this.providers.set('openai', openai);
     }
 
+    if (process.env.MOCK_PROVIDER === '1' || process.env.MOCK_PROVIDER === 'true') {
+      this.providers.set('mock', new MockAdapter());
+    }
+
     for (const { cfg, make } of COMPAT_PROVIDERS) {
       const key = process.env[cfg.apiKeyEnv];
       // Ollama needs no key: enable it when a base URL is set explicitly.
@@ -157,6 +162,8 @@ export class ProviderRegistry {
   
   detectProvider(model: string): ProviderType {
     const normalizedModel = model.toLowerCase();
+
+    if (normalizedModel.startsWith('mock:')) return 'mock';
 
     for (const { cfg, make } of COMPAT_PROVIDERS) {
       if (make().canHandle(normalizedModel)) return cfg.name;

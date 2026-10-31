@@ -49,6 +49,7 @@ export function getPool(): pg.Pool {
       console.error('[DB Pool] Unexpected error on idle client:', err.message);
     });
 
+    installConnectRetry(_pool);
     console.log('[DB Pool] Postgres pool initialised (max:', _pool.options.max, ')');
   }
 
@@ -77,4 +78,30 @@ export async function checkDbConnection(): Promise<boolean> {
     console.error('[DB Pool] Postgres connection failed:', err.message);
     return false;
   }
+}
+
+/**
+ * Connection-level errors where the statement was provably never sent, so a retry
+ * cannot duplicate a write. (Serverless poolers such as Neon drop idle connections;
+ * pg evicts the dead client and the next attempt gets a fresh one.)
+ */
+const CONNECT_ERRORS = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|timeout exceeded when trying to connect|Connection terminated due to connection timeout/i;
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+function installConnectRetry(pool: pg.Pool): void {
+  const attempts = parseInt(process.env.DB_CONNECT_RETRIES ?? '2', 10);
+  const original = pool.query.bind(pool) as (...a: any[]) => Promise<any>;
+  (pool as any).query = async (...args: any[]) => {
+    // Only the promise form is wrapped; callback-style callers keep pg's behaviour.
+    if (typeof args[args.length - 1] === 'function') return original(...args);
+    for (let i = 0; ; i++) {
+      try {
+        return await original(...args);
+      } catch (err: any) {
+        const retriable = CONNECT_ERRORS.test(String(err?.message)) || CONNECT_ERRORS.test(String(err?.code));
+        if (!retriable || i >= attempts) throw err;
+        await sleep(100 * 2 ** i);
+      }
+    }
+  };
 }

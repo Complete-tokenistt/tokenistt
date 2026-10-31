@@ -12,6 +12,8 @@
  *  6. Return OpenAI-compatible JSON to client
  */
 
+import helmet from 'helmet';
+import cors from 'cors';
 import express, { Request, Response, NextFunction } from 'express';
 import { config }                                   from 'dotenv';
 import { existsSync }                               from 'fs';
@@ -33,6 +35,7 @@ import {
 }                                                   from './db/auth.js';
 import { logTransaction }                           from './db/transactionLogger.js';
 import { checkDbConnection, closePool, getPool }    from './db/pool.js';
+import { waitForRedis }                            from './services/redis.js';
 import { startAuditDrainScheduler, stopAuditDrainScheduler } from './services/auditLogger.js';
 import { handleStreamingCompletion }                from './services/streaming.js';
 import { checkPolicies }                            from './db/policies.js';
@@ -40,12 +43,16 @@ import { enforceBudgets }                          from './services/budgetEngine
 import { resolveAttribution }                      from './services/workspaceResolver.js';
 import { resolveRoute }                            from './services/routingEngine.js';
 import { resolveKeys }                             from './services/byok.js';
+import { compressMessages }                        from './services/promptCompression.js';
+import { isCacheable, cacheKey, getCached, putCached } from './services/responseCache.js';
 import { checkAndSendBudgetAlert }                 from './services/alerting.js';
 import { SmartRouter }                              from './services/router.js';
 import { adminRouter }                              from './routes/admin.js';
+import { managementRouter }                        from './routes/management.js';
 import { providersRouter }                          from './routes/providers.js';
 import { metrics }                                  from './services/metrics.js';
 import { validateSecrets }                          from './config/secrets.js';
+import { corsOptions, metricsAccess }               from './middleware/security.js';
 import { requestContextMiddleware, getElapsedLatencyMs } from './middleware/requestContext.js';
 import {
   ensurePartitionsAhead,
@@ -63,16 +70,53 @@ if (existsSync('.env')) config();
 validateSecrets();
 
 const app = express();
+app.disable('x-powered-by');
+app.use(helmet());
+app.use(cors(corsOptions()));
 app.use(express.json({ limit: '10mb' }));
 app.use(requestContextMiddleware);
 
 // ── Prometheus metrics endpoint ─────────────────────────────────────────────
-app.get('/metrics', (_req: Request, res: Response) => {
+app.get('/metrics', metricsAccess(), (_req: Request, res: Response) => {
   res.setHeader('Content-Type', 'text/plain; version=0.0.4');
   res.send(metrics.getMetricsText());
 });
 
+// ── Batch: run several chat completions through the full pipeline ───────────
+// Each item is dispatched to this server's own /v1/chat/completions so auth, policy,
+// budgets, routing, caching and logging behave exactly as for a single request.
+app.post('/v1/batch/chat/completions', async (req: Request, res: Response) => {
+  const items = req.body?.requests;
+  const max = parseInt(process.env.BATCH_MAX_ITEMS || '20', 10);
+  if (!Array.isArray(items) || items.length === 0 || items.length > max) {
+    res.status(400).json({ error: { message: `"requests" must be an array of 1-${max} chat completion bodies.`, type: 'invalid_request_error' } });
+    return;
+  }
+  const port = req.socket.localPort ?? process.env.PORT ?? 3000;
+  const forward: Record<string, string> = { 'content-type': 'application/json' };
+  for (const [k, v] of Object.entries(req.headers)) {
+    if (typeof v === 'string' && (k === 'authorization' || k.startsWith('x-'))) forward[k] = v;
+  }
+  const results: unknown[] = new Array(items.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(5, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      try {
+        const r = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+          method: 'POST', headers: forward, body: JSON.stringify({ ...items[i], stream: false }),
+        });
+        results[i] = { index: i, status: r.status, body: await r.json().catch(() => null) };
+      } catch (err: any) {
+        results[i] = { index: i, status: 502, body: { error: { message: err.message } } };
+      }
+    }
+  }));
+  res.json({ object: 'batch', results });
+});
+
 // ── Admin and Provider routes ────────────────────────────────────────────────
+app.use('/v1/admin', managementRouter); // RBAC management API (falls through for legacy routes)
 app.use('/v1/admin', adminRouter);
 app.use('/v1/providers', providersRouter);
 
@@ -257,6 +301,37 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
       await new Promise(resolve => setTimeout(resolve, budget.throttleMs));
     }
 
+    // ── Step 2.8: opt-in prompt compression ─────────────────────────────────
+    const hdr = (n: string) => {
+      const v = req.headers[n];
+      return Array.isArray(v) ? v[0] : v;
+    };
+    if (hdr('x-tokenistt-compress') === 'true') {
+      const { messages, savedChars } = compressMessages(req.body.messages);
+      req.body.messages = messages;
+      res.setHeader('x-tokenistt-compressed-chars', String(savedChars));
+    }
+
+    // ── Step 2.9: opt-in response cache (identical request -> zero provider cost) ──
+    const cacheable = isCacheable(req.body, hdr('x-tokenistt-cache'));
+    const rcKey = cacheable ? cacheKey(auth.organizationId, req.body) : null;
+    if (rcKey) {
+      const hit = await getCached(rcKey);
+      if (hit) {
+        res.setHeader('x-tokenistt-cache', 'HIT');
+        res.setHeader('x-tokenistt-cost', '0.000000');
+        logTransaction({
+          auth, provider: 'cache', model: req.body.model, endpoint: '/v1/chat/completions', requestId,
+          promptTokens: 0, completionTokens: 0, totalTokens: 0, inputCostUsd: 0, outputCostUsd: 0, costUsd: 0,
+          durationMs: Date.now() - startTime, status: 'success', projectTag: req.body.project_tag,
+          metadata: { cache: 'hit', original_provider: (hit as any).provider },
+        }).catch(() => {});
+        res.json({ ...hit, _tokenistt: { request_id: requestId, trace_id: traceId, cost_usd: 0, cache: 'hit' } });
+        return;
+      }
+      res.setHeader('x-tokenistt-cache', 'MISS');
+    }
+
     // ── Streaming (passthrough) ─────────────────────────────────────────────
     if (req.body.stream === true) {
       const providerOverride = extractProviderFromHeaders(
@@ -324,6 +399,8 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
     res.setHeader('x-tokenistt-tokens-cache-write', String(cacheCreationTokens));
     res.setHeader('x-tokenistt-latency-ms',        String(durationMs));
     res.setHeader('x-tokenistt-provider',          usedProvider);
+
+    if (rcKey) putCached(rcKey, response).catch(() => {});
 
     // ── Step 7: Send response ────────────────────────────────────────────────
     res.json({
@@ -551,6 +628,11 @@ const server = app.listen(PORT, async () => {
   `);
 
   console.log('Providers:', gateway.getAvailableProviders());
+
+  if (process.env.REDIS_REQUIRED === 'true' && !(await waitForRedis())) {
+    console.error('[FATAL] REDIS_REQUIRED=true but Redis is unreachable. Refusing to start.');
+    process.exit(1);
+  }
 
   if (process.env.DATABASE_URL) {
     await checkDbConnection();

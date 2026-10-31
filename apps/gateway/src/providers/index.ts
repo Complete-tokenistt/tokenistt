@@ -5,3 +5,4 @@ export { OpenAIAdapter } from './openai.js';
 export { ProviderRegistry, type ProviderConfig } from './registry.js';
 export { BaseProviderAdapter } from './base.js';
 export * from './openaiCompat.js';
+export { MockAdapter } from './mock.js';
