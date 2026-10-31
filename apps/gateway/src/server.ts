@@ -49,6 +49,8 @@ import { checkAndSendBudgetAlert }                 from './services/alerting.js'
 import { SmartRouter }                              from './services/router.js';
 import { adminRouter }                              from './routes/admin.js';
 import { managementRouter }                        from './routes/management.js';
+import { logsRouter }                              from './routes/logs.js';
+import { buildOpenApi }                            from './openapi.js';
 import { ingestWebhook, startConnectorScheduler, stopConnectorScheduler } from './services/connectorService.js';
 import { ConnectorError }                          from './connectors/registry.js';
 import { providersRouter }                          from './routes/providers.js';
@@ -145,6 +147,8 @@ app.post('/v1/batch/chat/completions', async (req: Request, res: Response) => {
 });
 
 // ── Admin and Provider routes ────────────────────────────────────────────────
+app.get('/v1/openapi.json', (_req: Request, res: Response) => { res.json(buildOpenApi()); });
+app.use('/v1', logsRouter);
 app.use('/v1/admin', managementRouter); // RBAC management API (falls through for legacy routes)
 app.use('/v1/admin', adminRouter);
 app.use('/v1/providers', providersRouter);
