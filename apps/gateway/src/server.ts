@@ -49,6 +49,8 @@ import { checkAndSendBudgetAlert }                 from './services/alerting.js'
 import { SmartRouter }                              from './services/router.js';
 import { adminRouter }                              from './routes/admin.js';
 import { managementRouter }                        from './routes/management.js';
+import { ingestWebhook, startConnectorScheduler, stopConnectorScheduler } from './services/connectorService.js';
+import { ConnectorError }                          from './connectors/registry.js';
 import { providersRouter }                          from './routes/providers.js';
 import { metrics }                                  from './services/metrics.js';
 import { validateSecrets }                          from './config/secrets.js';
@@ -73,13 +75,40 @@ const app = express();
 app.disable('x-powered-by');
 app.use(helmet());
 app.use(cors(corsOptions()));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({
+  limit: '10mb',
+  // keep the raw bytes: connector webhooks verify HMAC signatures over them
+  verify: (req: any, _res, buf) => { req.rawBody = buf; },
+}));
 app.use(requestContextMiddleware);
 
 // ── Prometheus metrics endpoint ─────────────────────────────────────────────
 app.get('/metrics', metricsAccess(), (_req: Request, res: Response) => {
   res.setHeader('Content-Type', 'text/plain; version=0.0.4');
   res.send(metrics.getMetricsText());
+});
+
+// ── Inbound connector webhooks (authenticated by signature, not by session) ──
+app.post('/v1/webhooks/connectors/:id', async (req: Request, res: Response) => {
+  if (!process.env.DATABASE_URL) {
+    res.status(503).json({ error: { message: 'Database not configured' } });
+    return;
+  }
+  try {
+    const headers: Record<string, string | undefined> = {};
+    for (const [k, v] of Object.entries(req.headers)) headers[k] = Array.isArray(v) ? v[0] : v;
+    const out = await ingestWebhook(String(req.params.id), {
+      rawBody: (req as any).rawBody ?? Buffer.from(''), headers, body: req.body,
+    });
+    res.json({ ok: true, ...out });
+  } catch (err: any) {
+    if (err instanceof ConnectorError) {
+      res.status(err.status).json({ error: { message: err.message } });
+      return;
+    }
+    console.error('[Webhook] ingest failed:', err.message);
+    res.status(500).json({ error: { message: 'Internal error' } });
+  }
 });
 
 // ── Batch: run several chat completions through the full pipeline ───────────
@@ -641,6 +670,7 @@ const server = app.listen(PORT, async () => {
     startPartitionMaintenanceScheduler();
     startDrainScheduler(() => getPool());
     startAuditDrainScheduler();
+    startConnectorScheduler();
   } else {
 
     console.warn(
@@ -660,6 +690,7 @@ async function shutdown(signal: string) {
     stopPartitionMaintenanceScheduler();
     stopDrainScheduler();
     stopAuditDrainScheduler();
+    stopConnectorScheduler();
     await closePool();
     console.log('Server closed.');
     process.exit(0);
