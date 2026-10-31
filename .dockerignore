@@ -1,0 +1,15 @@
+.git
+.github
+**/node_modules
+**/.next
+**/dist
+**/*.log
+**/*.jsonl
+**/.env
+**/.env.*
+!**/.env.example
+**/*.tsbuildinfo
+docs
+*.md
+!README.md
+handdrawn_diagram.jpeg

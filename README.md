@@ -1,771 +1,310 @@
 <div align="center">
 
-# 🔐 Tokenistt
+# Tokenistt
 
-### AI Cost Visibility · Governance · Budget Control · Multi-Provider Routing
+### Open-source AI cost visibility and governance for growing teams
 
-**One Integration. Complete Control.**
+One OpenAI-compatible gateway in front of every AI provider you use — with spend tracking, budgets,
+policies, approvals, cost-aware routing and an audit trail. Self-hosted. Apache-2.0.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-green.svg)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://typescriptlang.org)
-[![Next.js](https://img.shields.io/badge/Next.js-15.5-black.svg)](https://nextjs.org)
-
-> Drop-in OpenAI SDK replacement with FinOps-grade cost tracking, virtual key management, budget enforcement, and intelligent multi-provider routing — across Anthropic, AWS Bedrock, and Azure OpenAI.
+[![CI](https://github.com/Complete-tokenistt/tokenistt/actions/workflows/ci.yml/badge.svg)](https://github.com/Complete-tokenistt/tokenistt/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 </div>
 
----
-
-## Table of Contents
-
-- [What is Tokenistt?](#what-is-tokenistt)
-- [Architecture](#architecture)
-- [Repository Structure](#repository-structure)
-- [Quick Start](#quick-start)
-- [Services](#services)
-  - [Universal Gateway](#1-universal-gateway)
-  - [FinOps Middleware](#2-finops-middleware)
-  - [Tokenistt SDK (Node.js)](#3-tokenistt-sdk-nodejs)
-  - [Python SDK](#4-python-sdk)
-  - [Dashboard](#5-dashboard-nextjs)
-  - [Analytics Consumer](#6-analytics-consumer)
-  - [Credential Manager](#7-credential-manager)
-  - [MCP Server](#8-mcp-server)
-  - [Shadow-AI Scanner](#9-shadow-ai-scanner)
-- [Database](#database)
-- [Environment Variables](#environment-variables)
-- [npm Scripts](#npm-scripts)
-- [Development Guide](#development-guide)
-- [Roadmap](#roadmap)
-- [License](#license)
+> **Status: early.** The core pipeline is built and tested end to end (see [What works today](#what-works-today)
+> and [Known gaps](#known-gaps)). Tokenistt is pre-traction software from a three-person team — there are no
+> customers, certifications or benchmarks to point at, and this README does not claim any.
 
 ---
 
-## What is Tokenistt?
+## What it does
 
-Tokenistt solves a real problem for engineering teams using LLMs at scale: **you have no idea what your AI is costing, who is spending it, or why.**
+Point your apps at Tokenistt instead of the provider. Every request flows through one pipeline:
 
-Tokenistt sits between your code and the LLM providers. Every request flows through a single gateway that:
-
-- ✅ **Authenticates** requests using virtual keys scoped to workspaces and users
-- ✅ **Enforces budgets** before the request is sent — not after the invoice arrives
-- ✅ **Calculates exact cost** per request using live token pricing
-- ✅ **Attributes spend** to users, teams, cost centers, and projects
-- ✅ **Routes intelligently** across Anthropic, AWS Bedrock, and Azure OpenAI
-- ✅ **Tracks everything** in an immutable Postgres ledger for audits and forecasting
-
-Your existing OpenAI code needs **one import change**:
-
-```typescript
-// Before
-import OpenAI from 'openai';
-
-// After — everything else stays identical
-import Tokenistt from '@tokenistt/sdk';
 ```
+your app ─▶ auth ─▶ workspace/team/project ─▶ policies ─▶ budgets ─▶ routing ─▶ BYOK key ─▶ provider
+                                                  │            │          │          │
+                                           approval flow   alerts    rules +     key failover
+                                                                      failover
+          ◀── streaming passthrough ◀── cost calculator ◀── response
+                                              │
+                          async event logger (fail-open, file fallback) ─▶ Postgres ─▶ dashboard
+```
+
+| Capability | How it behaves |
+|---|---|
+| **Cost visibility** | Every request is priced (input, output, cache, reasoning tokens) from a versioned price catalog. Unknown models report `COST_UNAVAILABLE` and `$0.00` — prices are never invented. |
+| **Budgets** | Organization / team / project / virtual-key budgets, each measured only against *its own* spend. Modes: `alert_only`, `auto_throttle`, `hard_cap`. Alerts are deduplicated and sent to Slack/webhook/email. |
+| **Governance** | Policies can `allow`, `block`, `force_model`, or `require_approval`. Held requests create an approval that an admin approves or denies; the caller retries and passes. |
+| **Routing** | Opt-in rules choose `cheapest`, `fastest`, `policy` or `fallback` targets. Provider errors fail over to the next candidate; a per-provider circuit breaker stops hammering a dead provider. |
+| **BYOK** | Provider keys are stored encrypted (AES-256-GCM, per-org key) with priorities. A rate-limited or rejected key falls through to the next key, then the next provider. |
+| **Attribution** | Send `x-tokenistt-{team,project,repo,ticket,sprint,feature,customer,employee}` headers; spend is broken down by those dimensions and joined to names pulled from your tools. |
+| **Connectors** | GitHub, Jira, Slack, Linear, Google Analytics 4, Salesforce, CI/CD deployments and signed custom webhooks. |
+| **Audit** | Append-only `audit_log` (admin actions) and `policy_audit_log` (policy, budget and routing decisions). The database rejects `UPDATE`/`DELETE`. |
+| **Reliability** | Event writes never block the request. If Postgres is down, events queue to disk and replay on recovery. Enforcement fails open on internal errors. |
+
+**Providers:** OpenAI, Anthropic, Azure OpenAI, AWS Bedrock, Groq, Together AI, Google Gemini, Ollama (and an offline `mock:` provider for trying things out).
+
+---
+
+## Quick start
+
+### Option A — Docker Compose (the whole stack)
+
+```bash
+git clone https://github.com/Complete-tokenistt/tokenistt.git && cd tokenistt
+cp .env.example .env
+# fill in the five secrets — each:  openssl rand -hex 32
+#   POSTGRES_PASSWORD  ADMIN_SECRET  MASTER_KEY  ENCRYPTION_KEY  JWT_SECRET
+# optional: set MOCK_PROVIDER=1 to try it without real provider keys
+
+docker compose up --build
+```
+
+| Service | URL |
+|---|---|
+| Gateway (OpenAI-compatible API) | http://localhost:3000 |
+| Dashboard | http://localhost:3001 |
+| API docs (OpenAPI 3.1) | http://localhost:3000/v1/openapi.json |
+
+Host ports are configurable (`GATEWAY_PORT`, `DASHBOARD_PORT`, `POSTGRES_PORT`, `REDIS_PORT`) if something local already uses them.
+Migrations run automatically in a one-shot `migrate` container.
+
+### Option B — local development
+
+Requires Node 20+ and Docker (for Postgres and Redis only).
+
+```bash
+npm install
+npm run dev:deps          # Postgres on :5433 and Redis on :6380 (avoids clashing with local installs)
+
+export DATABASE_URL=postgres://tokenistt:tokenistt@localhost:5433/tokenistt
+export REDIS_URL=redis://localhost:6380
+npm run migrate                           # apply the schema
+node packages/db/seed-demo.mjs            # optional: a demo org with 14 days of synthetic traffic
+
+# terminal 1 — gateway on :3100 (MOCK_PROVIDER adds the offline "mock:" provider)
+cd apps/gateway
+MOCK_PROVIDER=1 PORT=3100 ADMIN_SECRET=dev-admin-secret-0123456789abcdef MASTER_KEY=dev-master-key-0123456789abcdef0123 \
+  JWT_SECRET=dev-jwt-secret-0123456789abcdef0123456789abcd npm run dev
+
+# terminal 2 — dashboard on :3101
+cd apps/dashboard
+JWT_SECRET=dev-jwt-secret-0123456789abcdef0123456789abcd STRICT_AUTH=true GATEWAY_URL=http://localhost:3100 \
+  ADMIN_SECRET=dev-admin-secret-0123456789abcdef npx next dev -p 3101
+```
+
+The two `JWT_SECRET` values must match: the dashboard signs sessions, and the gateway verifies them.
+
+The seed prints three logins (password `demo-password-123`) and two API keys:
+
+| Login | Role | Can |
+|---|---|---|
+| `owner@demo.test` | owner | everything |
+| `finance@demo.test` | finance | budgets, approvals, reports, audit |
+| `viewer@demo.test` | viewer | read only |
+
+---
+
+## Using it
+
+### 1. Create a key and send a request
+
+```bash
+ADMIN=dev-admin-secret-0123456789abcdef; ORG=<organization id>
+
+# create a virtual key (the token is shown once)
+curl -s -X POST "http://localhost:3100/v1/admin/keys?organization_id=$ORG" \
+  -H "x-admin-secret: $ADMIN" -H 'content-type: application/json' \
+  -d '{"name":"my-app","budgetCapUsd":50}'
+
+# use it exactly like the OpenAI API
+curl -s http://localhost:3100/v1/chat/completions \
+  -H "authorization: Bearer tktt_live_…" -H 'content-type: application/json' \
+  -H 'x-tokenistt-feature: search' -H 'x-tokenistt-repo: acme/api' \
+  -d '{"model":"mock:echo","messages":[{"role":"user","content":"hello"}]}'
+```
+
+Cost comes back in the `x-tokenistt-cost` header and in `_tokenistt` in the body. With the TypeScript SDK:
+
+```ts
+import Tokenistt from '@tokenistt/sdk';
+const client = new Tokenistt({
+  apiKey: process.env.TOKENISTT_KEY,
+  baseURL: 'http://localhost:3000/v1',
+  defaultHeaders: { 'x-tokenistt-feature': 'search' },   // attribution on every call
+});
+const res = await client.chat.completions.create({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'hi' }] });
+```
+
+### 2. Request headers
+
+| Header | Effect |
+|---|---|
+| `x-provider` | Force a provider |
+| `x-tokenistt-team` / `-project` | Attribute to a team/project (by slug) so team/project budgets apply |
+| `x-tokenistt-repo` `-ticket` `-sprint` `-feature` `-customer` `-employee` `-environment` | Free-form attribution |
+| `x-tokenistt-cache: true` | Serve identical (temperature 0) requests from cache at zero cost (`always` ignores temperature) |
+| `x-tokenistt-compress: true` | Collapse redundant whitespace and drop duplicate consecutive messages |
+
+Other endpoints: `POST /v1/batch/chat/completions` (up to 20 requests through the full pipeline), `GET /v1/logs` (your key's history), `GET /v1/models`, `GET /health`, `GET /metrics`.
+
+### 3. Management API (`/v1/admin/*`)
+
+Authenticate with `X-Admin-Secret` (operator; pass `organization_id`) or a dashboard session JWT as `Authorization: Bearer …`
+(locked to the user's organization and limited by role). Every mutation is written to the audit log.
+
+```bash
+# budgets: cap one team at $300/month, hard stop
+curl -X POST $GW/v1/admin/budgets -H "x-admin-secret: $ADMIN" -H 'content-type: application/json' \
+  -d '{"organization_id":1,"scope_type":"team","scope_id":4,"cap_usd":300,"enforcement_mode":"hard_cap"}'
+
+# policy: hold anything that mentions deploy-prod for approval
+curl -X POST $GW/v1/admin/policies … \
+  -d '{"name":"Prod deploys","conditions":{"prompt_keyword":"deploy-prod"},"actions":{"effect":"require_approval"}}'
+#   → the request gets 403 {"error":{"code":"approval_required","approval_id":"…"}}
+curl -X POST $GW/v1/admin/approvals/<approval_id>/approve …     # then the caller retries and it passes
+
+# routing: try the cheapest target first, fail over to the rest
+curl -X POST $GW/v1/admin/routing-rules … \
+  -d '{"name":"cheap summaries","strategy":"cheapest","match":{"model":"summar"},
+       "targets":[{"provider":"openai","model":"gpt-4o-mini"},{"provider":"groq","model":"llama-3.3-70b"}]}'
+
+# BYOK: add provider keys (lowest priority number is tried first; secrets are write-only)
+curl -X POST $GW/v1/admin/provider-keys … -d '{"provider":"openai","api_key":"sk-…","priority":1}'
+```
+
+The full list — budgets, policies, routing rules, alerts, audit, approvals, workspaces, teams, projects, provider keys,
+connectors, attribution, request history, CSV export — is in the OpenAPI document at `/v1/openapi.json`.
+
+| Permission | owner | admin | finance | developer | viewer |
+|---|:-:|:-:|:-:|:-:|:-:|
+| read spend, budgets, policies | ✔ | ✔ | ✔ | ✔ | ✔ |
+| write budgets | ✔ | ✔ | ✔ | | |
+| write policies / routing / keys | ✔ | ✔ | | ✔ | |
+| decide approvals, export reports, read audit | ✔ | ✔ | ✔ | | |
+| manage connectors | ✔ | ✔ | | | |
+
+### 4. Connectors
+
+```bash
+curl -X POST $GW/v1/admin/connectors … -d '{"type":"github","name":"acme-gh","config":{"token":"ghp_…","org":"acme"}}'
+curl -X POST $GW/v1/admin/connectors/<id>/sync …
+```
+
+Credentials are verified when the connector is created, stored encrypted, and never returned. Synced repos, tickets, sprints,
+customers and people become names in the attribution view (`GET /v1/admin/attribution`). Push-based connectors (CI/CD, custom
+webhook) receive signed payloads at `POST /v1/webhooks/connectors/<id>`. Outbound URLs are SSRF-guarded.
+
+### 5. Dashboard
+
+Overview · Usage · **Request history** · **Alerts** · Shadow AI · Budgets · Governance · **Approvals** · Providers & Keys ·
+Routing · **Connectors** · **Audit log** · Cost attribution · Cost centers · Chargebacks · Unit economics · Reconciliation ·
+Forecasting · Model comparison · Team · Settings. (Bold pages read the gateway management API; see [Known gaps](#known-gaps).)
+ROI, Board reports, Benchmark and Simulator are hidden unless `NEXT_PUBLIC_EXPERIMENTAL=1`.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         DEVELOPERS                              │
-│  VS Code · Windsurf · CLI · AI Agents                          │
-│  Install @tokenistt/sdk  ·  Add virtual API key                │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ AI Request (Prompt + Params)
-                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│              TOKENISTT GATEWAY (Node.js + TypeScript)           │
-│                                                                 │
-│  1. Authentication      →  Validate virtual key → workspace     │
-│  2. Workspace Resolver  →  Identify team, user, cost-center     │
-│  3. Governance          →  Allow / Deny pre-flight check        │
-│  4. Budget Engine       →  Soft warn / Throttle / Hard block    │
-│  5. Routing Engine      →  Cheapest / Fastest / Policy          │
-│  6. BYOK Key Resolver   →  Select real provider key             │
-│  7. Provider Adapters   →  Anthropic / Bedrock / Azure          │
-│  8. Streaming           →  Zero-buffer SSE passthrough          │
-│  9. Cost Calculator     →  Tokens → exact USD cost              │
-│ 10. Event Logger        →  Async write to Postgres              │
-└──────────────┬──────────────────────────┬───────────────────────┘
-               │                          │
-               ▼                          ▼
-┌──────────────────────┐      ┌───────────────────────────────────┐
-│    LLM PROVIDERS     │      │           STORAGE                 │
-│                      │      │                                   │
-│  • Anthropic Claude  │      │  PostgreSQL  — transactions,      │
-│  • AWS Bedrock       │      │  budgets, workspaces, audit logs  │
-│  • Azure OpenAI      │      │                                   │
-│  • OpenAI direct     │      │  Redis       — rate-limit cache   │
-└──────────────────────┘      │  ClickHouse  — analytics OLAP     │
-                              └───────────────────────────────────┘
-                                           │
-                                           ▼
-                              ┌───────────────────────────────────┐
-                              │     DASHBOARD (Next.js)           │
-                              │                                   │
-                              │  Overview · Budgets · Teams       │
-                              │  Providers · Shadow-AI · Alerts   │
-                              └───────────────────────────────────┘
+apps/
+  gateway/        Node.js + TypeScript (Express). Proxy, policy/budget/routing engines, management API, connectors
+  dashboard/      Next.js 15 + React 19 dashboard (talks to the gateway through a session-checked proxy)
+  mcp-server/     MCP tools for AI agents (spend summary, budget status, cost estimate, routing …)
+packages/
+  db/             Postgres schema + migration runner + demo seed
+  sdk-ts/         @tokenistt/sdk — OpenAI-compatible TypeScript client
+  sdk-python/     Python client
+  analytics/      Optional ClickHouse/Kafka path (off by default)
+  credential-manager/  shadow-ai-scanner/  finops-middleware/
+infra/            Dockerfiles, dev compose, Grafana provisioning
 ```
 
----
+Design rules the code follows: events are insert-only; prices are versioned; enforcement fails open on internal errors;
+logging never blocks the request path; provider differences live in adapters.
 
-## Repository Structure
+### Configuration
 
-```
-tokenistt/                              ← Monorepo root (npm workspaces)
-│
-├── tokenistt-gateway/                  ← Phase 1: Gateway services
-│   ├── universal-gateway/              ← Multi-provider AI proxy (Express + TypeScript)
-│   │   └── src/
-│   │       ├── server.ts               ← Express app entry
-│   │       ├── providers/              ← Anthropic, Bedrock, Azure adapters
-│   │       └── services/              ← GatewayService, pricing calculator
-│   │
-│   ├── finops-middleware/              ← FinOps attribution middleware
-│   │   └── src/
-│   │       ├── middleware/finops.ts    ← Auth + budget + attribution pipeline
-│   │       ├── services/budget.ts     ← Budget reserve / check / release
-│   │       ├── services/virtualKey.ts ← Virtual key lookup + resolution
-│   │       └── services/rateLimiter.ts← Per-key rate limiting (Redis)
-│   │
-│   └── tokenist-sdk/                  ← @tokenist/sdk v1 (prototype)
-│
-├── tokenistt-sdk/                     ← Phase 2+: Production SDK & platform
-│   ├── src/                           ← @tokenistt/sdk v2 (production)
-│   │   ├── client.ts                  ← Main Tokenistt client class
-│   │   ├── core/                      ← cost.ts, emitter.ts, fetch.ts, stream.ts
-│   │   ├── resources/                 ← chat.ts, embeddings.ts, models.ts
-│   │   └── types.ts                   ← Full TypeScript type definitions
-│   │
-│   ├── python/                        ← Python SDK (async-native)
-│   │   └── tokenistt/
-│   │       ├── client.py              ← Sync client
-│   │       ├── async_client.py        ← Async client
-│   │       └── core/                  ← cost, events, stream
-│   │
-│   ├── db/                            ← Database layer
-│   │   ├── drizzle/
-│   │   │   ├── 0000_init.sql          ← Authoritative DDL (tables, indexes, partitions)
-│   │   │   ├── views.sql              ← Materialized views for analytics rollups
-│   │   │   ├── queries.sql            ← Sample FinOps queries
-│   │   │   └── schema.ts              ← Drizzle typed ORM model
-│   │   └── prisma/schema.prisma       ← Prisma alternative schema
-│   │
-│   ├── analytics/                     ← Real-time analytics pipeline
-│   │   ├── consumer/                  ← Kafka → ClickHouse consumer (Node.js)
-│   │   └── clickhouse/                ← ClickHouse schema + queries
-│   │
-│   ├── examples/quickstart.ts         ← SDK usage examples
-│   │
-│   └── home/user/                     ← Extended platform tools
-│       ├── dashboard/                 ← Next.js 15 CFO spend dashboard
-│       │   ├── app/                   ← App Router pages
-│       │   └── components/            ← Charts, tables, budget bars
-│       ├── credential-manager/        ← BYOK key store (local/Vault/KMS)
-│       ├── mcp-server/                ← Model Context Protocol server
-│       └── shadow-ai-scanner/         ← Detect unauthorized AI spend
-│
-├── package.json                       ← Root npm workspaces config
-├── .npmrc                             ← audit-level=high
-├── .gitignore
-└── README.md
-```
-
----
-
-## Quick Start
-
-### Prerequisites
-
-| Requirement | Version |
-|---|---|
-| Node.js | >= 18 |
-| npm | >= 9 |
-| Docker (optional) | For Postgres, Redis, Kafka, ClickHouse |
-
-### 1. Clone and install
-
-```bash
-git clone https://github.com/Complete-tokenistt/tokenist-main.git
-cd tokenist-main
-
-# Install all workspace dependencies in one shot
-npm install
-```
-
-### 2. Set up the Gateway (minimum: 1 AI key)
-
-```bash
-cp tokenistt-gateway/home/user/universal-gateway/.env.example \
-   tokenistt-gateway/home/user/universal-gateway/.env
-
-# Edit and add your Anthropic key (or AWS/Azure)
-ANTHROPIC_API_KEY=sk-ant-xxxxx
-```
-
-### 3. Start the core services
-
-```bash
-# Terminal 1 — Universal Gateway (port 3000)
-npm run dev:gateway
-
-# Terminal 2 — FinOps Middleware (port 3001)
-npm run dev:middleware
-
-# Terminal 3 — Dashboard UI (port 3000 — next.js)
-cd tokenistt-sdk/home/user/dashboard && npm run dev
-```
-
-### 4. Make your first request
-
-```bash
-curl -X POST http://localhost:3000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer tktt_live_acme_alice_abc123" \
-  -d '{
-    "model": "claude-3-sonnet",
-    "messages": [{ "role": "user", "content": "Hello!" }]
-  }'
-```
-
----
-
-## Services
-
-### 1. Universal Gateway
-
-> `tokenistt-gateway/universal-gateway/` · Port `3000`
-
-The core HTTP proxy that normalises requests across AI providers and returns OpenAI-compatible responses regardless of which provider handles the call.
-
-**Provider Adapters built:**
-
-| Provider | Models | File |
+| Variable | Needed | Purpose |
 |---|---|---|
-| Anthropic | Claude 3 (Opus, Sonnet, Haiku) | `src/providers/anthropic.ts` |
-| AWS Bedrock | Claude via Bedrock, Titan | `src/providers/bedrock.ts` |
-| Azure OpenAI | GPT-4, GPT-3.5 | `src/providers/azure.ts` |
-| OpenAI direct | GPT-4o, GPT-3.5-turbo, o1, o3 | `src/providers/openai.ts` |
-
-**Key capabilities:**
-- Automatic provider detection from model name (e.g. `claude-*` → Anthropic)
-- Per-request `X-Provider` header override
-- Exact cost calculation after every response (`pricing.ts`)
-- Latency tracking, request ID generation
-- OpenAI-compatible response envelope (`choices`, `usage`, `model`)
-
-**Start:**
-```bash
-npm run dev:gateway
-# or from within the package:
-cd tokenistt-gateway/universal-gateway && npm run dev
-```
-
-**Environment:**
-```env
-PORT=3000
-ANTHROPIC_API_KEY=sk-ant-xxxxx
-AWS_ACCESS_KEY_ID=AKIAxxxxx
-AWS_SECRET_ACCESS_KEY=xxxxx
-AWS_REGION=us-east-1
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
-AZURE_OPENAI_API_KEY=xxxxx
-AZURE_DEPLOYMENT_NAME=gpt-4
-DEFAULT_PROVIDER=anthropic
-```
+| `DATABASE_URL` | yes | Postgres. Unset = "open mode" for local experiments (no auth, no logging) |
+| `REDIS_URL` | recommended | Shared rate limits and atomic budget reservation. `REDIS_REQUIRED=true` refuses to start without it |
+| `ADMIN_SECRET` | production | Operator access to `/v1/admin/*` |
+| `MASTER_KEY`, `ENCRYPTION_KEY` | production | Encrypt BYOK provider keys and connector credentials |
+| `JWT_SECRET` | production | Dashboard sessions; identical in dashboard and gateway |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`, `TOGETHER_API_KEY` | optional | Gateway-level provider keys (or use per-org BYOK) |
+| `OLLAMA_BASE_URL` | optional | Enables Ollama (no key needed) |
+| `CORS_ORIGINS` | optional | Allowed browser origins; production default is none |
+| `METRICS_TOKEN` | optional | Bearer token for `/metrics` (otherwise private networks only in production) |
+| `SLACK_WEBHOOK_URL`, `SMTP_URL` + `ALERT_EMAIL_TO` | optional | Where alerts and approval requests go |
+| `MOCK_PROVIDER=1` | optional | Offline `mock:` provider |
 
 ---
 
-### 2. FinOps Middleware
-
-> `tokenistt-gateway/finops-middleware/` · Port `3001`
-
-Express middleware that sits in front of the gateway and enforces the full FinOps pipeline: authentication → workspace resolution → rate limiting → budget check → attribution injection.
-
-**Pipeline (per request):**
-
-```
-Authorization: Bearer tktt_live_{workspace}_{user}_{hash}
-        │
-        ▼
-  parseVirtualKeyToken()   →  extract workspace + userId
-        │
-        ▼
-  virtualKeyService.lookup()  →  resolve real API key + budget limits
-        │
-        ▼
-  rateLimiterService.checkRateLimit()  →  429 if exceeded
-        │
-        ▼
-  budgetService.checkBudget()  →  429 if budget hard limit hit
-        │
-        ▼
-  budgetService.reserveBudget()  →  optimistic reservation
-        │
-        ▼
-  req.attribution = { userId, workspace, costCenter, realApiKey }
-        │
-        ▼
-  [forward to Universal Gateway]
-        │
-        ▼
-  res.json() intercepted → recordCost() + releaseBudget() reconciliation
-```
-
-**Services:**
-- `virtualKey.ts` — in-memory key store (Postgres-backed in production)
-- `budget.ts` — reserve/check/release/record with Redis counters
-- `rateLimiter.ts` — sliding window rate limiting per virtual key
-
-**Start:**
-```bash
-npm run dev:middleware
-# or:
-cd tokenistt-gateway/finops-middleware && npm run dev
-```
-
----
-
-### 3. Tokenistt SDK (Node.js)
-
-> `tokenistt-sdk/` · npm package `@tokenistt/sdk`
-
-Production-grade drop-in OpenAI replacement with full FinOps instrumentation built in.
-
-**Install in your project:**
-```bash
-npm install @tokenistt/sdk
-```
-
-**Basic usage:**
-```typescript
-import Tokenistt from '@tokenistt/sdk';
-
-const client = new Tokenistt({
-  apiKey: process.env.TOKENISTT_API_KEY,
-  baseURL: 'http://localhost:3000/v1',
-});
-
-const response = await client.chat.completions.create({
-  model: 'claude-3-sonnet',
-  messages: [{ role: 'user', content: 'Hello!' }],
-});
-
-console.log(response.choices[0].message.content);
-console.log(`Cost: $${response.actual_cost}`);
-console.log(`Provider: ${response.provider}`);
-```
-
-**Budget control:**
-```typescript
-const client = new Tokenistt({
-  apiKey: process.env.TOKENISTT_API_KEY,
-  budget: { softLimit: 10, hardLimit: 25 },
-  onUsage: (cost) => console.log(`$${cost.toFixed(6)}`),
-});
-
-client.on('budget:warning', (e) => console.warn('Approaching budget', e));
-client.on('budget:exceeded', (e) => console.error('Budget exceeded', e));
-```
-
-**User attribution:**
-```typescript
-const client = new Tokenistt({
-  apiKey: 'your-virtual-key',
-  user: 'alice@company.com',
-  costCenter: 'engineering',
-});
-```
-
-**Streaming:**
-```typescript
-const stream = await client.chat.completions.create({
-  model: 'gpt-4o',
-  messages: [{ role: 'user', content: 'Count to 5.' }],
-  stream: true,
-});
-
-for await (const chunk of stream) {
-  process.stdout.write(chunk.choices[0]?.delta?.content ?? '');
-}
-```
-
-**All supported resources:**
-- `client.chat.completions.create()` — chat completions (streaming + non-streaming)
-- `client.embeddings.create()` — text embeddings
-- `client.models.list()` / `.retrieve()` / `.del()`
-- `client.moderations.create()` — content moderation
-- `client.completions.create()` — legacy completions
-
-**Build:**
-```bash
-npm run build:sdk:v2
-# Output: tokenistt-sdk/dist/
-```
-
----
-
-### 4. Python SDK
-
-> `tokenistt-sdk/python/` · pip package `tokenistt`
-
-Async-native Python SDK that mirrors the Node.js API surface.
-
-**Install:**
-```bash
-pip install tokenistt
-```
-
-**Sync usage:**
-```python
-from tokenistt import Tokenistt
-
-client = Tokenistt(
-    api_key="your-virtual-key",
-    base_url="http://localhost:3000/v1",
-)
-
-response = client.chat.completions.create(
-    model="claude-3-sonnet",
-    messages=[{"role": "user", "content": "Hello!"}],
-)
-print(response.choices[0].message.content)
-```
-
-**Async usage:**
-```python
-from tokenistt import AsyncTokenistt
-
-async def main():
-    client = AsyncTokenistt(api_key="your-virtual-key")
-    response = await client.chat.completions.create(
-        model="claude-3-sonnet",
-        messages=[{"role": "user", "content": "Hello!"}],
-    )
-    print(response.choices[0].message.content)
-```
-
----
-
-### 5. Dashboard (Next.js)
-
-> `tokenistt-sdk/home/user/dashboard/` · Port `3000` (Next.js dev server)
-
-A CFO-ready spend analytics dashboard built with Next.js 15, React 19, Recharts 3, and Tailwind CSS.
-
-**Pages:**
-
-| Route | Description |
-|---|---|
-| `/` | Overview — summary cards, provider pie chart, spend timeline |
-| `/team` | Per-member model spend (stacked bar chart) |
-| `/cost-centers` | Budget utilization bars per cost center |
-| `/providers` | Provider breakdown + reconciliation |
-| `/benchmark` | Live model benchmarking (speed, cost, quality) |
-| `/shadow-ai` | Shadow AI findings from the scanner |
-| `/reconciliation` | Upload vendor invoices and reconcile vs ledger |
-
-**Start:**
-```bash
-cd tokenistt-sdk/home/user/dashboard
-npm run dev
-# http://localhost:3000
-
-# Build for production
-npm run build && npm start
-```
-
-**Environment (`dashboard/.env.local`):**
-```env
-# Optional — dashboard runs with mock data if blank
-TOKENISTT_BASE_URL=http://localhost:3000/v1
-TOKENISTT_API_KEY=tktt_live_acme_dashboard_xxx
-```
-
-> **Works with zero config.** All pages use realistic mock data out of the box — connect to the real gateway when ready.
-
----
-
-### 6. Analytics Consumer
-
-> `tokenistt-sdk/analytics/consumer/` · Kafka → ClickHouse pipeline
-
-Consumes transaction events from Kafka and batch-inserts them into ClickHouse for OLAP analytics (spend by provider, team, model, anomaly detection).
-
-**Start (requires Docker):**
-```bash
-# Start infrastructure
-docker-compose -f tokenistt-sdk/analytics/docker-compose.yml up -d
-# Starts: Kafka, Zookeeper, ClickHouse
-
-# Run consumer
-cd tokenistt-sdk/analytics/consumer && npm run start
-```
-
-**Environment (`analytics/.env`):**
-```env
-KAFKA_BROKERS=localhost:9092
-KAFKA_TOPIC=transactions
-KAFKA_GROUP=tokenistt-analytics
-CLICKHOUSE_URL=http://localhost:8123
-CLICKHOUSE_USER=default
-CLICKHOUSE_PASSWORD=
-CLICKHOUSE_DATABASE=default
-BATCH_SIZE=5000
-FLUSH_MS=2000
-```
-
----
-
-### 7. Credential Manager
-
-> `tokenistt-sdk/home/user/credential-manager/` · Port `4000`
-
-Secure BYOK (Bring Your Own Key) credential store. Stores and retrieves real provider API keys that the gateway uses to make upstream calls.
-
-**Backends:**
-
-| Backend | Use case | Config |
-|---|---|---|
-| `local` | Development only | `MASTER_KEY=any-32-char-string` |
-| `vault` | Production (HashiCorp Vault) | `VAULT_ADDR` + `VAULT_TOKEN` |
-| `kms` | Production (AWS KMS) | `AWS_REGION` + `AWS_KMS_KEY_ARN_PREFIX` |
-
-**Start:**
-```bash
-cd tokenistt-sdk/home/user/credential-manager
-CRED_BACKEND=local MASTER_KEY=dev-secret-key-change-in-prod npm run dev
-```
-
----
-
-### 8. MCP Server
-
-> `tokenistt-sdk/home/user/mcp-server/` · Port `3001` (SSE) or stdio
-
-[Model Context Protocol](https://modelcontextprotocol.io) server that exposes Tokenistt tools to AI agents and MCP-compatible clients (Claude Desktop, Cursor, Windsurf).
-
-**Tools exposed:**
-- `route_request` — intelligently route an LLM call to the best provider
-- `get_spend` — query current spend for a user or cost center
-- `optimize_prompt` — suggest cheaper model alternatives
-- `list_models` — list available models with pricing
-
-**Transports:**
-```bash
-# stdio (for Claude Desktop / Cursor)
-MCP_TRANSPORT=stdio npm run start
-
-# SSE (for web clients)
-MCP_TRANSPORT=sse PORT=3001 npm run start
-```
-
----
-
-### 9. Shadow-AI Scanner
-
-> `tokenistt-sdk/home/user/shadow-ai-scanner/`
-
-Detects unauthorized AI spend by scanning corporate expense platforms (Brex, Ramp) for AI vendor charges that didn't flow through the approved Tokenistt gateway. Runs on a cron schedule, flags anomalies, and POSTs findings to the dashboard.
-
-**How it works:**
-1. Reads expense transactions from Brex / Ramp via OAuth
-2. Matches vendor names against known AI provider patterns (OpenAI, Anthropic, etc.)
-3. Cross-checks against the Tokenistt gateway's approved transaction ledger
-4. Flags any AI expense without a matching gateway transaction as **Shadow AI**
-5. POSTs findings to `DASHBOARD_URL/api/shadow-ai/scan`
-
-**Start:**
-```bash
-cd tokenistt-sdk/home/user/shadow-ai-scanner
-npm run start
-```
-
-**Environment:**
-```env
-REDIS_URL=redis://localhost:6379
-SCAN_CRON=0 6 * * *
-SCANNER_ORGS=[{"orgId":"acme","providers":["brex"],"users":[...]}]
-BREX_CLIENT_ID=your-brex-app-id
-BREX_CLIENT_SECRET=your-brex-app-secret
-```
-
----
-
-## Database
-
-The Postgres schema lives in `tokenistt-sdk/db/drizzle/`.
-
-### Apply schema
+## Development
 
 ```bash
-# Apply DDL to your Postgres instance
-psql $DATABASE_URL -f tokenistt-sdk/db/drizzle/0000_init.sql
-psql $DATABASE_URL -f tokenistt-sdk/db/drizzle/views.sql
+npm run dev:deps && npm run migrate          # Postgres + Redis, schema
+npm run typecheck && npm run build           # everything
+npm test                                     # unit + integration (needs the database above)
+npm run test:e2e -w apps/gateway             # boots the gateway and drives the full pipeline over HTTP
 ```
 
-### Core tables
+CI (`.github/workflows/ci.yml`) runs the same steps on Node 20 against real Postgres and Redis. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-| Table | Purpose |
-|---|---|
-| `organizations` | Multi-tenant orgs |
-| `workspaces` | Teams / cost centers within an org |
-| `users` | Individual actors |
-| `virtual_keys` | API keys with budget caps |
-| `transactions` | **One row per API call** — immutable FinOps ledger |
-| `provider_invoices` | Vendor bills for reconciliation |
+## What works today
 
-### Key design decisions
+Verified by the test suites and the end-to-end script: key issuance and authentication, cost calculation and logging,
+request history, response cache, batch, approval policy with approve/retry, routing with provider failover, BYOK key
+failover, budget enforcement and alerts, attribution joins, audit trail, CSV export, RBAC and tenant isolation of the
+management API, connector sync against fixture servers (all eight types), SSRF and signature checks.
 
-- **`cost_usd` is `numeric(18,6)`** — exact decimal, never float. Required for financial audits.
-- **`transactions` is monthly-partitioned** — partition pruning makes time-range queries 10–100x faster at scale.
-- **Denormalized `cost_center` + `actor`** on every transaction row — no joins needed for the two most common FinOps queries.
-- **Materialized views** refresh every 15 minutes via `pg_cron`: `mv_cost_by_provider_daily`, `mv_cost_by_cost_center_daily`, `mv_virtual_key_spend_monthly`.
+## Known gaps
 
-### Drizzle typed model
+Stated plainly so nobody is surprised:
 
-```typescript
-import { db } from './db/drizzle/schema';
-
-// Query Sarah's spend last week
-const spend = await db
-  .select({ total: sum(transactions.cost_usd) })
-  .from(transactions)
-  .where(and(
-    eq(transactions.actor, 'sarah@acme.io'),
-    eq(transactions.cost_center, 'CC-4401-Support'),
-    gte(transactions.created_at, lastWeek)
-  ));
-```
+- **Connectors are tested against fixture servers, not the live services** (no credentials were available). Field names follow each vendor's public API docs; expect small fixes on first real use.
+- **Older dashboard pages** (Overview, Usage, Budgets, Governance, Routing, Providers, Team, Forecasting …) predate the management API: they read Postgres directly and fall back to sample data when it is unavailable. The pages marked bold above use the gateway API. Unifying them is planned.
+- **Not built yet:** SSO (OIDC/SAML), Postgres row-level security, pluggable secrets managers (AWS/Vault/Azure), Redis-Streams event queue for multi-instance deployments, request replay, per-provider latency SLO alerts, an `@tokenistt/cli`, and a dual ESM/CJS SDK build.
+- Prices exist for OpenAI, Anthropic and a few others; Groq, Together and Gemini models report `COST_UNAVAILABLE` until a price is added to the catalog.
+- Single Postgres instance; no multi-region story.
 
 ---
 
-## Environment Variables
+## Authors
 
-### Minimum to run locally
+Started and built by the Tokenistt founders:
 
-```env
-# tokenistt-gateway/home/user/universal-gateway/.env
-ANTHROPIC_API_KEY=sk-ant-xxxxx
-```
+<table>
+  <tr>
+    <td align="center" width="200">
+      <a href="https://github.com/Aryan-theccool">
+        <img src="https://avatars.githubusercontent.com/u/146411259?v=4&s=120" width="100" height="100" alt="Aryan Singh Bhadoria"><br>
+        <sub><b>Aryan Singh Bhadoria</b></sub>
+      </a><br>
+      <sub>Co-founder · CEO<br><a href="https://github.com/Aryan-theccool">@Aryan-theccool</a></sub>
+    </td>
+    <td align="center" width="200">
+      <a href="https://github.com/A-kki">
+        <img src="https://avatars.githubusercontent.com/u/206406296?v=4&s=120" width="100" height="100" alt="Akshay Khanna"><br>
+        <sub><b>Akshay Khanna</b></sub>
+      </a><br>
+      <sub>Co-founder · CTO<br><a href="https://github.com/A-kki">@A-kki</a></sub>
+    </td>
+    <td align="center" width="200">
+      <a href="https://github.com/adityatiwari12">
+        <img src="https://avatars.githubusercontent.com/u/73302199?v=4&s=120" width="100" height="100" alt="Aditya Tiwari"><br>
+        <sub><b>Aditya Tiwari</b></sub>
+      </a><br>
+      <sub>Co-founder · CPO<br><a href="https://github.com/adityatiwari12">@adityatiwari12</a></sub>
+    </td>
+  </tr>
+</table>
 
-### Full reference
-
-| Service | File | Key Variables |
-|---|---|---|
-| Universal Gateway | `universal-gateway/.env` | `ANTHROPIC_API_KEY`, `AWS_*`, `AZURE_*` |
-| FinOps Middleware | `finops-middleware/.env` | `PORT=3001`, `NODE_ENV` |
-| Dashboard | `dashboard/.env.local` | `TOKENISTT_BASE_URL`, `TOKENISTT_API_KEY` (both optional) |
-| Analytics | `analytics/.env` | `KAFKA_BROKERS`, `CLICKHOUSE_URL` |
-| Credential Manager | `credential-manager/.env` | `CRED_BACKEND`, `MASTER_KEY` |
-| MCP Server | `mcp-server/.env` | `MCP_TRANSPORT`, `GATEWAY_URL` (optional) |
-| Shadow-AI Scanner | `shadow-ai-scanner/.env` | `REDIS_URL`, `SCANNER_ORGS`, Brex/Ramp OAuth |
-
-> See [env_reference.md](docs/env_reference.md) for every variable with descriptions.
-
----
-
-## npm Scripts
-
-Run from the **monorepo root**:
-
-```bash
-# ── Dev servers ──────────────────────────────
-npm run dev:gateway        # Universal Gateway on :3000
-npm run dev:middleware     # FinOps Middleware on :3001
-
-# ── Builds ───────────────────────────────────
-npm run build:all          # Build every package
-npm run build:gateway      # Build universal-gateway
-npm run build:middleware   # Build finops-middleware
-npm run build:sdk:v1       # Build @tokenist/sdk (v1)
-npm run build:sdk:v2       # Build @tokenistt/sdk (v2)
-
-# ── Type checking ─────────────────────────────
-npm run typecheck:gateway
-npm run typecheck:middleware
-npm run typecheck:sdk
-
-# ── Audit ────────────────────────────────────
-npm audit                  # Check vulnerabilities (level: high+)
-```
-
----
-
-## Development Guide
-
-### Adding a new LLM provider
-
-1. Create `tokenistt-gateway/universal-gateway/src/providers/myprovider.ts`
-2. Extend `BaseProviderAdapter` and implement `translateRequest()`, `callProvider()`, `parseResponse()`
-3. Register in `providers/registry.ts`
-4. Add env vars to `.env.example`
-
-### Adding a new dashboard page
-
-1. Create `tokenistt-sdk/home/user/dashboard/app/my-page/page.tsx`
-2. Add a route to `components/DashboardShell.tsx` nav
-3. Create a matching API route at `app/api/my-page/route.ts`
-
-### Running tests
-
-```bash
-# SDK tests
-cd tokenistt-sdk && npm test
-
-# Gateway tests
-cd tokenistt-gateway/universal-gateway && npm test
-
-# Middleware tests
-cd tokenistt-gateway/finops-middleware && npm test
-```
-
----
-
-## Roadmap
-
-### ✅ Phase 1 — Core (Built)
-- [x] Universal Gateway (Anthropic, Bedrock, Azure)
-- [x] FinOps Middleware (virtual keys, budgets, rate limiting)
-- [x] `@tokenistt/sdk` Node.js v2
-- [x] Python SDK
-- [x] Postgres schema (partitioned, materialized views)
-- [x] Next.js Dashboard (Overview, Teams, Budgets, Providers)
-- [x] MCP Server (stdio + SSE)
-- [x] Shadow-AI Scanner (Brex, Ramp)
-- [x] Analytics Consumer (Kafka → ClickHouse)
-
-### 🔧 Phase 1 — Gaps to close
-- [x] Wire finops-middleware → universal-gateway into one pipeline
-- [x] Event Logger — write `transactions` row per API call to Postgres
-- [x] Connect Dashboard APIs to real Postgres data (remove mock)
-- [x] OpenAI direct provider adapter
-- [x] Server-side streaming (SSE passthrough in gateway)
-- [x] Dashboard pages: Governance & Policies, Secure Settings (Credential Manager)
-
-### 🚀 Phase 2 — Coming
-- [ ] Connectors (GitHub, Jira, Slack, Linear)
-- [ ] Feature / Repository / Sprint / Customer cost attribution
-- [ ] Cost-optimized routing engine (cheapest/fastest decisions)
-- [ ] Additional providers: Groq, Google Gemini, Together AI, Ollama
-- [ ] Spend forecasting (time-series ML)
-- [ ] Policy engine (allow/deny rules per model, user, cost center)
-- [ ] Redis-backed virtual key store (replace in-memory)
-- [ ] Object storage (exports, audit backups)
-
----
+Thanks to everyone on the [contributors graph](https://github.com/Complete-tokenistt/tokenistt/graphs/contributors).
 
 ## License
 
-MIT © Tokenistt
-
----
-
-<div align="center">
-  <sub>Built for engineering teams who want to ship AI responsibly.</sub>
-</div>
+[Apache-2.0](LICENSE). Security issues: see [SECURITY.md](SECURITY.md).

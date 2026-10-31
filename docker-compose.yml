@@ -1,4 +1,10 @@
-version: "3.9"
+# Tokenistt — self-hosted stack.
+#
+#   cp .env.example .env      # set the required secrets (see below)
+#   docker compose up --build
+#
+# Gateway  http://localhost:${GATEWAY_PORT:-3000}      Dashboard  http://localhost:${DASHBOARD_PORT:-3001}
+# Host ports are configurable so the stack never clashes with something already running locally.
 
 services:
   postgres:
@@ -10,28 +16,42 @@ services:
       POSTGRES_USER: tokenistt
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — set a strong value in .env or CI/CD secrets}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./packages/db/drizzle/0000_init.sql:/docker-entrypoint-initdb.d/01_init.sql
-      - ./packages/db/drizzle/views.sql:/docker-entrypoint-initdb.d/02_views.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U tokenistt -d tokenistt"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
   redis:
     image: redis:7-alpine
     container_name: tokenistt-redis
     restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+
+  # Applies packages/db/drizzle/*.sql (tracked in schema_migrations) and exits.
+  migrate:
+    build:
+      context: .
+      dockerfile: infra/docker/migrate.Dockerfile
+    container_name: tokenistt-migrate
+    environment:
+      DATABASE_URL: postgres://tokenistt:${POSTGRES_PASSWORD}@postgres:5432/tokenistt
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   gateway:
     build:
@@ -40,36 +60,49 @@ services:
     container_name: tokenistt-gateway
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${GATEWAY_PORT:-3000}:3000"
     environment:
       PORT: 3000
       NODE_ENV: production
-      DATABASE_URL: postgres://tokenistt:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required in production}@postgres:5432/tokenistt
+      DATABASE_URL: postgres://tokenistt:${POSTGRES_PASSWORD}@postgres:5432/tokenistt
       REDIS_URL: redis://redis:6379
-      DEFAULT_PROVIDER: anthropic
+      # Redis holds shared rate-limit / budget-reservation state; refuse to run without it.
+      REDIS_REQUIRED: "true"
+      DEFAULT_PROVIDER: ${DEFAULT_PROVIDER:-openai}
       # ── Required production secrets (must be set in .env or CI/CD secrets) ──
-      # ADMIN_SECRET: used by validateSecrets() to guard /v1/admin/* endpoints
+      # ADMIN_SECRET: operator access to /v1/admin/*
       ADMIN_SECRET: ${ADMIN_SECRET:?ADMIN_SECRET is required in production}
       # ENCRYPTION_KEY: AES-256-GCM key for BYOK provider key encryption (min 32 chars)
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required in production}
       # MASTER_KEY: AES-256-GCM key for BYOK API key encryption in vault.ts (min 32 chars)
       MASTER_KEY: ${MASTER_KEY:?MASTER_KEY is required in production}
-      # ── Optional provider keys ────────────────────────────────────────────
+      # JWT_SECRET: lets dashboard session tokens call the management API (min 32 chars)
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required in production}
+      # ── Optional ───────────────────────────────────────────────────────────
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3001}
+      # MOCK_PROVIDER=1 adds an offline fake provider (model prefix "mock:") for trying things without real keys
+      MOCK_PROVIDER: ${MOCK_PROVIDER:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      TOGETHER_API_KEY: ${TOGETHER_API_KEY:-}
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
-      # TX_QUEUE_FILE: path inside the container that maps to the persistent volume
+      # Paths inside the container that map to the persistent volume
       TX_QUEUE_FILE: /app/gateway_data/tx_queue.jsonl
+      AUDIT_QUEUE_FILE: /app/gateway_data/audit_queue.jsonl
     volumes:
-      # BUG-I FIX: mount the durable transaction queue as a named volume.
-      # Without this, any pending transactions queued before a container restart
-      # are permanently lost — defeating the purpose of the durable queue entirely.
+      # Mount the durable queues on a named volume; otherwise anything queued while the DB
+      # is down is lost on container restart.
       - gateway_tx_queue:/app/gateway_data
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   dashboard:
     build:
@@ -78,13 +111,13 @@ services:
     container_name: tokenistt-dashboard
     restart: unless-stopped
     ports:
-      - "3001:3000"
+      - "${DASHBOARD_PORT:-3001}:3000"
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgres://tokenistt:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required in production}@postgres:5432/tokenistt
+      DATABASE_URL: postgres://tokenistt:${POSTGRES_PASSWORD}@postgres:5432/tokenistt
+      GATEWAY_URL: http://gateway:3000
       TOKENISTT_BASE_URL: http://gateway:3000/v1
-      # ── Required production secrets ────────────────────────────────────────
-      # JWT_SECRET: used by lib/auth.ts and middleware.ts for JWT signing/verification (min 32 chars)
+      # JWT_SECRET: signs/verifies dashboard sessions (min 32 chars); must equal the gateway's
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required in production}
       # STRICT_AUTH: enforces JWT authentication on all routes regardless of NODE_ENV
       STRICT_AUTH: "true"
@@ -96,5 +129,5 @@ services:
 
 volumes:
   pgdata:
-  gateway_tx_queue:   # Persistent storage for durable transaction queue (tx_queue.jsonl)
-
+  redisdata:
+  gateway_tx_queue:   # Persistent storage for the durable transaction + audit queues

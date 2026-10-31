@@ -2,13 +2,12 @@
 FROM node:20-alpine AS build
 WORKDIR /repo
 COPY package.json package-lock.json ./
-COPY apps/gateway/package.json apps/gateway/
-COPY apps/dashboard/package.json apps/dashboard/
-COPY apps/mcp-server/package.json apps/mcp-server/
+COPY apps ./apps
 COPY packages ./packages
-RUN npm ci --workspace=apps/gateway --include-workspace-root
-COPY apps/gateway apps/gateway
-RUN npm run build --workspace=apps/gateway
+# Full workspace install: partial (--workspace) installs hoist differently from the lockfile
+RUN npm ci --no-audit --no-fund
+RUN npm run build --workspace=apps/gateway \
+ && npm prune --omit=dev --no-audit --no-fund
 
 FROM node:20-alpine
 ENV NODE_ENV=production
