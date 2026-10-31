@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { generateVirtualKey, hashToken, verifyTokenHash } from '../services/keyManager.js';
+import { parseToken } from '../db/auth.js';
 
 describe('Key Manager (Cryptographic Key Vault)', () => {
   it('should generate a unique raw token on each call with proper format', () => {
@@ -39,3 +40,18 @@ describe('Key Manager (Cryptographic Key Vault)', () => {
   });
 });
 
+
+describe('generated keys always parse (regression: base64url "-" broke ~40% of keys)', () => {
+  it('1000 generated keys round-trip through parseToken', () => {
+    for (let i = 0; i < 1000; i++) {
+      const { rawToken } = generateVirtualKey(`org_${i}`, `user-${i}`);
+      const parsed = parseToken(`Bearer ${rawToken}`);
+      assert.ok(parsed, `token failed to parse: ${rawToken}`);
+      assert.equal(parsed!.raw, rawToken);
+    }
+  });
+
+  it('legacy tokens whose secret contains "-" now parse too', () => {
+    assert.ok(parseToken('Bearer tktt_live_org1_alice_ab-cd_ef'));
+  });
+});

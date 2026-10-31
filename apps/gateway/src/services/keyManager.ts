@@ -23,7 +23,8 @@ export function generateVirtualKey(
 ): GeneratedKey {
   const cleanWorkspace = workspaceOrOrg.replace(/[^a-zA-Z0-9]/g, '').slice(0, 16) || 'ws';
   const cleanUser = userOrName.replace(/[^a-zA-Z0-9]/g, '').slice(0, 16) || 'key';
-  const secret = randomBytes(24).toString('base64url'); // 192 bits entropy
+  // hex, not base64url: '-' in a base64url secret broke the token parser (about 4 in 10 keys)
+  const secret = randomBytes(24).toString('hex'); // 192 bits entropy
   const rawToken = `tktt_live_${cleanWorkspace}_${cleanUser}_${secret}`;
   
   const keyPrefix = `${rawToken.slice(0, 20)}...`;
