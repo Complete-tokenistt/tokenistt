@@ -7,6 +7,7 @@
   "workspaces": [
     "apps/*",
     "packages/finops-middleware",
+    "packages/db",
     "packages/sdk-ts",
     "packages/analytics/consumer",
     "packages/credential-manager",
@@ -17,6 +18,8 @@
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "migrate": "npm run migrate -w packages/db",
+    "dev:deps": "docker compose -p tokenistt-dev -f infra/docker-compose.dev.yml up -d --wait",
     "build:gateway": "npm run build --workspace=apps/gateway",
     "dev:gateway": "npm run dev --workspace=apps/gateway",
     "dev:dashboard": "npm run dev --workspace=apps/dashboard",
