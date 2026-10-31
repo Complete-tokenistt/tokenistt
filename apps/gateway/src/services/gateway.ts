@@ -47,7 +47,10 @@ export class GatewayService {
     const providerType = providerOverride || 
                          this.registry.detectProvider(request.model);
     
-    const provider = this.registry.getProvider(providerType);
+    let provider = this.registry.getProvider(providerType);
+    if (!provider && apiKeyOverride) {
+      provider = this.registry.ensureKeyless(providerType);
+    }
     
     if (!provider) {
       throw new GatewayError(
