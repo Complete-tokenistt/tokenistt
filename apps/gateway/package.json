@@ -10,7 +10,7 @@
     "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts",
     "dev:node": "node --loader tsx src/server.ts",
-    "test": "tsx --test src/**/*.test.ts",
+    "test": "tsx --test --test-force-exit --test-timeout=60000 \"src/**/*.test.ts\"",
     "lint": "eslint src/**/*.ts",
     "typecheck": "tsc --noEmit"
   },
