@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
-import { getCostCenters } from "@/lib/mock-data";
+import { dbUnavailable } from "@/lib/db-unavailable";
 import { getSessionFromRequest, unauthorizedResponse, forbiddenResponse } from "@/lib/auth";
 import { can } from "@/lib/rbac";
 
@@ -8,9 +8,7 @@ export async function GET(req: NextRequest) {
   const session = getSessionFromRequest(req);
   if (!session) return unauthorizedResponse();
 
-  if (!process.env.DATABASE_URL) {
-    return NextResponse.json({ budgets: [] });
-  }
+  if (!process.env.DATABASE_URL) return dbUnavailable();
 
   try {
     const pool = getPool();
@@ -90,7 +88,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ budgets });
     }
 
-    // 2. Fallback: Workspace-based budgets
+    // 2. Workspace-level caps when no budgets are configured
     const { rows } = await pool.query<{
       id: string;
       name: string;
@@ -119,7 +117,7 @@ export async function GET(req: NextRequest) {
     );
 
     const budgets = rows.map((r) => {
-      const cap = r.budget_cap_usd ? parseFloat(r.budget_cap_usd) : 5000;
+      const cap = r.budget_cap_usd ? parseFloat(r.budget_cap_usd) : 0;
       const spend = parseFloat(r.spend_usd);
       const pct = cap > 0 ? (spend / cap) * 100 : 0;
       return {
@@ -138,7 +136,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ budgets });
   } catch (err: any) {
     console.error("[/api/budgets] DB error:", err.message);
-    return NextResponse.json({ budgets: [] });
+    return dbUnavailable();
   }
 }
 
@@ -167,19 +165,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Field cap_usd is required and must be a number" }, { status: 400 });
     }
 
-    if (!process.env.DATABASE_URL) {
-      return NextResponse.json({
-        success: true,
-        budget: {
-          id: "mock-budget-new",
-          name: name || `${scope_type} Budget`,
-          scope_type,
-          cap_usd: parseFloat(cap_usd),
-          period,
-          enforcement_mode,
-        },
-      });
-    }
+    if (!process.env.DATABASE_URL) return dbUnavailable();
 
     const pool = getPool();
     const { rows } = await pool.query(

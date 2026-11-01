@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useDashboard } from "@/components/DashboardShell";
 import { StatusPill } from "@/components/StatusBadges";
-import { CHARGEBACK_LEDGER, CHARGEBACK_HISTORY } from "@/lib/dashboard-mock-data";
 
 function downloadCsv(filename: string, header: string, rows: string[]) {
   const blob = new Blob([[header, ...rows].join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -19,33 +18,37 @@ function downloadCsv(filename: string, header: string, rows: string[]) {
 }
 
 export default function ChargebacksPage() {
-  const { isLive, notify } = useDashboard();
-  const [ledger, setLedger] = useState<any[]>(isLive ? [] : CHARGEBACK_LEDGER);
+  const { notify } = useDashboard();
+  const [ledger, setLedger] = useState<any[]>([]);
+  const [history, setHistory] = useState<{ period: string; total: number; status: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [editing, setEditing] = useState(false);
 
   useEffect(() => {
-    if (!isLive) {
-      setLedger(CHARGEBACK_LEDGER);
-      return;
-    }
-
     let mounted = true;
     fetch("/api/chargebacks?period=month")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (mounted) {
-          setLedger(data?.ledger || []);
-        }
+        if (!mounted) return;
+        if (!data) setLoadError(true);
+        setLedger(data?.ledger || []);
+        setHistory(Array.isArray(data?.history) ? data.history : []);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (mounted) setLoadError(true);
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
 
     return () => {
       mounted = false;
     };
-  }, [isLive]);
+  }, []);
 
   const total = ledger.reduce((a, r) => a + (r.spend || 0), 0);
-  const historyToRender = isLive ? [] : CHARGEBACK_HISTORY;
+  const historyToRender = history;
 
   function exportCsv() {
     downloadCsv(
@@ -60,7 +63,7 @@ export default function ChargebacksPage() {
     downloadCsv(
       `tokenistt-chargebacks-${period.toLowerCase().replace(" ", "-")}.csv`,
       "period,total_usd",
-      [`"${period}",${CHARGEBACK_HISTORY.find((h) => h.period === period)?.total ?? 0}`]
+      [`"${period}",${history.find((h) => h.period === period)?.total ?? 0}`]
     );
     notify(`${period} report downloaded`);
   }
@@ -90,7 +93,7 @@ export default function ChargebacksPage() {
           }}
         >
           <span className="mono" style={{ fontSize: 12, color: "var(--fg-3)" }}>
-            billing-period ledger · {new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" })} · {isLive ? "live ledger" : "demo preview"}
+            billing-period ledger · {new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" })}
           </span>
           <div style={{ display: "flex", gap: 8 }}>
             <button type="button" className="btn btn-ghost btn-sm" onClick={exportCsv} disabled={ledger.length === 0}>
@@ -130,7 +133,17 @@ export default function ChargebacksPage() {
               <span style={{ textAlign: "right" }}>Spend</span>
             </div>
 
-            {ledger.length === 0 && (
+            {loading && (
+              <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--fg-4)", fontSize: 13.5 }}>Loading ledger…</div>
+            )}
+
+            {!loading && loadError && (
+              <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--red)", fontSize: 13.5 }}>
+                Couldn&apos;t load the chargeback ledger.
+              </div>
+            )}
+
+            {!loading && !loadError && ledger.length === 0 && (
               <div style={{ padding: "40px 20px", textAlign: "center" }}>
                 <div style={{ fontSize: 15, color: "var(--fg-2)", marginBottom: 8 }}>
                   No chargeback entries for the current billing period

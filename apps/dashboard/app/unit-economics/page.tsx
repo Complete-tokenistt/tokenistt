@@ -4,38 +4,48 @@ import { useState, useEffect } from "react";
 import { useDashboard } from "@/components/DashboardShell";
 import { Sparkline } from "@/components/Sparkline";
 import { ConfidenceBadge, FreshnessBadge } from "@/components/StatusBadges";
-import { UNIT_ECONOMICS_METRICS, CONNECTED_DATA_SOURCES } from "@/lib/dashboard-mock-data";
 
 const EMPTY_METRIC = { label: "", feature: "", value: "", unit: "$" };
 
-type Metric = (typeof UNIT_ECONOMICS_METRICS)[number];
+type Metric = {
+  id: number;
+  label: string;
+  feature: string;
+  value: number;
+  unit: string;
+  confidence: "measured" | "estimated";
+  dataSource: string;
+  freshness: string;
+  trend: number[];
+};
 
 export default function UnitEconomicsPage() {
-  const { isLive, notify } = useDashboard();
-  const [metrics, setMetrics] = useState<Metric[]>(isLive ? [] : UNIT_ECONOMICS_METRICS);
+  const { notify } = useDashboard();
+  const [metrics, setMetrics] = useState<Metric[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_METRIC);
 
   useEffect(() => {
-    if (!isLive) {
-      setMetrics(UNIT_ECONOMICS_METRICS);
-      return;
-    }
-
     async function loadMetrics() {
       try {
         const res = await fetch("/api/unit-economics");
-        if (!res.ok) return;
+        if (!res.ok) {
+          setLoadError(true);
+          return;
+        }
         const data = await res.json();
         if (data?.metrics && Array.isArray(data.metrics)) {
           setMetrics(data.metrics);
         }
       } catch (err) {
         console.warn("Could not load /api/unit-economics:", err);
+        setLoadError(true);
       }
     }
-    loadMetrics();
-  }, [isLive]);
+    loadMetrics().finally(() => setLoading(false));
+  }, []);
 
   async function defineMetric(e: React.FormEvent) {
     e.preventDefault();
@@ -76,15 +86,13 @@ export default function UnitEconomicsPage() {
     setFormOpen(false);
   }
 
-  const dataSources = isLive
-    ? [
-        { id: 1, name: "Universal Gateway Ledger", status: "live", lastSync: "real-time" },
-        { id: 2, name: "Database Transactions", status: "live", lastSync: "real-time" },
-        { id: 3, name: "Stripe / Revenue", status: "not connected", lastSync: null },
-        { id: 4, name: "Segment / Outcomes", status: "not connected", lastSync: null },
-        { id: 5, name: "Data Warehouse", status: "not connected", lastSync: null },
-      ]
-    : CONNECTED_DATA_SOURCES;
+  const dataSources = [
+    { id: 1, name: "Universal Gateway Ledger", status: "live", lastSync: "real-time" },
+    { id: 2, name: "Database Transactions", status: "live", lastSync: "real-time" },
+    { id: 3, name: "Stripe / Revenue", status: "not connected", lastSync: null },
+    { id: 4, name: "Segment / Outcomes", status: "not connected", lastSync: null },
+    { id: 5, name: "Data Warehouse", status: "not connected", lastSync: null },
+  ];
 
   return (
     <div>
@@ -104,9 +112,8 @@ export default function UnitEconomicsPage() {
           ))}
         </div>
         <p style={{ fontSize: 13, color: "var(--fg-3)", marginTop: 12, lineHeight: 1.5 }}>
-          {isLive
-            ? "Connect business outcome webhooks or define outcome metrics to automatically calculate cost-per-user or cost-per-action."
-            : "These numbers are only as good as the data connected here. Metrics below inherit 'measured' confidence only when every source feeding them is live."}
+          Connect business outcome webhooks or define outcome metrics to automatically calculate cost-per-user or cost-per-action.
+          Metrics inherit &apos;measured&apos; confidence only when every source feeding them is live.
         </p>
       </div>
 
@@ -149,7 +156,11 @@ export default function UnitEconomicsPage() {
         </form>
       )}
 
-      {metrics.length === 0 ? (
+      {loading ? (
+        <div className="card" style={{ padding: "40px 20px", textAlign: "center", color: "var(--fg-4)", fontSize: 13.5 }}>Loading metrics…</div>
+      ) : loadError ? (
+        <div className="card" style={{ padding: "40px 20px", textAlign: "center", color: "var(--red)", fontSize: 13.5 }}>Couldn&apos;t load unit economics metrics.</div>
+      ) : metrics.length === 0 ? (
         <div className="card" style={{ padding: "40px 20px", textAlign: "center" }}>
           <div style={{ fontSize: 15, color: "var(--fg-2)", marginBottom: 8 }}>
             No unit economic metrics defined yet

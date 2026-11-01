@@ -6,6 +6,7 @@ const PUBLIC_PATHS = [
   '/login',
   '/',
   '/onboarding',
+  '/docs',
 ];
 
 // ---------------------------------------------------------------------------
@@ -100,6 +101,12 @@ async function verifyJwtEdge(token: string, secret: string): Promise<AuthSession
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
+  // 0. Open mode: no login. The sign-in page has nothing to do, so send it home.
+  if (process.env.AUTH_MODE === 'open') {
+    if (pathname === '/login') return NextResponse.redirect(new URL('/', req.url));
+    return NextResponse.next();
+  }
+
   // 1. Allow public routes
   if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'))) {
     return NextResponse.next();
@@ -156,6 +163,6 @@ export async function middleware(req: NextRequest) {
 
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|icon.png).*)'],
 };
 

@@ -3,20 +3,13 @@ import { getPool } from "@/lib/db";
 import { encryptApiKey } from "@/lib/vault";
 import { getSessionFromRequest, unauthorizedResponse, forbiddenResponse } from "@/lib/auth";
 import { can } from "@/lib/rbac";
-
-// In-memory mock keys for standalone demo mode
-let mockKeys: Record<string, boolean> = {
-  openai: true,
-  anthropic: false,
-};
+import { dbUnavailable } from "@/lib/db-unavailable";
 
 export async function GET(req: NextRequest) {
   const session = getSessionFromRequest(req);
   if (!session) return unauthorizedResponse();
 
-  if (!process.env.DATABASE_URL) {
-    return NextResponse.json(mockKeys);
-  }
+  if (!process.env.DATABASE_URL) return dbUnavailable();
 
   try {
     const pool = getPool();
@@ -37,8 +30,8 @@ export async function GET(req: NextRequest) {
       anthropic: hasAnthropic,
     });
   } catch (err: any) {
-    console.error("[/api/settings/keys] GET error, returning mock status:", err.message);
-    return NextResponse.json(mockKeys);
+    console.error("[/api/settings/keys] GET error:", err.message);
+    return dbUnavailable();
   }
 }
 
@@ -58,10 +51,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Provider and apiKey are required" }, { status: 400 });
     }
 
-    if (!process.env.DATABASE_URL) {
-      mockKeys[provider.toLowerCase()] = true;
-      return NextResponse.json({ success: true, provider, mock: true });
-    }
+    if (!process.env.DATABASE_URL) return dbUnavailable();
 
     const pool = getPool();
     const orgId = session.orgId;

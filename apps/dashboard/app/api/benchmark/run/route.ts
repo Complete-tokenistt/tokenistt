@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 import Tokenistt from "@tokenistt/sdk";
 import {
   BENCHMARK_MODELS,
-  SAMPLE_PROMPTS,
-  buildResults,
 } from "@/lib/benchmark-data";
 import { scoreAccuracy, scoreQuality } from "@/lib/benchmark-score";
 
@@ -15,8 +13,7 @@ type Prompt = { prompt: string; expected: string };
 // POST /api/benchmark/run
 // Body: { models: string[], prompts?: Prompt[], baseURL?: string, apiKey?: string }
 // Runs the dataset across the selected models through the Tokenistt gateway
-// (Prompt 3 SDK). If no gateway/key is configured, falls back to simulated
-// aggregate results so the UI still works end-to-end.
+// (Prompt 3 SDK). Requires an uploaded dataset and a configured gateway/key.
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as {
@@ -27,10 +24,7 @@ export async function POST(req: Request) {
     };
 
     const models = body.models ?? [];
-    const prompts: Prompt[] =
-      Array.isArray(body.prompts) && body.prompts.length > 0
-        ? body.prompts
-        : SAMPLE_PROMPTS;
+    const prompts: Prompt[] = Array.isArray(body.prompts) ? body.prompts : [];
 
     const baseURL = body.baseURL || process.env.TOKENISTT_BASE_URL || "";
     const apiKey = body.apiKey || process.env.TOKENISTT_API_KEY || "";
@@ -39,12 +33,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No models selected." }, { status: 400 });
     }
 
-    const live = Boolean(baseURL && apiKey);
-    if (!live) {
-      return NextResponse.json({
-        mode: "simulated",
-        results: buildResults(models, prompts.length),
-      });
+    if (prompts.length === 0) {
+      return NextResponse.json({ error: "Upload a prompt dataset (CSV) to run a benchmark." }, { status: 400 });
+    }
+
+    if (!baseURL || !apiKey) {
+      return NextResponse.json(
+        { error: "Gateway not configured. Set TOKENISTT_BASE_URL and TOKENISTT_API_KEY." },
+        { status: 400 },
+      );
     }
 
     // ---- Live evaluation through the Tokenistt gateway (Prompt 3 SDK) ----

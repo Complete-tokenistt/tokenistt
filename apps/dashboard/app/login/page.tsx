@@ -54,12 +54,6 @@ function LoginForm() {
     }
   }
 
-  function handleQuickFill() {
-    setEmail("customer@tokenistt.ai");
-    setPassword("TestCustomerPass123!");
-    setError(null);
-  }
-
   return (
     <div style={{
       width: "100%",
@@ -213,34 +207,6 @@ function LoginForm() {
           {loading ? "Authenticating..." : "Sign In to Dashboard →"}
         </button>
       </form>
-
-      {/* Quick Fill Helper for Demo / Audit */}
-      <div style={{
-        marginTop: "24px",
-        paddingTop: "18px",
-        borderTop: "1px solid var(--line-soft, #252532)",
-        textAlign: "center",
-      }}>
-        <div style={{ fontSize: "12px", color: "var(--fg-4, #66667a)", marginBottom: "8px" }}>
-          Customer Demo Credentials
-        </div>
-        <button
-          type="button"
-          onClick={handleQuickFill}
-          style={{
-            background: "none",
-            border: "1px dashed var(--line-soft, #333345)",
-            borderRadius: "6px",
-            padding: "6px 12px",
-            color: "var(--violet, #a78bfa)",
-            fontSize: "11.5px",
-            cursor: "pointer",
-          }}
-          className="mono"
-        >
-          customer@tokenistt.ai / TestCustomerPass123!
-        </button>
-      </div>
     </div>
   );
 }

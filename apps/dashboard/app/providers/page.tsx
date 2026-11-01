@@ -2,30 +2,27 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useDashboard } from "@/components/DashboardShell";
-import { getProviderBreakdown } from "@/lib/mock-data";
 import { LogoBadge } from "@/components/StatusBadges";
 import { fmtUsd, fmtUsdCompact } from "@/lib/format";
 
 export default function ProvidersPage() {
-  const { isLive } = useDashboard();
   const [liveData, setLiveData] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
-    if (!isLive) return;
     let mounted = true;
-    setLoading(true);
 
     fetch("/api/providers")
-      .then((res) => (res.ok ? res.json() : []))
+      .then((res) => (res.ok ? res.json() : null))
       .then((items) => {
-        if (mounted && Array.isArray(items)) {
-          setLiveData(items);
-        }
+        if (!mounted) return;
+        if (Array.isArray(items)) setLiveData(items);
+        else setLoadError(true);
       })
       .catch((err) => {
         console.warn("Could not load /api/providers:", err);
+        if (mounted) setLoadError(true);
       })
       .finally(() => {
         if (mounted) setLoading(false);
@@ -34,9 +31,9 @@ export default function ProvidersPage() {
     return () => {
       mounted = false;
     };
-  }, [isLive]);
+  }, []);
 
-  const data = isLive ? liveData : getProviderBreakdown();
+  const data = liveData;
   const total = data.reduce((s: number, d: any) => s + (Number(d.spendUsd) || 0), 0);
 
   return (
@@ -58,7 +55,11 @@ export default function ProvidersPage() {
         </div>
       </div>
 
-      {data.length === 0 ? (
+      {loading ? (
+        <div className="card" style={{ padding: "48px 20px", textAlign: "center", color: "var(--fg-4)", fontSize: 13.5 }}>Loading providers…</div>
+      ) : loadError ? (
+        <div className="card" style={{ padding: "48px 20px", textAlign: "center", color: "var(--red)", fontSize: 13.5 }}>Couldn&apos;t load provider data.</div>
+      ) : data.length === 0 ? (
         <div className="card" style={{ padding: "48px 20px", textAlign: "center" }}>
           <div style={{ fontSize: 15, color: "var(--fg-2)", marginBottom: 8 }}>
             No provider usage recorded yet

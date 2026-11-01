@@ -1,30 +1,13 @@
 import { NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
-import { API_KEYS } from "@/lib/dashboard-mock-data";
+import { dbUnavailable } from "@/lib/db-unavailable";
 
 /**
  * GET /api/providers/virtual-key
  * Returns an active virtual key for the organization.
  */
 export async function GET() {
-  if (!process.env.DATABASE_URL) {
-    const mockKey = API_KEYS[0] || {
-      id: "vk_mock",
-      name: "Default Dev Key",
-      prefix: "tktt_live_acme_jane_abc123def456",
-      budget: 100,
-      period: "monthly",
-    };
-    return NextResponse.json({
-      success: true,
-      key: {
-        id: mockKey.id,
-        name: mockKey.name,
-        prefix: mockKey.prefix,
-        hasRealKey: false,
-      },
-    });
-  }
+  if (!process.env.DATABASE_URL) return dbUnavailable();
 
   try {
     const pool = getPool();
@@ -46,15 +29,7 @@ export async function GET() {
     );
 
     if (rows.length === 0) {
-      return NextResponse.json({
-        success: true,
-        key: {
-          id: "vk_default",
-          name: "Default Key",
-          prefix: "tktt_live_acme_jane_abc123def456",
-          hasRealKey: false,
-        },
-      });
+      return NextResponse.json({ success: true, key: null });
     }
 
     const row = rows[0];
@@ -69,15 +44,7 @@ export async function GET() {
     });
   } catch (err: any) {
     console.error("[/api/providers/virtual-key] DB error:", err.message);
-    return NextResponse.json({
-      success: true,
-      key: {
-        id: "vk_fallback",
-        name: "Fallback Key",
-        prefix: "tktt_live_acme_jane_abc123def456",
-        hasRealKey: false,
-      },
-    });
+    return dbUnavailable();
   }
 }
 

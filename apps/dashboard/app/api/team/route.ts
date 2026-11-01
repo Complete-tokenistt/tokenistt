@@ -5,11 +5,10 @@
  *   - Per-member spend, call count, model mix, last-active
  *   - Daily spend total (for the >$100/day alert rule)
  *   - Team-level model usage aggregate
- *
- * Falls back to mock data when DATABASE_URL is not configured.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { dbUnavailable } from "@/lib/db-unavailable";
 import { getPool }      from '@/lib/db';
 import { getSessionFromRequest, unauthorizedResponse } from '@/lib/auth';
 import { MODEL_LABELS } from '@/lib/format';
@@ -32,22 +31,7 @@ export async function GET(req: NextRequest) {
   const session = getSessionFromRequest(req);
   if (!session) return unauthorizedResponse();
 
-  if (!process.env.DATABASE_URL) {
-    return NextResponse.json({
-      managerName: 'Workspace Admin',
-      teamName: 'All Teams',
-      period: new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' }),
-      members: [],
-      teamSpendUsd: 0,
-      teamBudgetUsd: 0,
-      teamBudgetUsedPct: 0,
-      dailySpendUsd: 0,
-      modelUsage: [],
-      alerts: [],
-      budgetWarnPct: 90,
-      _source: 'live_empty',
-    });
-  }
+  if (!process.env.DATABASE_URL) return dbUnavailable();
 
   try {
     const pool = getPool();
@@ -198,19 +182,6 @@ export async function GET(req: NextRequest) {
     });
   } catch (err: any) {
     console.error('[/api/team] DB error:', err.message);
-    return NextResponse.json({
-      managerName: 'Workspace Admin',
-      teamName: 'All Teams',
-      period: new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' }),
-      members: [],
-      teamSpendUsd: 0,
-      teamBudgetUsd: 0,
-      teamBudgetUsedPct: 0,
-      dailySpendUsd: 0,
-      modelUsage: [],
-      alerts: [],
-      budgetWarnPct: 90,
-      _source: 'live_empty',
-    });
+    return dbUnavailable();
   }
 }

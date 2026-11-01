@@ -59,6 +59,25 @@ function getJwtSecret(): string {
   return _jwtSecret;
 }
 
+/**
+ * Open (single-user) mode: no login. Every request acts as the owner of the local organization.
+ * Opt-in via AUTH_MODE=open — meant for self-hosted/local trials; put your own auth proxy in front
+ * before exposing the dashboard beyond localhost.
+ */
+export function isOpenMode(): boolean {
+  return process.env.AUTH_MODE === 'open';
+}
+
+export function openSession(): AuthSession {
+  return {
+    sub: '00000000-0000-0000-0000-000000000001',
+    orgId: process.env.OPEN_ORG_ID || '1',
+    email: 'local@tokenistt.local',
+    role: 'owner',
+    exp: Math.floor(Date.now() / 1000) + 86400,
+  };
+}
+
 export interface AuthSession {
   sub: string;       // user public_id
   orgId: string;     // organization id or public_id
@@ -132,6 +151,8 @@ export function verifyJwt(token: string): AuthSession | null {
 }
 
 export function getSessionFromRequest(req: NextRequest): AuthSession | null {
+  if (isOpenMode()) return openSession();
+
   // 1. Check Bearer Authorization header
   const authHeader = req.headers.get('authorization');
   if (authHeader && authHeader.startsWith('Bearer ')) {

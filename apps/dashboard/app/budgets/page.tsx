@@ -1,24 +1,21 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useDashboard } from "@/components/DashboardShell";
 import { StatusPill } from "@/components/StatusBadges";
-import { BUDGET_POLICIES, BUDGET_ALERT_HISTORY, TEAMS } from "@/lib/dashboard-mock-data";
 
 const ACTIONS = ["alert only", "auto-throttle", "hard cap", "alert + page oncall"];
 const HARD_ACTIONS = ["hard cap"];
-const SCOPES = [...TEAMS.map((t) => t.name), "workspace-wide"];
+const WORKSPACE_SCOPE = "workspace-wide";
 const THRESHOLD_OPTIONS = [75, 80, 90, 95, 100];
 
-const EMPTY_FORM = { scope: SCOPES[0], cap: "", period: "monthly", action: ACTIONS[0], mode: "soft", thresholds: [75, 90] };
+type TeamSpend = { name: string; spend: number };
+
+function makeEmptyForm(scope: string) {
+  return { scope, cap: "", period: "monthly", action: ACTIONS[0], mode: "soft", thresholds: [75, 90] };
+}
 
 function enforcementMode(action: string) {
   return HARD_ACTIONS.includes(action) ? "hard" : "soft";
-}
-
-function spentFor(scope: string) {
-  if (scope === "workspace-wide") return TEAMS.reduce((a, t) => a + t.spend, 0);
-  return TEAMS.find((t) => t.name === scope)?.spend ?? 0;
 }
 
 function statusFor(spent: number, cap: number) {
@@ -29,25 +26,56 @@ function statusFor(spent: number, cap: number) {
   return "ok";
 }
 
-type Policy = (typeof BUDGET_POLICIES)[number];
+type Policy = {
+  id: number;
+  scope: string;
+  cap: number;
+  spent: number;
+  period: string;
+  action: string;
+  thresholds: number[];
+  status: string;
+};
+
+type AlertEvent = { scope: string; sev: string; t: string; threshold: string; action: string };
 
 export default function BudgetsPage() {
-  const { isLive } = useDashboard();
-  const [policies, setPolicies] = useState<Policy[]>(isLive ? [] : BUDGET_POLICIES);
+  const [policies, setPolicies] = useState<Policy[]>([]);
+  const [teams, setTeams] = useState<TeamSpend[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const alertHistory: AlertEvent[] = [];
+  const scopes = [...teams.map((t) => t.name), WORKSPACE_SCOPE];
+
+  function spentFor(scope: string) {
+    if (scope === WORKSPACE_SCOPE) return teams.reduce((a, t) => a + t.spend, 0);
+    return teams.find((t) => t.name === scope)?.spend ?? 0;
+  }
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [form, setForm] = useState(makeEmptyForm(WORKSPACE_SCOPE));
 
   useEffect(() => {
-    if (!isLive) {
-      setPolicies(BUDGET_POLICIES);
-      return;
+    async function fetchTeams() {
+      try {
+        const res = await fetch("/api/teams");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (Array.isArray(data?.teams)) {
+          setTeams(data.teams.map((t: any) => ({ name: t.name, spend: Number(t.total_spend) || 0 })));
+        }
+      } catch (err) {
+        console.warn("Could not load /api/teams:", err);
+      }
     }
 
     async function fetchBudgets() {
       try {
         const res = await fetch("/api/budgets");
-        if (!res.ok) return;
+        if (!res.ok) {
+          setLoadError(true);
+          return;
+        }
         const data = await res.json();
         if (data?.budgets && Array.isArray(data.budgets)) {
           const mapped: Policy[] = data.budgets.map((b: any, index: number) => {
@@ -68,14 +96,15 @@ export default function BudgetsPage() {
         }
       } catch (err) {
         console.warn("Could not load /api/budgets:", err);
+        setLoadError(true);
       }
     }
-    fetchBudgets();
-  }, [isLive]);
+    Promise.all([fetchTeams(), fetchBudgets()]).finally(() => setLoading(false));
+  }, []);
 
   function openNew() {
     setEditingId(null);
-    setForm(EMPTY_FORM);
+    setForm(makeEmptyForm(scopes[0]));
     setFormOpen(true);
   }
 
@@ -155,8 +184,6 @@ export default function BudgetsPage() {
     closeForm();
   }
 
-  const alertHistory = isLive ? [] : BUDGET_ALERT_HISTORY;
-
   return (
     <div>
       <div className="mobile-stack" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 24 }}>
@@ -175,7 +202,7 @@ export default function BudgetsPage() {
                 <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   <span className="mono" style={{ fontSize: 11, color: "var(--fg-4)" }}>SCOPE</span>
                   <select value={form.scope} onChange={(e) => setForm((f) => ({ ...f, scope: e.target.value }))} className="mono dash-select">
-                    {SCOPES.map((s) => <option key={s} value={s}>{s}</option>)}
+                    {scopes.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </label>
                 <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -253,7 +280,11 @@ export default function BudgetsPage() {
               <div className="mono" style={{ display: "grid", gridTemplateColumns: "1.2fr 1.2fr 1fr 0.9fr 0.9fr", padding: "8px 18px", borderBottom: "1px solid var(--line-soft)", fontSize: 11.5, color: "var(--fg-4)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                 <span>Scope</span><span>Cap / spent</span><span>Enforcement</span><span>Status</span><span style={{ textAlign: "right" }}>Actions</span>
               </div>
-              {policies.length === 0 ? (
+              {loading ? (
+                <div style={{ padding: "36px 18px", textAlign: "center", color: "var(--fg-4)", fontSize: 13.5 }}>Loading budgets…</div>
+              ) : loadError ? (
+                <div style={{ padding: "36px 18px", textAlign: "center", color: "var(--red)", fontSize: 13.5 }}>Couldn&apos;t load budgets.</div>
+              ) : policies.length === 0 ? (
                 <div style={{ padding: "36px 18px", textAlign: "center", color: "var(--fg-4)" }}>
                   <div style={{ fontSize: 14.5, color: "var(--fg-2)", marginBottom: 6 }}>No budget policies configured yet</div>
                   <p style={{ fontSize: 13, color: "var(--fg-4)", maxWidth: 440, margin: "0 auto 14px" }}>

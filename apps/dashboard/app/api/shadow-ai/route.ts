@@ -4,11 +4,10 @@
  * Returns shadow AI events. Merges:
  *   1. Scans ingested from external OAuth card processing (shadow-ai-ingest.json).
  *   2. Transactions flagged with shadow_ai_flag = true in the Postgres database.
- *
- * Falls back to mock data when DATABASE_URL is not configured.
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { dbUnavailable } from "@/lib/db-unavailable";
 import { getPool } from "@/lib/db";
 import { getSessionFromRequest, unauthorizedResponse } from "@/lib/auth";
 import { loadIngestedShadowAi } from "@/lib/ingest";
@@ -18,9 +17,7 @@ export async function GET(req: NextRequest) {
   const session = getSessionFromRequest(req);
   if (!session) return unauthorizedResponse();
 
-  if (!process.env.DATABASE_URL) {
-    return NextResponse.json([]);
-  }
+  if (!process.env.DATABASE_URL) return dbUnavailable();
 
   try {
     const pool = getPool();
@@ -62,7 +59,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(dbEvents);
   } catch (err: any) {
     console.error("[/api/shadow-ai] DB error, returning empty list:", err.message);
-    return NextResponse.json([]);
+    return dbUnavailable();
   }
 }
 

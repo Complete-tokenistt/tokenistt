@@ -4,8 +4,6 @@ import { useRef, useState } from "react";
 import { type ColumnDef } from "@tanstack/react-table";
 import {
   BENCHMARK_MODELS,
-  SAMPLE_CSV,
-  SAMPLE_PROMPTS,
   recommendId,
   type BenchmarkResult,
 } from "@/lib/benchmark-data";
@@ -16,13 +14,13 @@ import Badge from "./Badge";
 import { DataTable } from "./DataTable";
 
 type Prompt = { prompt: string; expected: string };
-type Mode = "live" | "simulated" | null;
+type Mode = "live" | null;
+
+const TEMPLATE_CSV = "prompt,expected\n";
 
 export default function BenchmarkClient() {
-  const [prompts, setPrompts] = useState<Prompt[]>(SAMPLE_PROMPTS);
-  const [datasetLabel, setDatasetLabel] = useState(
-    `Sample dataset (${SAMPLE_PROMPTS.length} prompts)`,
-  );
+  const [prompts, setPrompts] = useState<Prompt[]>([]);
+  const [datasetLabel, setDatasetLabel] = useState("No dataset uploaded");
   const [selected, setSelected] = useState<string[]>([
     "gpt-4o",
     "claude-3-5-sonnet",
@@ -93,7 +91,7 @@ export default function BenchmarkClient() {
   // Runs the eval on the server (live via gateway, or simulated fallback).
   // The progress bar animates during the (possibly long) request.
   async function runEval() {
-    if (selected.length === 0 || running) return;
+    if (selected.length === 0 || prompts.length === 0 || running) return;
     setRunning(true);
     setProgress(0);
     setResults(null);
@@ -125,11 +123,16 @@ export default function BenchmarkClient() {
         throw new Error(err?.error ?? "Evaluation failed");
       }
       const data = (await res.json()) as {
-        mode: Mode;
+        mode: string;
         results: BenchmarkResult[];
       };
+      if (data.mode !== "live") {
+        throw new Error(
+          "Results were not produced by a live gateway run, so they are not shown. Configure the gateway URL and API key.",
+        );
+      }
       setResults(data.results);
-      setMode(data.mode);
+      setMode("live");
       setRecommendedId(recommendId(data.results));
       setStatus(`Evaluated ${total} prompts × ${selected.length} models`);
       setProgress(100);
@@ -267,12 +270,12 @@ export default function BenchmarkClient() {
           />
           <span className="text-xs mono" style={{ color: "var(--fg-3)" }}>{datasetLabel}</span>
           <a
-            href={`data:text/csv;charset=utf-8,${encodeURIComponent(SAMPLE_CSV)}`}
-            download="sample-benchmark.csv"
+            href={`data:text/csv;charset=utf-8,${encodeURIComponent(TEMPLATE_CSV)}`}
+            download="benchmark-template.csv"
             className="ml-auto text-xs mono font-medium hover:underline"
             style={{ color: "var(--violet)" }}
           >
-            Download sample CSV
+            Download CSV template
           </a>
         </div>
         {error && <p className="mt-2 text-xs mono" style={{ color: "var(--red)" }}>{error}</p>}
@@ -311,7 +314,7 @@ export default function BenchmarkClient() {
       {/* 3. Gateway settings + run */}
       <Section
         title="3 · Run evaluation"
-        description="Runs live via the Tokenistt gateway when configured, else simulated"
+        description="Runs live through the Tokenistt gateway. Requires a gateway URL and API key."
       >
         <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="text-xs mono" style={{ color: "var(--fg-4)" }}>
@@ -347,7 +350,7 @@ export default function BenchmarkClient() {
 
         <button
           onClick={runEval}
-          disabled={selected.length === 0 || running}
+          disabled={selected.length === 0 || prompts.length === 0 || running}
           className="btn btn-violet btn-sm disabled:opacity-60"
         >
           {running ? "Running…" : "Run evaluation"}
@@ -367,46 +370,18 @@ export default function BenchmarkClient() {
           title="4 · Results"
           description="Cost, accuracy, latency, quality"
         >
-          {mode === "live" ? (
-            <div
-              className="card p-3 mb-3 text-sm"
-              style={{
-                background: "oklch(0.760 0.150 155 / 0.12)",
-                borderColor: "var(--green)",
-                color: "var(--green)",
-              }}
-            >
-              Live evaluation via the Tokenistt gateway. Recommendation: switch
-              to <strong>{recommendedLabel}</strong> — best quality-per-cost
-              among accurate models.
-            </div>
-          ) : (
-            <div
-              className="card p-3 mb-3 text-sm"
-              style={{
-                background: "oklch(0.800 0.150 80 / 0.12)",
-                borderColor: "var(--amber)",
-                color: "var(--amber)",
-              }}
-            >
-              Simulated results (no gateway configured). Set{" "}
-              <code
-                className="rounded px-1"
-                style={{ background: "oklch(0.800 0.150 80 / 0.2)" }}
-              >
-                TOKENISTT_BASE_URL
-              </code>{" "}
-              +{" "}
-              <code
-                className="rounded px-1"
-                style={{ background: "oklch(0.800 0.150 80 / 0.2)" }}
-              >
-                TOKENISTT_API_KEY
-              </code>{" "}
-              (or enter them above) to run live. Recommendation:{" "}
-              <strong>{recommendedLabel}</strong>.
-            </div>
-          )}
+          <div
+            className="card p-3 mb-3 text-sm"
+            style={{
+              background: "oklch(0.760 0.150 155 / 0.12)",
+              borderColor: "var(--green)",
+              color: "var(--green)",
+            }}
+          >
+            Live evaluation via the Tokenistt gateway. Recommendation: switch
+            to <strong>{recommendedLabel}</strong> — best quality-per-cost
+            among accurate models.
+          </div>
           <DataTable columns={columns} data={results} />
           {switchedTo && (
             <p className="mt-3 text-xs mono" style={{ color: "var(--fg-3)" }}>
