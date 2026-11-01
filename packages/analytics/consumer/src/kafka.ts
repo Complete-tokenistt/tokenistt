@@ -17,7 +17,7 @@ export async function startConsumer(buffer: IngestBuffer): Promise<Consumer> {
   });
 
   await consumer.connect();
-  await consumer.subscribe({ topic: config.kafkaTopic, fromOffset: 'latest' });
+  await consumer.subscribe({ topic: config.kafkaTopic, fromBeginning: false });
 
   await consumer.run({
     eachMessage: async (payload: EachMessagePayload) => {

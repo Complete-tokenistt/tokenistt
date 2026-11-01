@@ -175,4 +175,4 @@ only used for **local** cost estimates; for authoritative billing, read
 
 ## License
 
-MIT
+Apache-2.0

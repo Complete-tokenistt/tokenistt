@@ -20,16 +20,17 @@ export const kmsBackend: CryptoBackend = {
 
   async encrypt(orgId: string, plaintext: string): Promise<string> {
     const res = await client.send(
-      new EncryptCommand({ KeyId: keyId(orgId), Plaintext: Buffer.from(plaintext) }),
+      new EncryptCommand({ KeyId: keyId(orgId), Plaintext: new TextEncoder().encode(plaintext) }),
     );
-    return (res.CiphertextBlob as Uint8Array).toString("base64");
+    // Uint8Array#toString ignores its argument (it would join the byte values); go through Buffer.
+    return Buffer.from(res.CiphertextBlob as Uint8Array).toString("base64");
   },
 
   async decrypt(orgId: string, blob: string): Promise<string> {
     const res = await client.send(
-      new DecryptCommand({ CiphertextBlob: Buffer.from(blob, "base64") }),
+      new DecryptCommand({ CiphertextBlob: new Uint8Array(Buffer.from(blob, "base64")) }),
     );
-    return (res.Plaintext as Uint8Array).toString("utf8");
+    return Buffer.from(res.Plaintext as Uint8Array).toString("utf8");
   },
 
   async rotateRoot(orgId: string): Promise<void> {

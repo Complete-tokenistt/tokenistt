@@ -3,7 +3,15 @@
   "version": "0.0.0",
   "private": true,
   "license": "Apache-2.0",
-  "description": "Tokenistt \u2014 open-source AI cost visibility and governance gateway",
+  "description": "Tokenistt — open-source AI cost visibility and governance gateway",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Complete-tokenistt/tokenist-main.git"
+  },
+  "homepage": "https://github.com/Complete-tokenistt/tokenist-main#readme",
+  "bugs": {
+    "url": "https://github.com/Complete-tokenistt/tokenist-main/issues"
+  },
   "workspaces": [
     "apps/*",
     "packages/finops-middleware",
@@ -14,10 +22,11 @@
     "packages/shadow-ai-scanner"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "setup": "node scripts/setup.mjs",
+    "build": "npm run build -w packages/sdk-ts && npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "typecheck": "npm run build -w packages/sdk-ts && npm run typecheck --workspaces --if-present",
     "migrate": "npm run migrate -w packages/db",
     "dev:deps": "docker compose -p tokenistt-dev -f infra/docker-compose.dev.yml up -d --wait",
     "build:gateway": "npm run build --workspace=apps/gateway",
