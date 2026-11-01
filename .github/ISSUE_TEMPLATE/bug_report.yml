@@ -1,0 +1,50 @@
+name: Bug report
+description: Something in the gateway, dashboard or SDK doesn't work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security vulnerabilities must **not** be reported here — see [SECURITY.md](https://github.com/Complete-tokenistt/tokenist-main/blob/main/SECURITY.md).
+        Never paste API keys, provider keys or `.env` contents into an issue.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options: [Gateway, Dashboard, TypeScript SDK, Python SDK, Database / migrations, Docker / deployment, Docs, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps. If you can reproduce with the offline `mock:` provider (`MOCK_PROVIDER=1`), say so.
+      placeholder: |
+        1. docker compose up --build
+        2. curl ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Redact any keys or tokens.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      placeholder: e.g. main @ c8ff209
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      placeholder: e.g. Node 20, Postgres 16, Docker on Ubuntu 24.04

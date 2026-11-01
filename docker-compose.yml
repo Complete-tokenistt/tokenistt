@@ -138,6 +138,8 @@ services:
       PUBLIC_GATEWAY_URL: ${PUBLIC_GATEWAY_URL:-http://localhost:${GATEWAY_PORT:-3000}}
       # JWT_SECRET: signs/verifies dashboard sessions (min 32 chars); must equal the gateway's
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required in production}
+      # MASTER_KEY: encrypts BYOK provider keys saved from Settings; must equal the gateway's
+      MASTER_KEY: ${MASTER_KEY:?MASTER_KEY is required in production}
       # AUTH_MODE=open (default): no login, everyone is the owner of the local org — for trying it out
       # on your own machine. Set AUTH_MODE=jwt to require sign-in (then expose it behind your own proxy).
       AUTH_MODE: ${AUTH_MODE:-open}
