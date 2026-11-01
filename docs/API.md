@@ -1,109 +1,90 @@
 # Tokenistt — API Reference
 
-All endpoints are prefixed `/v1`. Authenticated endpoints require an API key issued via `/v1/api-keys`, sent as `Authorization: Bearer <key>`.
+The machine-readable reference is the OpenAPI 3.1 document served by the gateway at **`GET /v1/openapi.json`**. It is generated from the route table in `apps/gateway/src/openapi.ts`, and a test fails if a management route is missing from it. This page is an overview; when the two disagree, the OpenAPI document wins.
 
-## Auth
+## Authentication
 
-| Method | Path | Description |
-|---|---|---|
-| POST | `/auth/signup` | Create a user and their first workspace |
-| POST | `/auth/login` | Authenticate, returns a session token |
-| POST | `/auth/logout` | Invalidate the current session |
-| GET | `/auth/me` | Current user + workspace context |
+| Surface | Credential |
+|---|---|
+| Inference (`/v1/chat/completions`, `/v1/batch/…`, `/v1/logs`) | Virtual key: `Authorization: Bearer tktt_live_…` |
+| Management (`/v1/admin/*`) | Operator: `X-Admin-Secret` + `?organization_id=`; or dashboard session JWT as `Authorization: Bearer …` (locked to the user's organization, limited by role) |
+| Inbound connector webhooks | HMAC signature (or GitLab token) |
+| `/health`, `/v1/models`, `/v1/providers`, `/v1/openapi.json` | None |
+| `/metrics` | `METRICS_TOKEN` bearer, or private network in production |
 
-## Workspace
+Roles: `owner`, `admin`, `finance`, `developer`, `viewer`. See the permission matrix in the README.
 
-| Method | Path | Description |
-|---|---|---|
-| GET | `/workspace` | Workspace details |
-| PATCH | `/workspace` | Update workspace name/settings |
-| GET | `/workspace/members` | List members and roles |
-| POST | `/workspace/members/invite` | Invite a member by email |
-
-## Gateway (the core product)
+## Inference
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/chat/completions` | OpenAI-compatible proxy endpoint. Forwards to the resolved provider/model after auth, policy, and budget checks. Streams response through unmodified. |
+| POST | `/v1/chat/completions` | OpenAI-compatible chat completion through the full pipeline. Supports `stream: true`. |
+| POST | `/v1/batch/chat/completions` | Up to `BATCH_MAX_ITEMS` requests, each through the full pipeline. Body: `{ requests: [...] }`. |
+| GET | `/v1/logs` | Request history for the calling key (cursor-paginated: `limit`, `before`, `status`). |
+| GET | `/v1/models` | Supported models and whether a price is known. |
+| GET | `/v1/providers` | Configured providers. |
 
-**Example request:**
-```json
-POST /v1/chat/completions
-Authorization: Bearer sk-tok-xxxx
-
-{
-  "model": "gpt-4o-mini",
-  "messages": [{ "role": "user", "content": "Hello" }],
-  "team": "support-ai",
-  "project": "zendesk-triage",
-  "stream": true
-}
+```bash
+curl -s http://localhost:3000/v1/chat/completions \
+  -H "authorization: Bearer tktt_live_…" -H 'content-type: application/json' \
+  -H 'x-tokenistt-team: support' -H 'x-tokenistt-feature: triage' \
+  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}'
 ```
 
-## Providers & BYOK
+### Request headers
 
-| Method | Path | Description |
-|---|---|---|
-| GET | `/providers` | List connected providers and status |
-| POST | `/providers/:provider/keys` | Add a BYOK key |
-| DELETE | `/providers/:provider/keys/:id` | Revoke a key |
-| POST | `/providers/:provider/keys/:id/rotate` | Rotate a key |
+| Header | Effect |
+|---|---|
+| `x-provider` | Force a provider |
+| `x-tokenistt-team`, `x-tokenistt-project` | Attribute to a team/project by slug, so their budgets apply |
+| `x-tokenistt-repo`, `-ticket`, `-sprint`, `-feature`, `-customer`, `-employee`, `-environment` | Free-form attribution |
+| `x-tokenistt-cache: true` | Serve identical temperature-0 requests from cache at zero cost (`always` ignores temperature) |
+| `x-tokenistt-compress: true` | Collapse redundant whitespace and duplicate consecutive messages |
 
-## API Keys (issued to customer apps — opposite direction from above)
+Responses carry the cost in the `x-tokenistt-cost` header and in `_tokenistt` in the body.
 
-| Method | Path | Description |
-|---|---|---|
-| GET | `/api-keys` | List issued keys |
-| POST | `/api-keys` | Create a new key |
-| DELETE | `/api-keys/:id` | Revoke a key |
+## Management (`/v1/admin/*`)
 
-## Usage
+| Area | Endpoints |
+|---|---|
+| Budgets | `GET/POST /budgets`, `PATCH/DELETE /budgets/{id}` |
+| Policies | `GET/POST /policies`, `PATCH/DELETE /policies/{id}` (effects: `allow`, `block`/`deny`, `force_model`, `require_approval`) |
+| Approvals | `GET /approvals?status=`, `POST /approvals/{id}/approve`, `POST /approvals/{id}/deny` |
+| Routing | `GET/POST /routing-rules`, `PATCH/DELETE /routing-rules/{id}`, `POST /routing-rules/simulate` (dry run), `GET /models` (catalog + observed cost/latency/error rate) |
+| Virtual keys | `GET/POST /keys`, `DELETE /keys/{id}` (token shown once on create) |
+| Provider keys (BYOK) | `GET/POST /provider-keys`, `PATCH/DELETE /provider-keys/{id}` (write-only secrets, `priority`) |
+| Organization | `GET/POST /workspaces`, `/teams`, `/projects` |
+| Alerts | `GET /alerts` |
+| Audit | `GET /audit?kind=policy\|budget\|routing` |
+| Connectors | `GET /connectors/types`, `GET/POST /connectors`, `POST /connectors/{id}/test`, `POST /connectors/{id}/sync`, `DELETE /connectors/{id}`, `GET /attribution?dimension=` |
 
-| Method | Path | Description |
-|---|---|---|
-| GET | `/events` | Filterable request log — `?team=&provider=&model=&from=&to=&status=` |
-| GET | `/events/:id` | Full metadata for a single request |
+All paths above are under `/v1/admin`. Every mutation is written to the append-only audit log. See the OpenAPI document for the complete, current list, including request bodies and required permissions.
 
-## Spend / Analytics
+Budget example:
 
-| Method | Path | Description |
-|---|---|---|
-| GET | `/spend/overview` | MTD spend, budget utilization, forecast |
-| GET | `/spend/by-team` | Spend grouped by team — `?range=30d` |
-| GET | `/spend/timeseries` | Spend over time — `?interval=day` |
+```bash
+curl -X POST $GW/v1/admin/budgets -H "x-admin-secret: $ADMIN" -H 'content-type: application/json' \
+  -d '{"organization_id":1,"scope_type":"team","scope_id":4,"cap_usd":300,"enforcement_mode":"hard_cap"}'
+```
 
-## Budgets
+## Webhooks
 
-| Method | Path | Description |
-|---|---|---|
-| GET | `/budgets` | List budgets |
-| POST | `/budgets` | Create a budget |
-| PATCH | `/budgets/:id` | Update scope/limit/enforcement |
-| DELETE | `/budgets/:id` | Remove a budget |
-| GET | `/budgets/:id/alerts` | Alert history for a budget |
-
-## Governance
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/policies` | List active policies |
-| POST | `/policies` | Create a policy |
-| PATCH | `/policies/:id` | Update a policy |
-| DELETE | `/policies/:id` | Remove a policy |
-| GET | `/policies/audit-log` | Every allow/deny decision made |
-
-## Routing
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/routing/rules` | List routing rules, in priority order |
-| POST | `/routing/rules` | Create a rule |
-| PATCH | `/routing/rules/:id` | Update a rule |
-| POST | `/routing/simulate` | Test a sample request against active rules without executing it |
+`POST /v1/webhooks/connectors/{id}` — inbound payloads for push-based connectors (CI/CD, custom webhook), authenticated by signature.
 
 ## Error format
 
-All errors follow the same shape:
+Errors follow the OpenAI shape:
+
 ```json
-{ "error": "budget exceeded", "code": "BUDGET_HARD_LIMIT", "details": { "budget_id": "..." } }
+{ "error": { "message": "…", "type": "…", "code": "budget_exceeded" } }
 ```
+
+| `code` | Status | Meaning |
+|---|---|---|
+| `auth_failed` | 401 | Missing, invalid or revoked key |
+| `invalid_request` | 400 | Malformed body |
+| `policy_violation` | 403 | Blocked by a policy |
+| `approval_required` | 403 | Held for approval; body includes `approval_id`. Retry after an admin approves |
+| `budget_exceeded` | 429 | A `hard_cap` budget in scope is exhausted |
+| `rate_limit_exceeded` | 429 | Virtual-key rate limit |
+| provider errors | varies | `type: provider_error`, with the upstream `provider` and `code` |
