@@ -1,0 +1,37 @@
+name: Publish SDK
+
+# Push a tag like `sdk-v0.2.0` to publish @tokenistt/sdk to npm.
+# Requires the NPM_TOKEN repository secret (an npm automation token with publish rights on @tokenistt).
+on:
+  push:
+    tags: ['sdk-v*.*.*']
+
+permissions:
+  contents: read
+  id-token: write # npm provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - name: Check tag matches package version
+        run: |
+          tag="${GITHUB_REF_NAME#sdk-v}"
+          pkg="$(node -p "require('./packages/sdk-ts/package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::Tag sdk-v$tag does not match packages/sdk-ts/package.json version $pkg"
+            exit 1
+          fi
+      - run: npm ci
+      - run: npm run typecheck -w packages/sdk-ts
+      - run: npm run build -w packages/sdk-ts
+      - run: npm publish -w packages/sdk-ts --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
