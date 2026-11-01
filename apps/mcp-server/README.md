@@ -1,85 +1,63 @@
-# Tokenistt FinOps MCP Server
+# Tokenistt MCP server
 
-The **Tokenistt Model Context Protocol (MCP) Server** connects AI engineering assistants (Claude Desktop, Cursor, Antigravity, etc.) directly to your Tokenistt FinOps intelligence plane.
+Lets MCP clients (Claude Desktop, Cursor, Cline, …) ask your **running Tokenistt stack** about spend, budgets,
+anomalies and model prices. Every tool reads live data; if the stack is unreachable the tool returns an error that says
+so — it never substitutes made-up numbers.
 
-This enables your AI agents to reason about real-time AI spending, verify budget headroom, analyze cost spikes, benchmark alternative models, and safely route prompts before making expensive API calls.
+## Tools
 
----
+| Tool | What it does |
+|---|---|
+| `get_spend_summary` | This month's spend, request count, latency and per-provider breakdown |
+| `check_budget_status` | Budgets with spend, percent used and status (`name_contains?`) |
+| `estimate_prompt_cost` | Cost of `model` × `input_tokens`/`output_tokens` from the live price catalog; errors if the model has no price |
+| `detect_anomalies` | Spikes versus each actor's baseline (`period`: `24h`/`7d`, `min_ratio?`) |
+| `list_cost_centers` | Cost centers with spend this month |
+| `get_team_spend` | Spend per team member this month |
+| `compare_models` | Catalog price plus your observed latency/cost/error rate (last 30 days) for several models |
+| `route_prompt` | Sends a prompt through the gateway using the cheapest priced model that fits `max_cost_usd`. Needs `TOKENISTT_API_KEY` |
 
-## Capabilities & Tools
+Resource `spend_report://{user}/daily` — today's spend and request count for one actor.
+Prompt `optimize_cost` — reviews a conversation against your live price list.
 
-| Tool | Description | Parameters |
-|---|---|---|
-| `get_spend_summary` | Total spend, requests, latency, and per-provider breakdown | `period`: `"today"` \| `"week"` \| `"month"` (default: `"month"`), `org_id?` |
-| `check_budget_status` | Active budget caps, spent vs allocated, % utilized, and health indicators (`HEALTHY`, `WARNING`, `EXCEEDED`) | `workspace_id?` |
-| `estimate_prompt_cost` | Calculate exact projected USD cost for a model given token counts | `model`, `input_tokens`, `output_tokens` |
-| `detect_anomalies` | Identify cost spikes and abnormal usage surges exceeding baseline | `period`: `"24h"` \| `"7d"`, `min_ratio?` |
-| `list_cost_centers` | List all cost centers, business owners, spend MTD, and MoM trends | _(none)_ |
-| `get_team_spend` | Breakdown of AI spend per developer / team member, primary models used, and volume | `team_id?` |
-| `compare_models` | Side-by-side cost & token pricing comparison across multiple models on a sample prompt | `models: string[]`, `sample_prompt: string` |
-| `route_prompt` | Smart routing engine: selects the optimal cost/quality model and returns the completion | `prompt`, `user?`, `maxCostUsd?`, `preferQuality?` |
+## Set up
 
-### Resources
-- `spend_report://{user}/daily`: Real-time daily spend ledger for a specific developer or service actor.
+```bash
+npm install
+npm run build --workspace=apps/mcp-server
+```
 
-### Prompts
-- `optimize_cost`: Context prompt that analyzes a recent conversation or prompt template and recommends cheaper model alternatives.
-
----
-
-## Configuration & Setup
-
-### 1. Claude Desktop Setup
-
-Open your Claude Desktop configuration file:
-- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-
-Add the `tokenistt` server:
+Add to your client's MCP config (use the absolute path to this checkout):
 
 ```json
 {
   "mcpServers": {
     "tokenistt": {
       "command": "node",
-      "args": [
-        "A:/tokenist/tokenist-main/tokenistt-sdk/home/user/mcp-server/dist/index.js"
-      ],
+      "args": ["/absolute/path/to/tokenistt/apps/mcp-server/dist/index.js"],
       "env": {
         "TOKENISTT_DASHBOARD_URL": "http://localhost:3001",
-        "TOKENISTT_GATEWAY_URL": "http://localhost:4000",
-        "TOKENISTT_API_KEY": "tktt_live_acme_jane_abc123def456"
+        "TOKENISTT_GATEWAY_URL": "http://localhost:3000",
+        "TOKENISTT_API_KEY": "tktt_live_..."
       }
     }
   }
 }
 ```
 
-### 2. Cursor Setup
+| Variable | Default | Needed for |
+|---|---|---|
+| `TOKENISTT_DASHBOARD_URL` | `http://localhost:3001` | every tool except `route_prompt` |
+| `TOKENISTT_GATEWAY_URL` | `http://localhost:3000` | `route_prompt` |
+| `TOKENISTT_API_KEY` | – | `route_prompt` (a virtual key from **API keys** in the dashboard) |
+| `TOKENISTT_DASHBOARD_TOKEN` | – | only when the dashboard runs with `AUTH_MODE=jwt` |
 
-Add to `.cursor/mcp.json` in your project root or in **Cursor Settings → MCP Servers**:
+Verify it against your stack: `npm run smoke --workspace=apps/mcp-server`.
 
-```json
-{
-  "mcpServers": {
-    "tokenistt": {
-      "command": "node",
-      "args": [
-        "A:/tokenist/tokenist-main/tokenistt-sdk/home/user/mcp-server/dist/index.js"
-      ],
-      "env": {
-        "TOKENISTT_DASHBOARD_URL": "http://localhost:3001"
-      }
-    }
-  }
-}
-```
-
-### 3. Remote / HTTP SSE Transport (Optional)
-
-If running as a shared remote service for team members:
+## Remote (SSE) transport
 
 ```bash
 MCP_TRANSPORT=sse PORT=3002 node dist/index.js
 ```
-Clients connect to `http://<host>:3002/sse` and post to `http://<host>:3002/messages`.
+
+Clients connect to `http://<host>:3002/sse`. There is no authentication on this endpoint — keep it on a private network.
