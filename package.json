@@ -15,10 +15,10 @@
   ],
   "scripts": {
     "setup": "node scripts/setup.mjs",
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build -w packages/sdk-ts && npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "typecheck": "npm run build -w packages/sdk-ts && npm run typecheck --workspaces --if-present",
     "migrate": "npm run migrate -w packages/db",
     "dev:deps": "docker compose -p tokenistt-dev -f infra/docker-compose.dev.yml up -d --wait",
     "build:gateway": "npm run build --workspace=apps/gateway",
