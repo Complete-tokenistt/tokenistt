@@ -9,12 +9,12 @@
     "scan": "tsc -p tsconfig.json && node dist/cli.js"
   },
   "dependencies": {
-    "bullmq": "^5.12.0",
+    "bullmq": "^5.81.5",
     "dotenv": "^16.4.5",
     "ioredis": "^5.4.1"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
+    "@types/node": "^20.19.43",
     "typescript": "^5.7.0"
   },
   "license": "Apache-2.0"
