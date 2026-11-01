@@ -13,20 +13,20 @@
   "dependencies": {
     "@tokenistt/sdk": "*",
     "@tanstack/react-table": "^8.21.3",
-    "next": "^15.5.20",
-    "pdf-parse": "1.1.1",
-    "pg": "^8.13.3",
+    "next": "^15.5.28",
+    "pdf-parse": "1.1.4",
+    "pg": "^8.23.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "recharts": "^3.9.2"
+    "recharts": "^3.10.1"
   },
   "devDependencies": {
-    "@types/node": "^22.15.34",
-    "@types/pg": "^8.11.11",
-    "@types/react": "^19.1.8",
-    "@types/react-dom": "^19.1.6",
-    "autoprefixer": "^10.4.21",
-    "postcss": "^8.5.16",
+    "@types/node": "^20.19.43",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "autoprefixer": "^10.6.2",
+    "postcss": "^8.5.32",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3"
   },
