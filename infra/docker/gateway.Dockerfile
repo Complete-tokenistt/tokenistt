@@ -1,5 +1,5 @@
 # Build context: repository root
-FROM node:20-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /repo
 COPY package.json package-lock.json ./
 COPY apps ./apps
@@ -9,7 +9,7 @@ RUN npm ci --no-audit --no-fund
 RUN npm run build --workspace=apps/gateway \
  && npm prune --omit=dev --no-audit --no-fund
 
-FROM node:20-alpine
+FROM node:26-alpine
 ENV NODE_ENV=production
 WORKDIR /repo
 COPY --from=build /repo/node_modules ./node_modules

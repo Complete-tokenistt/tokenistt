@@ -1,5 +1,5 @@
 # Build context: repository root
-FROM node:20-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /repo
 COPY package.json package-lock.json ./
 COPY apps ./apps
@@ -8,7 +8,7 @@ COPY packages ./packages
 RUN npm ci --no-audit --no-fund
 RUN npm run build --workspace=packages/sdk-ts && npm run build --workspace=apps/dashboard
 
-FROM node:20-alpine
+FROM node:26-alpine
 ENV NODE_ENV=production
 WORKDIR /repo
 COPY --from=build /repo .
