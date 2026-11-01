@@ -67,6 +67,12 @@ export async function logTransaction(
   if (mockLogger) {
     return mockLogger(payload);
   }
+  if (process.env.DATABASE_URL && payload.auth.organizationId === BigInt(0)) {
+    // Failure before authentication (no organization): the ledger needs an org, so this can never be
+    // stored. Record it on stdout instead of queueing a row that would retry forever.
+    console.warn(`[TxLog] unattributed ${payload.status} ${payload.provider}:${payload.model} code=${payload.errorCode ?? '-'}`);
+    return null;
+  }
   if (!process.env.DATABASE_URL) {
     // Dev mode — just console log and skip DB write
     console.log(

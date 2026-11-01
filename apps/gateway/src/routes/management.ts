@@ -12,7 +12,9 @@ import { logAdminAction } from '../services/auditLogger.js';
 import { generateVirtualKey } from '../services/keyManager.js';
 import { addProviderKey } from '../services/byok.js';
 import { decideApproval, listApprovals, type ApprovalStatus } from '../services/approvals.js';
-import { clearRoutingCache } from '../services/routingEngine.js';
+import { clearRoutingCache, ruleMatches, rankTargets, type RoutingRule } from '../services/routingEngine.js';
+import { resolvePricing, calculateCost, getAvailableModels } from '../services/pricing.js';
+import { estimateRequestTokens } from '../providers/base.js';
 import { createConnector, listConnectors, deleteConnector, runSync, testConnector } from '../services/connectorService.js';
 import { listConnectorTypes, ConnectorError } from '../connectors/registry.js';
 
@@ -176,8 +178,70 @@ const STRATEGIES = ['cheapest', 'fastest', 'policy', 'fallback'];
 const validTargets = (t: unknown) =>
   Array.isArray(t) && t.length > 0 && t.every((x: any) => x && typeof x.provider === 'string' && typeof x.model === 'string');
 
-managementRouter.get('/routing-rules', ...endpoint('spend:read', async (_req, org) =>
-  (await pool().query(`SELECT ${RULE_COLS} FROM routing_rules WHERE organization_id = $1 ORDER BY priority, id`, [org])).rows));
+managementRouter.get('/routing-rules', ...endpoint('spend:read', async (_req, org) => {
+  const { rows } = await pool().query(`SELECT ${RULE_COLS} FROM routing_rules WHERE organization_id = $1 ORDER BY priority, id`, [org]);
+  const fired = await pool().query(
+    `SELECT subject_id, count(*)::int AS n, max(created_at) AS last_at FROM policy_audit_log
+      WHERE organization_id = $1 AND kind = 'routing' AND created_at > now() - interval '24 hours' GROUP BY subject_id`, [org]);
+  const byRule = new Map(fired.rows.map(r => [String(r.subject_id), r]));
+  return rows.map(r => ({ ...r, fired_24h: byRule.get(r.id)?.n ?? 0, last_fired_at: byRule.get(r.id)?.last_at ?? null }));
+}));
+
+// Dry-run the real rule engine against a hypothetical request. Nothing is sent or logged.
+managementRouter.post('/routing-rules/simulate', ...endpoint('spend:read', async (req, org) => {
+  const b = req.body ?? {};
+  need(typeof b.model === 'string' && b.model, 'model is required');
+  const messages = [{ role: 'user', content: String(b.prompt ?? '') }];
+  const inTokens = estimateRequestTokens(messages as any);
+  const outTokens = Number(b.max_tokens) > 0 ? Number(b.max_tokens) : 500;
+  const { rows } = await pool().query(
+    `SELECT public_id::text AS id, name, priority, strategy, match, targets FROM routing_rules
+      WHERE organization_id = $1 AND is_enabled = true ORDER BY priority, id`, [org]);
+  const auth: any = { costCenter: b.cost_center ?? '', attribution: { teamId: b.team_id, projectId: b.project_id } };
+  const rule = (rows as RoutingRule[]).find(r => Array.isArray(r.targets) && r.targets.length > 0 && ruleMatches(r, auth, b.model));
+  const estimate = (t: { provider: string; model: string }) => {
+    const c = calculateCost(t.provider, t.model, inTokens, outTokens);
+    return c > 0 ? c : null;
+  };
+  if (!rule) return { matched: false, requested_model: b.model, input_tokens: inTokens, output_tokens: outTokens };
+  const lat = (await pool().query(
+    `SELECT provider, model, AVG(duration_ms)::float AS avg_ms FROM transactions
+      WHERE organization_id = $1 AND created_at > now() - interval '24 hours' AND status = 'success' AND duration_ms IS NOT NULL
+      GROUP BY provider, model`, [org])).rows;
+  const latMap = new Map(lat.map(r => [`${r.provider}:${r.model}`, r.avg_ms as number]));
+  const ranked = rankTargets(rule.strategy, rule.targets, [], { estimateCost: estimate, latencyMs: t => latMap.get(`${t.provider}:${t.model}`) ?? null });
+  return {
+    matched: true, rule: { id: rule.id, name: rule.name, strategy: rule.strategy },
+    requested_model: b.model, input_tokens: inTokens, output_tokens: outTokens,
+    candidates: ranked.map(t => ({ ...t, est_cost_usd: estimate(t), avg_latency_ms: latMap.get(`${t.provider}:${t.model}`) ?? null })),
+  };
+}));
+
+// Price catalog joined with what this org actually observed in the last 30 days.
+managementRouter.get('/models', ...endpoint('spend:read', async (_req, org) => {
+  const obs = (await pool().query(
+    `SELECT provider, model, count(*)::int AS requests,
+            COALESCE(AVG(cost_usd) FILTER (WHERE status = 'success'), 0)::float AS avg_cost_usd,
+            AVG(duration_ms) FILTER (WHERE status = 'success')::float AS avg_latency_ms,
+            (count(*) FILTER (WHERE status <> 'success'))::float / NULLIF(count(*), 0) AS error_rate
+       FROM transactions WHERE organization_id = $1 AND created_at > now() - interval '30 days'
+      GROUP BY provider, model`, [org])).rows;
+  const seen = new Set<string>();
+  const out: any[] = [];
+  for (const r of obs) {
+    seen.add(`${r.provider}:${r.model}`);
+    const price = resolvePricing(r.provider, r.model);
+    out.push({ ...r, input_per_1m: price?.input ?? null, output_per_1m: price?.output ?? null });
+  }
+  for (const [provider, models] of Object.entries(getAvailableModels())) {
+    for (const model of models) {
+      if (seen.has(`${provider}:${model}`)) continue;
+      const price = resolvePricing(provider, model);
+      if (price) out.push({ provider, model, requests: 0, avg_cost_usd: null, avg_latency_ms: null, error_rate: null, input_per_1m: price.input, output_per_1m: price.output });
+    }
+  }
+  return out;
+}));
 
 managementRouter.post('/routing-rules', ...endpoint('routing:write', async (req, org) => {
   const b = req.body ?? {};
@@ -362,6 +426,24 @@ managementRouter.post('/keys', ...endpoint('keys:write', async (req, org) => {
   return created({ ...rows[0], token: keyInfo.rawToken });
 }));
 
+managementRouter.get('/keys', ...endpoint('spend:read', async (_req, org) =>
+  (await pool().query(
+    // last_used_at on the row is not maintained on the hot path; derive it from the ledger instead.
+    `SELECT vk.public_id::text AS id, vk.name, vk.key_prefix, vk.status, vk.budget_cap_usd::text, vk.budget_period, vk.allowed_providers,
+            (SELECT max(t.created_at) FROM transactions t WHERE t.virtual_key_id = vk.id) AS last_used_at, vk.created_at, vk.revoked_at
+       FROM virtual_keys vk WHERE vk.organization_id = $1 ORDER BY vk.created_at DESC`, [org])).rows));
+
+// Revoke (never hard-delete: the key's history stays attributable).
+managementRouter.delete('/keys/:id', ...endpoint('keys:write', async (req, org) => {
+  const { rows } = await pool().query(
+    `UPDATE virtual_keys SET status = 'revoked', revoked_at = now()
+      WHERE public_id::text = $1 AND organization_id = $2 AND status <> 'revoked'
+      RETURNING public_id::text AS id, name, status`, [pid(req), org]);
+  notFound(rows[0], 'Active key');
+  audit(req, org, 'key.revoke', 'virtual_key', pid(req), undefined, rows[0]);
+  return { revoked: true, ...rows[0] };
+}));
+
 // ── Connectors ───────────────────────────────────────────────────────────────
 
 managementRouter.get('/connectors/types', requirePermission('spend:read'), (_req: Request, res: Response) => {
@@ -416,7 +498,10 @@ managementRouter.get('/requests', ...endpoint('spend:read', async (req, org) => 
        FROM transactions
       WHERE organization_id = $1 AND ($2::bigint IS NULL OR id < $2::bigint)
         AND ($4::text IS NULL OR status = $4)
-      ORDER BY id DESC LIMIT $3`, [org, cursor, limit, req.query.status ? String(req.query.status) : null]);
+        AND ($5::text IS NULL OR actor = $5)
+        AND ($6::timestamptz IS NULL OR created_at >= $6::timestamptz)
+      ORDER BY id DESC LIMIT $3`, [org, cursor, limit, req.query.status ? String(req.query.status) : null,
+        req.query.actor ? String(req.query.actor) : null, req.query.since ? String(req.query.since) : null]);
   return { data: rows, next_before: rows.length === limit ? rows[rows.length - 1].id : null };
 }));
 

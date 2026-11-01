@@ -25,6 +25,7 @@ export const ROUTES: RouteDoc[] = [
   { method: 'get', path: '/v1/models', tag: 'Inference', auth: 'none', summary: 'List supported models and pricing availability.' },
   { method: 'get', path: '/v1/providers', tag: 'Inference', auth: 'none', summary: 'Configured providers.' },
   { method: 'get', path: '/v1/logs', tag: 'Inference', auth: 'virtualKey', summary: 'Request history for the calling virtual key (cursor-paginated).', query: ['limit', 'before', 'status'] },
+  { method: 'get', path: '/v1/usage/me', tag: 'Inference', auth: 'virtualKey', summary: 'Spend today and this month, top models and budget headroom for the calling key.' },
 
   // ── Platform ───────────────────────────────────────────────────────────────
   { method: 'get', path: '/health', tag: 'Platform', auth: 'none', summary: 'Liveness + database status.' },
@@ -47,7 +48,11 @@ export const ROUTES: RouteDoc[] = [
   { method: 'post', path: '/v1/admin/routing-rules', tag: 'Routing', auth: ADMIN, permission: 'routing:write', summary: 'Create a routing rule (strategy: cheapest, fastest, policy, fallback).', body: '{ name, strategy, targets: [{provider, model}], match?, priority? }' },
   { method: 'patch', path: '/v1/admin/routing-rules/{id}', tag: 'Routing', auth: ADMIN, permission: 'routing:write', summary: 'Update a routing rule.' },
   { method: 'delete', path: '/v1/admin/routing-rules/{id}', tag: 'Routing', auth: ADMIN, permission: 'routing:write', summary: 'Delete a routing rule.' },
+  { method: 'post', path: '/v1/admin/routing-rules/simulate', tag: 'Routing', auth: ADMIN, permission: 'spend:read', summary: 'Dry-run the rule engine against a hypothetical request; nothing is sent to a provider.', body: '{ model, prompt?, max_tokens?, cost_center?, team_id?, project_id? }' },
+  { method: 'get', path: '/v1/admin/models', tag: 'Routing', auth: ADMIN, permission: 'spend:read', summary: 'Price catalog joined with observed (for your organization) cost, latency and error rate over the last 30 days.' },
 
+  { method: 'get', path: '/v1/admin/keys', tag: 'Keys', auth: ADMIN, permission: 'spend:read', summary: 'List virtual API keys (prefix only; the secret is never retrievable).' },
+  { method: 'delete', path: '/v1/admin/keys/{id}', tag: 'Keys', auth: ADMIN, permission: 'keys:write', summary: 'Revoke a virtual API key. Its history is kept.' },
   { method: 'get', path: '/v1/admin/alerts', tag: 'Alerts', auth: ADMIN, permission: 'spend:read', summary: 'Recent budget alerts.', query: ['limit'] },
   { method: 'get', path: '/v1/admin/audit', tag: 'Audit', auth: ADMIN, permission: 'audit:read', summary: 'Append-only audit trail: admin actions and automated policy/budget/routing decisions.', query: ['kind', 'limit'] },
   { method: 'get', path: '/v1/admin/approvals', tag: 'Governance', auth: ADMIN, permission: 'spend:read', summary: 'Approval requests.', query: ['status'] },
@@ -75,7 +80,7 @@ export const ROUTES: RouteDoc[] = [
   { method: 'delete', path: '/v1/admin/connectors/{id}', tag: 'Connectors', auth: ADMIN, permission: 'connectors:write', summary: 'Delete a connector and its entities.' },
   { method: 'get', path: '/v1/admin/attribution', tag: 'Connectors', auth: ADMIN, permission: 'spend:read', summary: 'Cost per attribution dimension (repo, ticket, sprint, feature, customer, employee).', query: ['dimension'] },
 
-  { method: 'get', path: '/v1/admin/requests', tag: 'Usage', auth: ADMIN, permission: 'spend:read', summary: 'Request history for the organization (cursor-paginated).', query: ['limit', 'before', 'status'] },
+  { method: 'get', path: '/v1/admin/requests', tag: 'Usage', auth: ADMIN, permission: 'spend:read', summary: 'Request history for the organization (cursor-paginated).', query: ['limit', 'before', 'status', 'actor', 'since'] },
   { method: 'get', path: '/v1/admin/reports/export', tag: 'Usage', auth: ADMIN, permission: 'reports:export', summary: 'Monthly spend per cost center / provider / model as CSV.', query: ['month'] },
 ];
 

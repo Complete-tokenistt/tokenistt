@@ -12,6 +12,38 @@ import { logTransaction } from '../db/transactionLogger.js';
 import { calculateCost, calculateCostWithStatus } from './pricing.js';
 import { estimateRequestTokens } from '../providers/base.js';
 
+/** Providers handleStreamingCompletion can talk to directly (true passthrough). */
+export function streamsNatively(model: string, providerOverride?: ProviderType): boolean {
+  const m = model.toLowerCase();
+  if (providerOverride) return providerOverride !== 'mock' && providerOverride !== 'bedrock';
+  if (m.startsWith('mock:')) return false;
+  // Same precedence as the provider detection in handleStreamingCompletion.
+  if (findCompatConfig(model) || m.startsWith('openai:') || m.includes('claude')) return true;
+  // llama / mistral / ai21 / titan / bedrock ids resolve to Bedrock, which has no stream path here.
+  return !['bedrock', 'llama', 'mistral', 'ai21', 'titan'].some(h => m.includes(h));
+}
+
+/** Replays a completed chat.completion as an OpenAI-style SSE stream. */
+export function writeSyntheticStream(res: Response, body: any): void {
+  const id = body.id ?? `chatcmpl-${Date.now()}`;
+  const created = body.created ?? Math.floor(Date.now() / 1000);
+  const model = body.model;
+  const choice = body.choices?.[0] ?? {};
+  const content: string = typeof choice.message?.content === 'string' ? choice.message.content : '';
+  const send = (delta: object, finish: string | null, extra: object = {}) =>
+    res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta, finish_reason: finish }], ...extra })}\n\n`);
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.removeHeader('Content-Length');
+  send({ role: 'assistant', content: '' }, null);
+  for (const piece of content.match(/\S+\s*|\s+/g) ?? []) send({ content: piece }, null);
+  send({}, choice.finish_reason ?? 'stop', body.usage ? { usage: body.usage } : {});
+  res.write('data: [DONE]\n\n');
+  res.end();
+}
+
 export async function handleStreamingCompletion(
   request: OpenAIChatCompletionRequest,
   res: Response,

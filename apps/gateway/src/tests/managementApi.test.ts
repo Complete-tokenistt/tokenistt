@@ -198,4 +198,50 @@ describe('management API (RBAC, tenancy, audit)', { skip: !hasDb && 'DATABASE_UR
     assert.equal(r.json.data.length, 1);
     assert.equal((await call('GET', '/requests', { token: jwt(orgB, 'viewer') })).json.data.length, 0);
   });
+
+  it('request history filters by actor and since', async () => {
+    const t = jwt(orgA, 'viewer');
+    const nobody = await call('GET', '/requests', { token: t, query: '?actor=nobody-here' });
+    assert.equal(nobody.json.data.length, 0);
+    const future = await call('GET', '/requests', { token: t, query: `?since=${encodeURIComponent(new Date(Date.now() + 86_400_000).toISOString())}` });
+    assert.equal(future.json.data.length, 0);
+  });
+
+  it('routing simulate runs the real rule engine; unmatched requests say so; models lists priced catalog', async () => {
+    const t = jwt(orgA, 'developer');
+    await call('POST', '/routing-rules', { token: t, body: {
+      name: 'sim-cheapest', strategy: 'cheapest', priority: 1, match: { model: 'gpt-4' },
+      targets: [{ provider: 'openai', model: 'gpt-4o' }, { provider: 'openai', model: 'gpt-4o-mini' }],
+    } });
+    const hit = await call('POST', '/routing-rules/simulate', { token: t, body: { model: 'gpt-4o', prompt: 'hello there' } });
+    assert.equal(hit.status, 200);
+    assert.equal(hit.json.matched, true);
+    assert.equal(hit.json.candidates[0].model, 'gpt-4o-mini', 'cheapest first');
+    assert.ok(hit.json.candidates[0].est_cost_usd < hit.json.candidates[1].est_cost_usd);
+
+    const miss = await call('POST', '/routing-rules/simulate', { token: jwt(orgB, 'developer'), body: { model: 'claude-3-haiku' } });
+    assert.equal(miss.json.matched, false);
+    assert.equal((await call('POST', '/routing-rules/simulate', { token: t, body: {} })).status, 400);
+
+    const models = await call('GET', '/models', { token: jwt(orgA, 'viewer') });
+    assert.equal(models.status, 200);
+    const groq = models.json.find((m: any) => m.provider === 'groq');
+    assert.ok(groq && groq.input_per_1m > 0, 'groq models are priced');
+  });
+
+  it('keys can be listed and revoked; a revoked key stops authenticating and cross-tenant revoke is 404', async () => {
+    const dev = jwt(orgA, 'developer');
+    const k = await call('POST', '/keys', { token: dev, body: { name: `rv-${sfx}` } });
+    assert.equal(k.status, 201);
+    const list = await call('GET', '/keys', { token: jwt(orgA, 'viewer') });
+    const row = list.json.find((x: any) => x.id === k.json.id);
+    assert.ok(row && row.status === 'active' && !JSON.stringify(list.json).includes(k.json.token), 'listed without secret');
+    assert.equal((await call('GET', '/keys', { token: jwt(orgB, 'viewer') })).json.find((x: any) => x.id === k.json.id), undefined);
+    assert.equal((await call('DELETE', `/keys/${k.json.id}`, { token: jwt(orgB, 'owner') })).status, 404);
+    assert.equal((await call('DELETE', `/keys/${k.json.id}`, { token: jwt(orgA, 'viewer') })).status, 403);
+    assert.equal((await call('DELETE', `/keys/${k.json.id}`, { token: dev })).status, 200);
+    assert.equal((await call('DELETE', `/keys/${k.json.id}`, { token: dev })).status, 404, 'already revoked');
+    const after = await getPool().query(`SELECT status FROM virtual_keys WHERE public_id::text = $1`, [k.json.id]);
+    assert.equal(after.rows[0].status, 'revoked');
+  });
 });

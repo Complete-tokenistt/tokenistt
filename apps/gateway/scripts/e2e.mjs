@@ -10,7 +10,7 @@
  * budget enforcement, attribution, batch, OpenAPI and the audit trail.
  */
 import { spawn } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -115,6 +115,61 @@ async function main() {
   check('batch endpoint runs each item through the pipeline', batch.results?.length === 2 && batch.results.every(r => r.status === 200), JSON.stringify(batch).slice(0, 200));
   const spec = await (await fetch(`${BASE}/v1/openapi.json`)).json();
   check('OpenAPI document is served', spec.openapi === '3.1.0' && !!spec.paths['/v1/chat/completions']);
+
+  console.log('\nStreaming');
+  async function stream(body) {
+    const r = await fetch(`${BASE}/v1/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ ...body, stream: true }) });
+    const raw = await r.text();
+    const events = raw.split('\n\n').filter(Boolean);
+    const chunks = events.filter(e => e !== 'data: [DONE]').map(e => JSON.parse(e.slice(6)));
+    return { status: r.status, type: r.headers.get('content-type'), done: events.at(-1) === 'data: [DONE]', text: chunks.map(c => c.choices?.[0]?.delta?.content ?? '').join('') };
+  }
+  const st = await stream({ model: 'mock:echo', messages: msg('stream me') });
+  check('stream: SSE ends with [DONE] and carries the reply', st.status === 200 && /event-stream/.test(st.type) && st.done && st.text === 'mock reply: stream me', JSON.stringify(st));
+  const sRule = await admin('POST', '/routing-rules', { name: 'stream-smart', strategy: 'fallback', match: { model: 'streamy' }, priority: 1, targets: [{ provider: 'mock', model: 'mock:fail' }, { provider: 'mock', model: 'mock:echo' }] });
+  await sleep(100);
+  const sr = await stream({ model: 'mock:streamy', messages: msg('route stream') });
+  check('stream: routing rule + failover apply to streamed requests', sr.status === 200 && sr.text === 'mock reply: route stream', JSON.stringify(sr));
+  await admin('DELETE', `/routing-rules/${sRule.json.id}`);
+  await sleep(100);
+
+  console.log('\nSDKs against this gateway');
+  const sdkRoot = join(root, '..', '..', 'packages');
+  const runSdk = (label, cmd, args, cwd) => new Promise(resolve => {
+    const p = spawn(cmd, args, { cwd, env: { ...process.env, TOKENISTT_BASE_URL: `${BASE}/v1`, TOKENISTT_API_KEY: token, PYTHONUTF8: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = ''; p.stdout.on('data', d => (out += d)); p.stderr.on('data', d => (out += d));
+    p.on('error', () => resolve({ code: 'missing', out }));
+    p.on('close', code => resolve({ code, out }));
+  });
+  if (existsSync(join(sdkRoot, 'sdk-ts', 'dist', 'cjs', 'index.js')) && existsSync(join(sdkRoot, 'sdk-ts', 'tests', 'live.cjs'))) {
+    const r = await runSdk('ts', process.execPath, ['tests/live.cjs'], join(sdkRoot, 'sdk-ts'));
+    check('TypeScript SDK passes its live test against the gateway', r.code === 0, r.out.slice(-600));
+  } else {
+    console.log('  (skipped TypeScript SDK: run `npm run build -w packages/sdk-ts` first)');
+  }
+  const py = existsSync(join(sdkRoot, 'sdk-python', 'tests', 'live.py'))
+    ? await runSdk('py', process.env.PYTHON || 'python', ['tests/live.py'], join(sdkRoot, 'sdk-python'))
+    : { code: 'missing', out: '' };
+  if (py.code === 'missing' || /No module named 'tokenistt'/.test(py.out)) console.log('  (skipped Python SDK: `pip install -e packages/sdk-python` first)');
+  else check('Python SDK passes its live test against the gateway', py.code === 0, py.out.slice(-600));
+
+  console.log('\nUsage + enforcement');
+  const me = await fetch(`${BASE}/v1/usage/me`, { headers: { authorization: `Bearer ${token}` } });
+  const meBody = await me.json();
+  check('GET /v1/usage/me reports this key\'s spend', me.status === 200 && meBody.month.requests >= 1 && meBody.month.cost_usd > 0 && meBody.today.requests >= 1 && Array.isArray(meBody.top_models), JSON.stringify(meBody).slice(0, 240));
+  check('GET /v1/usage/me rejects a bad key', (await fetch(`${BASE}/v1/usage/me`, { headers: { authorization: 'Bearer tktt_live_nope' } })).status === 401);
+  const enf = await admin('POST', '/policies', { name: 'repo required', conditions: { missing_attribution: ['repo'] }, actions: { effect: 'block', message: 'Send x-tokenistt-repo.' } });
+  check('enforcement policy created', enf.status === 201, enf.text);
+  const noRepo = await chat(token, { model: 'mock:echo', messages: msg('no attribution') });
+  check('request without required attribution is blocked', noRepo.status === 403 && /x-tokenistt-repo/.test(JSON.stringify(noRepo.json)), JSON.stringify(noRepo.json));
+  const withRepo = await chat(token, { model: 'mock:echo', messages: msg('with attribution') }, { 'x-tokenistt-repo': 'acme/api' });
+  check('same request with the attribution header passes', withRepo.status === 200, JSON.stringify(withRepo.json));
+  await admin('DELETE', `/policies/${enf.json.id}`);
+  const allow = await admin('POST', '/policies', { name: 'only mock:echo', conditions: { model_not_in: ['mock:echo'] }, actions: { effect: 'block', message: 'Model not on the allow-list.' } });
+  const denied = await chat(token, { model: 'mock:other', messages: msg('x') });
+  const okModel = await chat(token, { model: 'mock:echo', messages: msg('x') });
+  check('model allow-list blocks others and admits listed models', denied.status === 403 && okModel.status === 200, `${denied.status}/${okModel.status}`);
+  await admin('DELETE', `/policies/${allow.json.id}`);
 
   console.log('\nGovernance: approval policy');
   const pol = await admin('POST', '/policies', { name: 'prod deploys need sign-off', conditions: { prompt_keyword: 'deploy-prod' }, actions: { effect: 'require_approval', message: 'needs sign-off' } });
