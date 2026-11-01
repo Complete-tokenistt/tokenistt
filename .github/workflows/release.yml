@@ -31,7 +31,7 @@ jobs:
       matrix:
         image: [gateway, dashboard, migrate]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: docker/setup-qemu-action@v3
         if: startsWith(github.ref, 'refs/tags/v')
       - uses: docker/setup-buildx-action@v3
