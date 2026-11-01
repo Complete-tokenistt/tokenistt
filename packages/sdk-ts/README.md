@@ -147,4 +147,4 @@ for authoritative billing, read `usage` from the gateway response.
 
 ## License
 
-MIT
+Apache-2.0

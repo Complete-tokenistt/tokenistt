@@ -2,6 +2,18 @@
 
 Tokenistt is Apache-2.0. Contributions are welcome — please read the conventions below before opening a PR.
 
+## Contributor License Agreement
+
+Before we can merge your first pull request, you need to sign the [Contributor License Agreement](CLA.md).
+It is a license, not a copyright assignment: you keep the copyright to your work. When you open a PR,
+the CLA bot comments with instructions. Sign by replying on the PR with exactly:
+
+```
+I have read the CLA Document and I hereby sign the CLA
+```
+
+You only sign once; the bot remembers you for future PRs. If the check doesn't update, comment `recheck`.
+
 ## Prerequisites
 
 - Node.js 20+

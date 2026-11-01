@@ -3,7 +3,15 @@
   "version": "0.0.0",
   "private": true,
   "license": "Apache-2.0",
-  "description": "Tokenistt \u2014 open-source AI cost visibility and governance gateway",
+  "description": "Tokenistt — open-source AI cost visibility and governance gateway",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Complete-tokenistt/tokenist-main.git"
+  },
+  "homepage": "https://github.com/Complete-tokenistt/tokenist-main#readme",
+  "bugs": {
+    "url": "https://github.com/Complete-tokenistt/tokenist-main/issues"
+  },
   "workspaces": [
     "apps/*",
     "packages/finops-middleware",
