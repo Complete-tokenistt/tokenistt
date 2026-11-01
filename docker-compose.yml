@@ -119,6 +119,8 @@ services:
       TOKENISTT_BASE_URL: http://gateway:3000/v1
       # JWT_SECRET: signs/verifies dashboard sessions (min 32 chars); must equal the gateway's
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required in production}
+      # MASTER_KEY: encrypts BYOK provider keys saved from Settings; must equal the gateway's
+      MASTER_KEY: ${MASTER_KEY:?MASTER_KEY is required in production}
       # STRICT_AUTH: enforces JWT authentication on all routes regardless of NODE_ENV
       STRICT_AUTH: "true"
     depends_on:

@@ -1,0 +1,42 @@
+version: 2
+
+# Minor and patch updates only, grouped, monthly. Major upgrades (TypeScript, Node,
+# provider SDKs, ioredis, ...) can break things even when CI is green, so they are
+# done deliberately by a person, one at a time — not proposed by Dependabot.
+# Security updates are separate (Settings → Code security → Dependabot security
+# updates) and are still raised whenever a vulnerability is published.
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: chore(deps)
+    ignore:
+      - dependency-name: '*'
+        update-types: [version-update:semver-major]
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore(ci)
+    groups:
+      github-actions:
+        patterns: ['*']
+
+  - package-ecosystem: docker
+    directory: /infra/docker
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore(docker)
+    ignore:
+      # Node major versions are chosen together with CI's node-version and engines
+      - dependency-name: node
+        update-types: [version-update:semver-major]
