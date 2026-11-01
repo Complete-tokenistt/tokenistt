@@ -22,6 +22,7 @@
     "packages/shadow-ai-scanner"
   ],
   "scripts": {
+    "setup": "node scripts/setup.mjs",
     "build": "npm run build -w packages/sdk-ts && npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",

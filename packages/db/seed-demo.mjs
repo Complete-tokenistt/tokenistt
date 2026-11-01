@@ -33,12 +33,20 @@ const REPOS = ['demo-co/api', 'demo-co/web', 'demo-co/ml-pipeline'];
 const CUSTOMERS = ['acme', 'globex', 'initech', 'hooli', 'umbrella'];
 
 async function main() {
-  await q(`DELETE FROM organizations WHERE slug = 'demo-co'`);
-  const org = (await q(`INSERT INTO organizations (name, slug, plan) VALUES ('Demo Co (synthetic data)', 'demo-co', 'team') RETURNING id::text`)).rows[0].id;
-
-  for (const [email, role] of [['owner@demo.test', 'owner'], ['finance@demo.test', 'finance'], ['viewer@demo.test', 'viewer']]) {
-    await q(`INSERT INTO users (organization_id, email, display_name, password_hash, role) VALUES ($1,$2,$3,$4,$5)`,
-      [org, email, email.split('@')[0], hashPassword(DEMO_PASSWORD), role]);
+  // SEED_ORG_ID: add the demo data to an existing org (the no-login "Local workspace") instead of a new one.
+  // Run it once — it does not de-duplicate against a previous run on the same org.
+  const into = process.env.SEED_ORG_ID;
+  let org;
+  if (into) {
+    org = (await q(`SELECT id::text FROM organizations WHERE id = $1`, [into])).rows[0]?.id;
+    if (!org) throw new Error(`organization ${into} does not exist`);
+  } else {
+    await q(`DELETE FROM organizations WHERE slug = 'demo-co'`);
+    org = (await q(`INSERT INTO organizations (name, slug, plan) VALUES ('Demo Co (synthetic data)', 'demo-co', 'team') RETURNING id::text`)).rows[0].id;
+    for (const [email, role] of [['owner@demo.test', 'owner'], ['finance@demo.test', 'finance'], ['viewer@demo.test', 'viewer']]) {
+      await q(`INSERT INTO users (organization_id, email, display_name, password_hash, role) VALUES ($1,$2,$3,$4,$5)`,
+        [org, email, email.split('@')[0], hashPassword(DEMO_PASSWORD), role]);
+    }
   }
 
   const wsSupport = (await q(`INSERT INTO workspaces (organization_id, name, cost_center, budget_cap_usd) VALUES ($1,'Support','CC-4401-Support',500) RETURNING id::text`, [org])).rows[0].id;

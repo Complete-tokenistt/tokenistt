@@ -48,9 +48,26 @@ services:
     container_name: tokenistt-migrate
     environment:
       DATABASE_URL: postgres://tokenistt:${POSTGRES_PASSWORD}@postgres:5432/tokenistt
+      AUTH_MODE: ${AUTH_MODE:-open}
     depends_on:
       postgres:
         condition: service_healthy
+    restart: "no"
+
+  # Optional: `docker compose --profile demo up seed` loads synthetic sample data into the local org.
+  seed:
+    profiles: ["demo"]
+    build:
+      context: .
+      dockerfile: infra/docker/migrate.Dockerfile
+    container_name: tokenistt-seed
+    command: ["node", "seed-demo.mjs"]
+    environment:
+      DATABASE_URL: postgres://tokenistt:${POSTGRES_PASSWORD}@postgres:5432/tokenistt
+      SEED_ORG_ID: "1"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     restart: "no"
 
   gateway:
@@ -117,11 +134,19 @@ services:
       DATABASE_URL: postgres://tokenistt:${POSTGRES_PASSWORD}@postgres:5432/tokenistt
       GATEWAY_URL: http://gateway:3000
       TOKENISTT_BASE_URL: http://gateway:3000/v1
+      # What developers' tools should call from outside Docker (shown in the dashboard's setup snippets)
+      PUBLIC_GATEWAY_URL: ${PUBLIC_GATEWAY_URL:-http://localhost:${GATEWAY_PORT:-3000}}
       # JWT_SECRET: signs/verifies dashboard sessions (min 32 chars); must equal the gateway's
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required in production}
       # MASTER_KEY: encrypts BYOK provider keys saved from Settings; must equal the gateway's
       MASTER_KEY: ${MASTER_KEY:?MASTER_KEY is required in production}
-      # STRICT_AUTH: enforces JWT authentication on all routes regardless of NODE_ENV
+      # AUTH_MODE=open (default): no login, everyone is the owner of the local org — for trying it out
+      # on your own machine. Set AUTH_MODE=jwt to require sign-in (then expose it behind your own proxy).
+      AUTH_MODE: ${AUTH_MODE:-open}
+      OPEN_ORG_ID: "1"
+      # Lets the dashboard call the gateway management API without a user token in open mode
+      ADMIN_SECRET: ${ADMIN_SECRET}
+      # STRICT_AUTH: enforces JWT authentication on all routes regardless of NODE_ENV (unless AUTH_MODE=open)
       STRICT_AUTH: "true"
     depends_on:
       postgres:
