@@ -1,37 +1,61 @@
 # Contributing to Tokenistt
 
+Tokenistt is Apache-2.0. Contributions are welcome — please read the conventions below before opening a PR.
+
 ## Prerequisites
 
 - Node.js 20+
-- A Postgres instance (local via Docker, or a managed instance — Railway/Supabase/Neon)
-- Sandbox API keys for OpenAI and Anthropic (for local testing)
+- Docker (for Postgres and Redis during development)
+- Provider API keys are optional: the offline `mock:` provider (`MOCK_PROVIDER=1`) exercises the whole pipeline without them
 
 ## Local setup
 
 ```bash
 npm install
-cp apps/gateway/.env.example apps/gateway/.env   # fill in DATABASE_URL, ENCRYPTION_KEY
-npm run db:migrate --workspace=packages/db
-npm run dev --workspace=apps/gateway
-npm run dev --workspace=apps/dashboard             # separate terminal
+npm run dev:deps          # Postgres on :5433 and Redis on :6380
+export DATABASE_URL=postgres://tokenistt:tokenistt@localhost:5433/tokenistt
+export REDIS_URL=redis://localhost:6380
+npm run migrate           # apply packages/db/drizzle/*.sql
+node packages/db/seed-demo.mjs   # optional: demo org with synthetic traffic
+```
+
+Then run the gateway and the dashboard in separate terminals (`npm run dev:gateway`, `npm run dev:dashboard`) — the README's "Option B — local development" has the exact environment variables. The full stack in containers is `node scripts/setup.mjs && docker compose up --build`.
+
+## Before you push
+
+CI runs these on Node 20 against real Postgres and Redis; run the same locally:
+
+```bash
+npm run typecheck
+npm run build
+npm test
+npm run test:e2e -w apps/gateway
 ```
 
 ## Conventions
 
-- **Every provider implements `ProviderAdapter`** (see `ARCHITECTURE.md`). No provider-specific `if/else` branching outside the adapter layer — if you find yourself writing `if (provider === 'openai')` in a route handler, that logic belongs in the adapter instead.
-- **Events are immutable.** Never write an `UPDATE` against the `events` table. If a correction is needed, log a new event, don't mutate history.
-- **Pricing is versioned.** Never change a price in place — insert a new `model_prices` row with a new `effective_from` and close out the old one's `effective_to`. Historical events must always price against what was true at the time.
-- **Fail open, not closed, by default.** Any new enforcement feature (budgets, policies) needs an explicit soft/alert-only mode, and that should be the default unless a workspace has opted into stricter enforcement.
-- **Logging never blocks the request path.** Event logging, alerting, and audit writes are async with a fallback (see the request pipeline in `ARCHITECTURE.md`) — never `await` a non-critical write before returning a response to the client.
+- **Every provider is an adapter** (`apps/gateway/src/providers/`). No provider-specific branching (`if (provider === 'openai')`) outside the adapter layer.
+- **The request log is immutable.** Never `UPDATE` or `DELETE` rows in `transactions`; insert a new row for a correction. `audit_log` and `policy_audit_log` are append-only and the database enforces it.
+- **Pricing is versioned.** Never change a price in place — add a new price version. Unknown models report `COST_UNAVAILABLE`; never invent a price.
+- **Fail open by default.** New enforcement features need an explicit soft/alert-only mode that is the default, and must not break traffic on internal errors. The gateway must keep working without Redis.
+- **Logging never blocks the request path.** Event, alert and audit writes are fire-and-forget with a fallback — never `await` a non-critical write before responding.
+- **Tenant isolation.** Every management query is scoped to the caller's organization. New endpoints need an isolation test.
+- **Secrets are write-only.** Never return provider keys or connector credentials from any endpoint; outbound calls to user-supplied URLs go through the SSRF guard.
+- **Schema changes are numbered migrations** in `packages/db/drizzle/`, never a manual `ALTER TABLE`.
+- **New management routes** must be added to the table in `apps/gateway/src/openapi.ts` — a test fails otherwise.
 
-## Before adding new infrastructure
+## Scope
 
-Check `ROADMAP.md`'s deferral table first. If you're about to add a new database, queue, or external service, confirm it's not already listed there as "Later" or "Reconsider" — and if it's not on the list at all, ask whether it needs its own scaling/failure mode/deploy pipeline to make sense. If yes, it's a Phase 2/3 discussion, not a PR.
+Check `docs/ROADMAP.md` before adding new infrastructure (a new database, queue, or external service). If a proposal needs its own scaling, failure mode or deploy pipeline to make sense, open an issue to discuss it first rather than a PR.
 
 ## PR checklist
 
-- [ ] New provider logic lives only in an adapter, not scattered across routes
-- [ ] No `events` table mutations, only inserts
-- [ ] New enforcement behavior defaults to soft/alert-only
-- [ ] Non-critical writes (logging, alerts) don't block the response path
-- [ ] Schema changes come with a migration, not a manual `ALTER TABLE` note in Slack
+- [ ] `typecheck`, `build`, `test` and the e2e script pass
+- [ ] Provider logic lives only in an adapter
+- [ ] No mutation of `transactions` or the audit tables
+- [ ] New enforcement behaviour defaults to soft/alert-only
+- [ ] Non-critical writes don't block the response path
+- [ ] Schema changes come with a migration
+- [ ] New routes are in the OpenAPI table and have tests (including tenant isolation)
+- [ ] README "What works today" / "Known gaps" updated if behaviour changed
+- [ ] No claims in docs or copy that aren't verified (no compliance badges, benchmarks or customer claims)
