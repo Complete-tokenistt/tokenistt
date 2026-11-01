@@ -27,4 +27,8 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install -e packages/sdk-python
+      - run: python packages/sdk-python/tests/smoke.py
       - run: npm run test:e2e -w apps/gateway

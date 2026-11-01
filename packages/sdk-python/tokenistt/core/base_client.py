@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from typing import Any, Callable, Dict, Optional
 
@@ -27,7 +28,7 @@ from ..errors import (
 from ..types import BudgetConfig, UsageEvent
 
 RETRYABLE_STATUS = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
-DEFAULT_BASE_URL = "https://api.tokenistt.ai/v1"
+DEFAULT_BASE_URL = "http://localhost:3000/v1"  # the self-hosted gateway; override with base_url= or TOKENISTT_BASE_URL
 
 
 class _ClientCommon(EventEmitter):
@@ -47,11 +48,17 @@ class _ClientCommon(EventEmitter):
         on_usage: Optional[Callable[[float], None]],
         throw_on_budget_exceeded: bool,
         currency: str,
-        default_headers: Optional[Dict[str, str]],
+        attribution: Optional[Dict[str, str]] = None,
+        cache: Any = False,
+        compress: bool = False,
+        default_headers: Optional[Dict[str, str]] = None,
         default_query: Optional[Dict[str, Any]],
     ) -> None:
-        self.api_key = api_key
-        self.base_url = (base_url or DEFAULT_BASE_URL).rstrip("/")
+        self.api_key = api_key or os.environ.get("TOKENISTT_API_KEY")
+        self.base_url = (base_url or os.environ.get("TOKENISTT_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
+        self.attribution = {k: str(v) for k, v in (attribution or {}).items() if v}
+        self.cache = cache
+        self.compress = compress
         self.organization = organization
         self.project = project
         self.user = user
@@ -87,6 +94,9 @@ class _ClientCommon(EventEmitter):
             "on_usage": self._cost_tracker._on_usage,
             "throw_on_budget_exceeded": self.throw_on_budget_exceeded,
             "currency": self.currency,
+            "attribution": self.attribution,
+            "cache": self.cache,
+            "compress": self.compress,
             "default_headers": self.default_headers,
             "default_query": self.default_query,
         }
@@ -107,6 +117,12 @@ class _ClientCommon(EventEmitter):
             headers["X-Tokenistt-User"] = u
         if cc:
             headers["X-Tokenistt-Cost-Center"] = cc
+        for k, v in self.attribution.items():
+            headers[f"x-tokenistt-{k}"] = v
+        if self.cache:
+            headers["x-tokenistt-cache"] = "always" if self.cache == "always" else "true"
+        if self.compress:
+            headers["x-tokenistt-compress"] = "true"
         if self.organization:
             headers["OpenAI-Organization"] = self.organization
         if self.project:
@@ -161,6 +177,9 @@ class BaseClient(_ClientCommon):
         on_usage: Optional[Callable[[float], None]] = None,
         throw_on_budget_exceeded: bool = False,
         currency: str = "USD",
+        attribution: Optional[Dict[str, str]] = None,
+        cache: Any = False,
+        compress: bool = False,
         http_client: Optional[httpx.Client] = None,
         default_headers: Optional[Dict[str, str]] = None,
         default_query: Optional[Dict[str, Any]] = None,
@@ -180,6 +199,9 @@ class BaseClient(_ClientCommon):
             on_usage=on_usage,
             throw_on_budget_exceeded=throw_on_budget_exceeded,
             currency=currency,
+            attribution=attribution,
+            cache=cache,
+            compress=compress,
             default_headers=default_headers,
             default_query=default_query,
         )
@@ -285,6 +307,10 @@ class BaseClient(_ClientCommon):
     def __exit__(self, *exc: Any) -> None:
         self.close()
 
+    def usage(self) -> Dict[str, Any]:
+        """What this API key has spent on the gateway (today, this month, top models, budget headroom)."""
+        return self._request("GET", "/usage/me").json()
+
 
 class AsyncBaseClient(_ClientCommon):
     """Asynchronous client (mirrors ``openai.AsyncOpenAI``)."""
@@ -305,6 +331,9 @@ class AsyncBaseClient(_ClientCommon):
         on_usage: Optional[Callable[[float], None]] = None,
         throw_on_budget_exceeded: bool = False,
         currency: str = "USD",
+        attribution: Optional[Dict[str, str]] = None,
+        cache: Any = False,
+        compress: bool = False,
         http_client: Optional[httpx.AsyncClient] = None,
         default_headers: Optional[Dict[str, str]] = None,
         default_query: Optional[Dict[str, Any]] = None,
@@ -324,6 +353,9 @@ class AsyncBaseClient(_ClientCommon):
             on_usage=on_usage,
             throw_on_budget_exceeded=throw_on_budget_exceeded,
             currency=currency,
+            attribution=attribution,
+            cache=cache,
+            compress=compress,
             default_headers=default_headers,
             default_query=default_query,
         )
@@ -426,3 +458,7 @@ class AsyncBaseClient(_ClientCommon):
 
     async def __aexit__(self, *exc: Any) -> None:
         await self.close()
+
+    async def usage(self) -> Dict[str, Any]:
+        """What this API key has spent on the gateway (today, this month, top models, budget headroom)."""
+        return (await self._arequest("GET", "/usage/me")).json()

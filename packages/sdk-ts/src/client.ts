@@ -12,7 +12,42 @@ import type { UsageEvent, BudgetEvent, UsageLike } from './core/cost';
 export { BudgetConfig, PricingTable } from './core/cost';
 export type { UsageEvent, BudgetEvent } from './core/cost';
 
-const DEFAULT_BASE_URL = 'https://api.tokenistt.ai/v1';
+// The self-hosted gateway; override with `baseURL` or the TOKENISTT_BASE_URL environment variable.
+const DEFAULT_BASE_URL = 'http://localhost:3000/v1';
+const env = (k: string): string | undefined => (typeof process !== 'undefined' ? process.env?.[k] : undefined);
+
+/** Response of `GET /v1/usage/me`. */
+export interface KeyUsage {
+  key: { name: string; prefix: string };
+  today: { requests: number; cost_usd: number };
+  month: { requests: number; cost_usd: number; errors: number };
+  last_request_at: string | null;
+  budget: { cap_usd: number; period: 'daily' | 'monthly'; spent_usd: number; remaining_usd: number; percent_used: number } | null;
+  top_models: { provider: string; model: string; requests: number; cost_usd: number }[];
+}
+
+export interface Attribution {
+  team?: string;
+  project?: string;
+  environment?: string;
+  repo?: string;
+  ticket?: string;
+  sprint?: string;
+  feature?: string;
+  customer?: string;
+  employee?: string;
+}
+
+/** Header map for gateway features (`x-tokenistt-*`). Exported for per-request `headers`. */
+export function gatewayHeaders(opts: { attribution?: Attribution; cache?: boolean | 'always'; compress?: boolean }): Record<string, string> {
+  const h: Record<string, string> = {};
+  for (const [k, v] of Object.entries(opts.attribution ?? {})) {
+    if (v) h[`x-tokenistt-${k}`] = String(v);
+  }
+  if (opts.cache) h['x-tokenistt-cache'] = opts.cache === 'always' ? 'always' : 'true';
+  if (opts.compress) h['x-tokenistt-compress'] = 'true';
+  return h;
+}
 
 export interface TokenisttOptions {
   /** Gateway API key (sent as `Authorization: Bearer`). */
@@ -28,6 +63,16 @@ export interface TokenisttOptions {
   user?: string;
   /** Default cost-center for *every* request (overridable per request). */
   costCenter?: string;
+
+  /**
+   * Attribution sent as `x-tokenistt-*` headers on every request, so spend can be broken
+   * down by team, project, repo, ticket, sprint, feature, customer or employee.
+   */
+  attribution?: Attribution;
+  /** Opt in to the gateway's response cache for identical requests ("true" | "always"). */
+  cache?: boolean | 'always';
+  /** Opt in to gateway-side prompt whitespace compression. */
+  compress?: boolean;
 
   /** Per-request timeout in ms (default 600000). */
   timeout?: number;
@@ -109,8 +154,8 @@ export class Tokenistt extends Emitter<ClientEvents> {
       );
     }
 
-    this.apiKey = opts.apiKey;
-    this.baseURL = (opts.baseURL ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
+    this.apiKey = opts.apiKey ?? env('TOKENISTT_API_KEY');
+    this.baseURL = (opts.baseURL ?? env('TOKENISTT_BASE_URL') ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
     this.organization = opts.organization;
     this.project = opts.project;
     this.user = opts.user;
@@ -123,7 +168,7 @@ export class Tokenistt extends Emitter<ClientEvents> {
         'global fetch is unavailable. Use Node >= 18, or pass a `fetch` implementation.',
       );
     }
-    this.defaultHeaders = opts.defaultHeaders ?? {};
+    this.defaultHeaders = { ...gatewayHeaders(opts), ...(opts.defaultHeaders ?? {}) };
     this.defaultQuery = opts.defaultQuery ?? {};
     this.currency = opts.currency ?? 'USD';
     this.throwOnBudgetExceeded = opts.throwOnBudgetExceeded ?? false;
@@ -168,6 +213,12 @@ export class Tokenistt extends Emitter<ClientEvents> {
       costCenter: meta.costCenter ?? this.costCenter,
       requestId: meta.requestId,
     });
+  }
+
+  /** What this API key has spent on the gateway (today, this month, top models, budget headroom). */
+  async usage(): Promise<KeyUsage> {
+    const res = await this.request({ method: 'GET', path: '/usage/me' });
+    return (await res.json()) as KeyUsage;
   }
 
   /** Total tracked spend across this client instance, in `currency`. */
