@@ -18,6 +18,10 @@ export interface Policy {
     model?: string;
     cost_limit?: number;
     prompt_keyword?: string;
+    /** Matches when ANY listed attribution field (team, project, repo, ticket, feature, …) is missing from the request. */
+    missing_attribution?: string[];
+    /** Matches when the requested model contains NONE of these substrings (an allow-list). */
+    model_not_in?: string[];
   };
   actions: {
     effect: 'allow' | 'deny' | 'block' | 'require_approval' | 'force_model';
@@ -182,6 +186,22 @@ export async function checkPolicies(
         if (!fullPromptText.includes(kw)) {
           continue; // Keyword not found
         }
+      }
+
+      // 5. Enforcement: required attribution (every request must say who/what it is for)
+      if (conditions.missing_attribution?.length) {
+        const a = (auth.attribution ?? {}) as Record<string, unknown>;
+        const present = (field: string) => {
+          const v = field === 'team' ? a.teamId : field === 'project' ? a.projectId : a[field];
+          return v !== null && v !== undefined && v !== '';
+        };
+        if (conditions.missing_attribution.every(present)) continue; // all supplied → compliant
+      }
+
+      // 6. Enforcement: model allow-list
+      if (conditions.model_not_in?.length) {
+        const reqModel = request.model.toLowerCase();
+        if (conditions.model_not_in.some(m => reqModel.includes(String(m).toLowerCase()))) continue; // allowed
       }
 
       // If we reach here, all specified conditions in the policy match!

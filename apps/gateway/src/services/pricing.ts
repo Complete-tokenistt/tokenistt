@@ -7,6 +7,19 @@ export const PRICING: Record<string, PricingTier> = {
   'mock:fail': { input: 1.00, output: 2.00 },
   'mock:limited': { input: 1.00, output: 2.00 },
 
+  // Groq / Together / Gemini — published list prices (USD per 1M tokens). Providers change these;
+  // verify against their pricing pages, or override through the model_catalog table.
+  'groq:llama-3.3-70b-versatile': { input: 0.59, output: 0.79 },
+  'groq:llama-3.1-8b-instant': { input: 0.05, output: 0.08 },
+  'together:meta-llama/llama-3.3-70b-instruct-turbo': { input: 0.88, output: 0.88 },
+  'together:meta-llama/meta-llama-3.1-70b-instruct-turbo': { input: 0.88, output: 0.88 },
+  'together:meta-llama/meta-llama-3.1-8b-instruct-turbo': { input: 0.18, output: 0.18 },
+  'gemini:gemini-2.5-pro': { input: 1.25, output: 10.00 },
+  'gemini:gemini-2.5-flash': { input: 0.30, output: 2.50 },
+  'gemini:gemini-2.0-flash': { input: 0.10, output: 0.40 },
+  'gemini:gemini-1.5-pro': { input: 1.25, output: 5.00 },
+  'gemini:gemini-1.5-flash': { input: 0.075, output: 0.30 },
+
   // OpenAI Models
   'openai:gpt-4o': { input: 2.50, output: 10.00, cachedInput: 1.25 },
   'openai:gpt-4o-mini': { input: 0.15, output: 0.60, cachedInput: 0.075 },
@@ -221,6 +234,13 @@ export function getAvailableModels(): Record<string, string[]> {
       'gpt-35-turbo',
       'gpt-35-turbo-16k',
     ],
+    groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
+    together: [
+      'meta-llama/llama-3.3-70b-instruct-turbo',
+      'meta-llama/meta-llama-3.1-70b-instruct-turbo',
+      'meta-llama/meta-llama-3.1-8b-instruct-turbo',
+    ],
+    gemini: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
     openai: [
       'gpt-4o',
       'gpt-4o-mini',

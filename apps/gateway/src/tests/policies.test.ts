@@ -151,4 +151,33 @@ describe('Governance Policy Engine', () => {
     assert.strictEqual(result2.allowed, true);
     assert.strictEqual(result2.modifiedRequest, undefined);
   });
+
+  describe('enforcement conditions', () => {
+    const baseAuth = (attribution?: Record<string, unknown>): AuthContext => ({
+      actor: 'dev@acme.io', costCenter: 'eng', organizationId: 1n, workspaceId: 10n, virtualKeyId: 100n,
+      virtualKeyPublicId: 'tktt_live_abc', budgetCapUsd: null, budgetUsedUsd: 0, budgetPeriod: 'none',
+      allowedProviders: [], realApiKey: null, attribution: attribution as any,
+    } as AuthContext);
+    const req = (model = 'gpt-4o-mini') => ({ model, messages: [{ role: 'user' as const, content: 'hi' }] });
+    const policy = (conditions: object) => [{
+      id: '9', public_id: '99999999-9999-9999-9999-999999999999', name: 'enforce', is_enabled: true,
+      conditions, actions: { effect: 'block', message: 'rejected by policy' },
+    }];
+
+    it('blocks requests that are missing required attribution, passes compliant ones', async () => {
+      mockQueryResults = policy({ missing_attribution: ['team', 'repo'] });
+      assert.strictEqual((await checkPolicies(baseAuth(), req())).allowed, false, 'nothing supplied');
+      assert.strictEqual((await checkPolicies(baseAuth({ teamId: 4n }), req())).allowed, false, 'repo still missing');
+      assert.strictEqual((await checkPolicies(baseAuth({ teamId: 4n, repo: 'acme/api' }), req())).allowed, true);
+    });
+
+    it('enforces a model allow-list', async () => {
+      mockQueryResults = policy({ model_not_in: ['gpt-4o-mini', 'claude-3-haiku'] });
+      assert.strictEqual((await checkPolicies(baseAuth(), req('gpt-4o-mini'))).allowed, true);
+      assert.strictEqual((await checkPolicies(baseAuth(), req('claude-3-haiku-20240307'))).allowed, true);
+      const denied = await checkPolicies(baseAuth(), req('o1'));
+      assert.strictEqual(denied.allowed, false);
+      assert.match(denied.reason ?? '', /rejected by policy/);
+    });
+  });
 });

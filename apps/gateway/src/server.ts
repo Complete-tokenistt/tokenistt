@@ -37,7 +37,7 @@ import { logTransaction }                           from './db/transactionLogger
 import { checkDbConnection, closePool, getPool }    from './db/pool.js';
 import { waitForRedis }                            from './services/redis.js';
 import { startAuditDrainScheduler, stopAuditDrainScheduler } from './services/auditLogger.js';
-import { handleStreamingCompletion }                from './services/streaming.js';
+import { handleStreamingCompletion, streamsNatively, writeSyntheticStream } from './services/streaming.js';
 import { checkPolicies }                            from './db/policies.js';
 import { enforceBudgets }                          from './services/budgetEngine.js';
 import { resolveAttribution }                      from './services/workspaceResolver.js';
@@ -235,6 +235,7 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
   const startTime = Date.now();
   const requestId = req.context?.requestId || `gw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const traceId   = req.context?.traceId || requestId;
+  let authForError: Awaited<ReturnType<typeof authenticateRequest>> | null = null;
 
   try {
     // ── Step 1: Validate request body ───────────────────────────────────────
@@ -251,6 +252,7 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
 
     // ── Step 2: Auth & Budget Check ─────────────────────────────────────────
     const auth = await authenticateRequest(req.headers.authorization);
+    authForError = auth;
 
     // Soft budget warning (within 20% of limit)
     if (
@@ -365,23 +367,22 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
       res.setHeader('x-tokenistt-cache', 'MISS');
     }
 
-    // ── Streaming (passthrough) ─────────────────────────────────────────────
-    if (req.body.stream === true) {
-      const providerOverride = extractProviderFromHeaders(
-        req.headers as Record<string, string | undefined>,
-      );
+    // ── Steps 3-4: provider override, routing rule, provider call ────────────
+    const providerOverride = extractProviderFromHeaders(
+      req.headers as Record<string, string | undefined>,
+    );
+    const route = providerOverride ? null : await resolveRoute(auth, req.body, requestId);
+    const wantsStream = req.body.stream === true;
+
+    // True passthrough streaming when nothing needs to decide the provider for us. Requests that match a
+    // routing rule, or target a provider without native streaming (mock, bedrock), are served through the
+    // router (failover included) and replayed to the client as a stream.
+    if (wantsStream && !route && streamsNatively(req.body.model, providerOverride)) {
       await handleStreamingCompletion(req.body, res, auth, providerOverride, requestId);
       return;
     }
 
-    // ── Step 3: Resolve provider override ────────────────────────────────────
-    const providerOverride = extractProviderFromHeaders(
-      req.headers as Record<string, string | undefined>,
-    );
-
-    // ── Step 4: Call provider (via SmartRouter for automatic failover) ───────
-    const route = providerOverride ? null : await resolveRoute(auth, req.body, requestId);
-    const response = await router.route(req.body, {
+    const response = await router.route({ ...req.body, stream: false }, {
       providerOverride,
       candidates: route?.candidates,
       keys: provider => resolveKeys(auth, provider),
@@ -436,7 +437,7 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
     if (rcKey) putCached(rcKey, response).catch(() => {});
 
     // ── Step 7: Send response ────────────────────────────────────────────────
-    res.json({
+    const finalBody = {
       ...response,
       _tokenistt: {
         request_id:   requestId,
@@ -453,7 +454,9 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
           failover_used:   (response._tokenistt as any).failover_used ?? false,
         } : {}),
       },
-    });
+    };
+    if (wantsStream) writeSyntheticStream(res, finalBody);
+    else res.json(finalBody);
 
     // ── Step 8: Fire-and-forget transaction log ───────────────────────────────
     logTransaction({
@@ -518,10 +521,11 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
   } catch (err) {
     const durationMs = Date.now() - startTime;
 
-    // Log failed transaction too (fail-open)
+    // Log failed transaction too (fail-open). Use the real identity when authentication succeeded, so
+    // the failure lands in the right org's ledger and any budget reservation is released.
     if (!(err instanceof AuthError)) {
       logTransaction({
-        auth:             { actor: 'unknown', costCenter: 'default', organizationId: BigInt(0), workspaceId: null, virtualKeyId: BigInt(0), virtualKeyPublicId: '', budgetCapUsd: null, budgetUsedUsd: 0, budgetPeriod: 'none', allowedProviders: [], realApiKey: null, enforcementMode: 'hard_cap', rateLimitPerMinute: 100 },
+        auth:             authForError ?? { actor: 'unknown', costCenter: 'default', organizationId: BigInt(0), workspaceId: null, virtualKeyId: BigInt(0), virtualKeyPublicId: '', budgetCapUsd: null, budgetUsedUsd: 0, budgetPeriod: 'none', allowedProviders: [], realApiKey: null, enforcementMode: 'hard_cap', rateLimitPerMinute: 100 },
         provider:         'unknown',
         model:            req.body?.model ?? 'unknown',
         endpoint:         '/v1/chat/completions',
