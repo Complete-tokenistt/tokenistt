@@ -13,6 +13,9 @@ permissions:
 
 jobs:
   analyze:
+    # Code scanning is free only on public repositories; on a private repo without
+    # GitHub Advanced Security the results upload fails. Runs automatically once public.
+    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
