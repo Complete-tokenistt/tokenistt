@@ -2,16 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { getSummary, getAnomalies, getProviderBreakdown } from "@/lib/mock-data";
-import { useDashboard } from "@/components/DashboardShell";
 import { Kpi } from "@/components/Kpi";
 import { LogoBadge, StatusPill } from "@/components/StatusBadges";
-import { fmtUsd, fmtPct } from "@/lib/format";
+import { fmtUsd } from "@/lib/format";
 
 export default function OverviewPage() {
-  const { isLive } = useDashboard();
-  const demoSummary = getSummary();
-
   const [summaryData, setSummaryData] = useState<any>(null);
   const [anomaliesData, setAnomaliesData] = useState<any[]>([]);
   const [costCenters, setCostCenters] = useState<any[]>([]);
@@ -44,59 +39,49 @@ export default function OverviewPage() {
     return () => {
       mounted = false;
     };
-  }, [isLive]);
+  }, []);
 
-  // Compute values based on mode (Live Workspace vs Demo Preview)
-  const totalSpendUsd = isLive
-    ? summaryData?.total_spend_usd ?? 0
-    : demoSummary.totalSpendUsd;
+  const totalSpendUsd = summaryData?.total_spend_usd ?? 0;
 
-  const budgetUsd = isLive
-    ? (budgets.length > 0
-        ? budgets.reduce((acc, b) => acc + (Number(b.budget_usd ?? b.cap_usd) || 0), 0)
-        : 5000)
-    : demoSummary.budgetUsd;
+  const budgetUsd =
+    budgets.length > 0
+      ? budgets.reduce((acc, b) => acc + (Number(b.budget_usd ?? b.cap_usd) || 0), 0)
+      : 0;
 
   const budgetUsedPct = budgetUsd > 0 ? (totalSpendUsd / budgetUsd) * 100 : 0;
   const budgetTone = budgetUsedPct >= 100 ? "breached" : budgetUsedPct >= 85 ? "warning" : null;
 
-  const anomalyCount = isLive ? anomaliesData.length : getAnomalies().length;
-  const anomaliesToRender = isLive ? anomaliesData : getAnomalies();
+  const anomalyCount = anomaliesData.length;
+  const anomaliesToRender = anomaliesData;
 
-  const shadowAiSpendUsd = isLive
-    ? shadowAi.reduce((acc, s) => acc + (s.amountUsd || 0), 0)
-    : demoSummary.shadowAiSpendUsd;
-  const shadowAiCount = isLive ? shadowAi.length : demoSummary.shadowAiCount;
+  const shadowAiSpendUsd = shadowAi.reduce((acc, s) => acc + (s.amountUsd || 0), 0);
+  const shadowAiCount = shadowAi.length;
 
   // Cost centers
-  const costCentersToRender = isLive
-    ? costCenters.map((c) => ({
-        name: c.name,
-        code: c.code,
-        spendUsd: c.spendUsd,
-        sharePct: totalSpendUsd > 0 ? (c.spendUsd / totalSpendUsd) * 100 : 0,
-      }))
-    : demoSummary.topCostCenters;
+  const costCentersToRender = costCenters.map((c) => ({
+    name: c.name,
+    code: c.code,
+    spendUsd: c.spendUsd,
+    sharePct: totalSpendUsd > 0 ? (c.spendUsd / totalSpendUsd) * 100 : 0,
+  }));
 
   // Providers breakdown
-  const providersToRender = isLive
-    ? (summaryData?.breakdown || []).map((b: any) => {
-        const sharePct = totalSpendUsd > 0 ? ((b.spend_usd ?? 0) / totalSpendUsd) * 100 : 0;
-        const pName = b.provider || "OpenAI";
-        return {
-          provider: pName.toLowerCase(),
-          label: pName.charAt(0).toUpperCase() + pName.slice(1),
-          spendUsd: b.spend_usd ?? 0,
-          sharePct,
-          color:
-            pName.toLowerCase() === "openai"
-              ? "#10a37f"
-              : pName.toLowerCase() === "anthropic"
-              ? "#d97706"
-              : "#6366f1",
-        };
-      })
-    : getProviderBreakdown();
+  const providersToRender = (summaryData?.breakdown || []).map((b: any) => {
+    const sharePct = totalSpendUsd > 0 ? ((b.spend_usd ?? 0) / totalSpendUsd) * 100 : 0;
+    const pName = b.provider || "OpenAI";
+    return {
+      provider: pName.toLowerCase(),
+      label: pName.charAt(0).toUpperCase() + pName.slice(1),
+      spendUsd: b.spend_usd ?? 0,
+      sharePct,
+      color:
+        pName.toLowerCase() === "openai"
+          ? "#10a37f"
+          : pName.toLowerCase() === "anthropic"
+          ? "#d97706"
+          : "#6366f1",
+    };
+  });
 
   return (
     <div>
@@ -139,13 +124,13 @@ export default function OverviewPage() {
               {totalSpendUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </>
           }
-          sub={isLive ? `${summaryData?.total_requests ?? 0} requests this month` : `${fmtPct(demoSummary.momGrowthPct)} vs last month`}
+          sub={`${summaryData?.total_requests ?? 0} requests this month`}
           accent
         />
         <Kpi
           label="Budget utilization"
           value={`${budgetUsedPct.toFixed(1)}%`}
-          sub={`${fmtUsd(totalSpendUsd)} / ${fmtUsd(budgetUsd)} cap`}
+          sub={budgetUsd > 0 ? `${fmtUsd(totalSpendUsd)} / ${fmtUsd(budgetUsd)} cap` : "no budget set — add one under Budgets"}
         />
         <Kpi label="Anomaly alerts" value={String(anomalyCount)} sub=">3× 30-day average" />
         <Kpi

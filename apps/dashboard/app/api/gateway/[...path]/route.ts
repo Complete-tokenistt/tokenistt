@@ -7,13 +7,13 @@
  * server is used instead, scoped to the session's organization.
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { getSessionFromRequest, unauthorizedResponse } from '@/lib/auth';
+import { getSessionFromRequest, isOpenMode, unauthorizedResponse } from '@/lib/auth';
 
 const GATEWAY = (process.env.GATEWAY_URL || process.env.NEXT_PUBLIC_GATEWAY_URL || 'http://localhost:3000').replace(/\/+$/, '');
 
 const ALLOWED_ROOTS = new Set([
   'budgets', 'policies', 'routing-rules', 'alerts', 'audit', 'approvals', 'workspaces', 'teams',
-  'projects', 'provider-keys', 'keys', 'connectors', 'attribution', 'requests', 'reports',
+  'projects', 'provider-keys', 'keys', 'connectors', 'attribution', 'requests', 'reports', 'models',
 ]);
 const SEGMENT = /^[A-Za-z0-9_.-]+$/;
 
@@ -27,7 +27,7 @@ async function forward(req: NextRequest, ctx: { params: Promise<{ path: string[]
   }
 
   const headers: Record<string, string> = { Accept: req.headers.get('accept') ?? 'application/json' };
-  const token =
+  const token = isOpenMode() ? undefined :
     req.cookies.get('tokenistt_session')?.value ??
     (req.headers.get('authorization')?.startsWith('Bearer ') ? req.headers.get('authorization')!.slice(7) : undefined);
 

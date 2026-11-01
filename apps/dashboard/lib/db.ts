@@ -5,7 +5,7 @@
  * dev mode and across concurrent route invocations in production.
  *
  * Set DATABASE_URL in dashboard/.env.local to enable real data.
- * Without it every route falls back to mock data automatically.
+ * Without it data routes respond 503 (Database unavailable).
  */
 
 import pg from 'pg';

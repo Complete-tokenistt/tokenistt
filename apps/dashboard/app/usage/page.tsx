@@ -2,26 +2,35 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useDashboard } from "@/components/DashboardShell";
 import { StatusPill } from "@/components/StatusBadges";
-import { USAGE_REQUESTS, usageToCsv } from "@/lib/dashboard-mock-data";
+
+type UsageRow = {
+  id: string; ts: string; team: string; project: string; provider: string; model: string;
+  tokensIn: number; tokensOut: number; latencyMs: number; status: string; cost: number;
+};
+
+function usageToCsv(rows: UsageRow[]) {
+  const header = "id,timestamp,team,project,provider,model,tokens_in,tokens_out,cost_usd,latency_ms,status";
+  const lines = rows.map((r) => [r.id, r.ts, r.team, r.project, r.provider, r.model, r.tokensIn, r.tokensOut, r.cost, r.latencyMs, r.status].join(","));
+  return [header, ...lines].join("\n");
+}
 
 const ALL = "all";
 
 export default function UsagePage() {
-  const { isLive } = useDashboard();
   const [team, setTeam] = useState(ALL);
   const [provider, setProvider] = useState(ALL);
   const [status, setStatus] = useState(ALL);
   const [range, setRange] = useState("24h");
   const [openId, setOpenId] = useState<string | null>(null);
   const [liveRequests, setLiveRequests] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
-    if (!isLive) return;
     let mounted = true;
     setLoading(true);
+    setLoadError(false);
 
     const params = new URLSearchParams();
     params.set("range", range);
@@ -32,12 +41,13 @@ export default function UsagePage() {
     fetch(`/api/usage?${params.toString()}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (mounted && data?.requests) {
-          setLiveRequests(data.requests);
-        }
+        if (!mounted) return;
+        if (data?.requests) setLiveRequests(data.requests);
+        else setLoadError(true);
       })
       .catch((err) => {
         console.warn("Could not load /api/usage:", err);
+        if (mounted) setLoadError(true);
       })
       .finally(() => {
         if (mounted) setLoading(false);
@@ -46,10 +56,9 @@ export default function UsagePage() {
     return () => {
       mounted = false;
     };
-  }, [isLive, range, team, provider, status]);
+  }, [range, team, provider, status]);
 
-  const rawRows = isLive
-    ? liveRequests.map((r) => ({
+  const rawRows: UsageRow[] = liveRequests.map((r) => ({
         id: r.id,
         ts: r.time,
         team: r.team,
@@ -61,8 +70,7 @@ export default function UsagePage() {
         latencyMs: r.durationMs,
         status: r.status,
         cost: r.cost,
-      }))
-    : USAGE_REQUESTS;
+      }));
 
   const teams = useMemo(() => [ALL, ...Array.from(new Set(rawRows.map((r) => r.team)))], [rawRows]);
   const providers = useMemo(() => [ALL, ...Array.from(new Set(rawRows.map((r) => r.provider)))], [rawRows]);
@@ -162,7 +170,7 @@ export default function UsagePage() {
       <div className="card" style={{ overflow: "hidden" }}>
         <div style={{ padding: "12px 18px", borderBottom: "1px solid var(--line-soft)", background: "var(--bg-2)" }}>
           <span className="mono" style={{ fontSize: 12, color: "var(--fg-3)" }}>
-            tokenistt · request log · {rows.length} requests {isLive ? "(live ledger)" : "(demo preview)"}
+            tokenistt · request log · {rows.length} requests
           </span>
         </div>
         <div className="data-table-wrap">
@@ -190,21 +198,27 @@ export default function UsagePage() {
               <span style={{ textAlign: "right" }}>Status</span>
             </div>
 
-            {rows.length === 0 && (
+            {loading && (
+              <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--fg-4)", fontSize: 13.5 }}>Loading requests…</div>
+            )}
+
+            {!loading && loadError && (
+              <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--red)", fontSize: 13.5 }}>
+                Couldn&apos;t load requests.
+              </div>
+            )}
+
+            {!loading && !loadError && rows.length === 0 && (
               <div style={{ padding: "40px 20px", textAlign: "center" }}>
                 <div style={{ fontSize: 15, color: "var(--fg-2)", marginBottom: 8 }}>
-                  {isLive ? "No requests logged yet for your workspace" : "No requests match these filters."}
+                  No requests logged yet for this workspace and filters
                 </div>
-                {isLive && (
-                  <>
-                    <p style={{ fontSize: 13, color: "var(--fg-4)", maxWidth: 500, margin: "0 auto 16px" }}>
-                      Send an AI request through the Universal Gateway using your virtual key to see real-time transaction logs and token metering.
-                    </p>
-                    <Link href="/onboarding" className="btn btn-violet btn-sm">
-                      Send Test Request →
-                    </Link>
-                  </>
-                )}
+                <p style={{ fontSize: 13, color: "var(--fg-4)", maxWidth: 500, margin: "0 auto 16px" }}>
+                  Send an AI request through the gateway using your virtual key to see request logs and token metering.
+                </p>
+                <Link href="/onboarding" className="btn btn-violet btn-sm">
+                  Send Test Request →
+                </Link>
               </div>
             )}
 

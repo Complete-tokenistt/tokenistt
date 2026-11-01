@@ -2,28 +2,26 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useDashboard } from "@/components/DashboardShell";
 import { Sparkline } from "@/components/Sparkline";
-import { FEATURE_ATTRIBUTION, TAG_COVERAGE } from "@/lib/dashboard-mock-data";
 
 export default function CostAttributionPage() {
-  const { isLive } = useDashboard();
   const [liveSeries, setLiveSeries] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
-    if (!isLive) return;
     let mounted = true;
-    setLoading(true);
 
     fetch("/api/explorer?groupBy=project_tag")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (mounted && data?.series) {
-          setLiveSeries(data.series);
-        }
+        if (!mounted) return;
+        if (!data) setLoadError(true);
+        if (data?.series) setLiveSeries(data.series);
       })
-      .catch(() => {})
+      .catch(() => {
+        if (mounted) setLoadError(true);
+      })
       .finally(() => {
         if (mounted) setLoading(false);
       });
@@ -31,29 +29,21 @@ export default function CostAttributionPage() {
     return () => {
       mounted = false;
     };
-  }, [isLive]);
+  }, []);
 
-  // Compute coverage and features based on mode
-  const totalSpend = isLive
-    ? liveSeries.reduce((acc, s) => acc + (s.cost || 0), 0)
-    : TAG_COVERAGE.totalSpend;
-
-  const untaggedSpend = isLive
-    ? liveSeries.filter((s) => s.label === "untagged").reduce((acc, s) => acc + (s.cost || 0), 0)
-    : TAG_COVERAGE.untaggedSpend;
+  const totalSpend = liveSeries.reduce((acc, s) => acc + (s.cost || 0), 0);
+  const untaggedSpend = liveSeries.filter((s) => s.label === "untagged").reduce((acc, s) => acc + (s.cost || 0), 0);
 
   const taggedSpend = totalSpend - untaggedSpend;
   const taggedPct = totalSpend > 0 ? Math.round((taggedSpend / totalSpend) * 100) : 0;
 
-  const featuresToRender = isLive
-    ? liveSeries.map((s) => ({
-        feature: s.label,
-        team: "General",
-        spend: Math.round((s.cost || 0) * 100) / 100,
-        taggedPct: s.label === "untagged" ? 0 : 100,
-        trend: [s.cost * 0.8, s.cost * 0.9, s.cost],
-      }))
-    : FEATURE_ATTRIBUTION;
+  const featuresToRender = liveSeries.map((s) => ({
+    feature: s.label,
+    team: "General",
+    spend: Math.round((s.cost || 0) * 100) / 100,
+    taggedPct: s.label === "untagged" ? 0 : 100,
+    trend: [s.cost * 0.8, s.cost * 0.9, s.cost],
+  }));
 
   const maxSpend = Math.max(1, ...featuresToRender.map((f) => f.spend));
 
@@ -98,7 +88,11 @@ export default function CostAttributionPage() {
       </div>
 
       <div className="card" style={{ overflow: "hidden" }}>
-        {featuresToRender.length === 0 ? (
+        {loading ? (
+          <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--fg-4)", fontSize: 13.5 }}>Loading attribution…</div>
+        ) : loadError ? (
+          <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--red)", fontSize: 13.5 }}>Couldn&apos;t load attribution data.</div>
+        ) : featuresToRender.length === 0 ? (
           <div style={{ padding: "40px 20px", textAlign: "center" }}>
             <div style={{ fontSize: 15, color: "var(--fg-2)", marginBottom: 8 }}>
               No feature attribution data recorded yet

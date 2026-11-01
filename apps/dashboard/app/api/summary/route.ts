@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
-import { getProviderBreakdown } from "@/lib/mock-data";
+import { dbUnavailable } from "@/lib/db-unavailable";
 import { getSessionFromRequest, unauthorizedResponse } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
@@ -10,16 +10,7 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const period = url.searchParams.get("period") || "month";
 
-  if (!process.env.DATABASE_URL) {
-    return NextResponse.json({
-      period,
-      total_spend_usd: 0,
-      total_requests: 0,
-      avg_latency_ms: 0,
-      top_provider: "none",
-      breakdown: [],
-    });
-  }
+  if (!process.env.DATABASE_URL) return dbUnavailable();
 
   try {
     const pool = getPool();
@@ -65,14 +56,7 @@ export async function GET(req: NextRequest) {
       })),
     });
   } catch (err: any) {
-    console.error("[/api/summary] DB error, falling back:", err.message);
-    return NextResponse.json({
-      period,
-      total_spend_usd: 0,
-      total_requests: 0,
-      avg_latency_ms: 0,
-      top_provider: "none",
-      breakdown: [],
-    });
+    console.error("[/api/summary] DB error:", err.message);
+    return dbUnavailable();
   }
 }

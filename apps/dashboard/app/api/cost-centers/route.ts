@@ -10,11 +10,10 @@
  *   - momGrowthPct: growth rate
  *   - transactionCount: total transactions count
  *   - status: classification based on budget limits (ok, warning, critical)
- *
- * Falls back to mock data when DATABASE_URL is not configured.
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { dbUnavailable } from "@/lib/db-unavailable";
 import { getPool } from "@/lib/db";
 import { getSessionFromRequest, unauthorizedResponse } from "@/lib/auth";
 import type { CostCenterRow, CostCenterStatus } from "@/lib/types";
@@ -23,9 +22,7 @@ export async function GET(req: NextRequest) {
   const session = getSessionFromRequest(req);
   if (!session) return unauthorizedResponse();
 
-  if (!process.env.DATABASE_URL) {
-    return NextResponse.json([]);
-  }
+  if (!process.env.DATABASE_URL) return dbUnavailable();
 
   try {
     const pool = getPool();
@@ -113,6 +110,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(costCenters);
   } catch (err: any) {
     console.error("[/api/cost-centers] DB error, returning empty list:", err.message);
-    return NextResponse.json([]);
+    return dbUnavailable();
   }
 }

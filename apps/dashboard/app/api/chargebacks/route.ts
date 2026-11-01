@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPool, isDbAvailable } from "@/lib/db";
 import { getSessionFromRequest, unauthorizedResponse } from "@/lib/auth";
-import { CHARGEBACK_LEDGER, CHARGEBACK_HISTORY } from "@/lib/dashboard-mock-data";
+import { dbUnavailable } from "@/lib/db-unavailable";
 
 export async function GET(req: NextRequest) {
   const session = getSessionFromRequest(req);
@@ -11,14 +11,7 @@ export async function GET(req: NextRequest) {
   const period = searchParams.get("period") || "month";
 
   const dbUp = await isDbAvailable();
-  if (!dbUp) {
-    return NextResponse.json({
-      period,
-      ledger: [],
-      history: [],
-      totalSpendUsd: 0,
-    });
-  }
+  if (!dbUp) return dbUnavailable();
 
   try {
     const pool = getPool();
@@ -82,12 +75,7 @@ export async function GET(req: NextRequest) {
     });
   } catch (err: any) {
     console.error("[/api/chargebacks GET error]:", err.message);
-    return NextResponse.json({
-      period,
-      ledger: [],
-      history: [],
-      totalSpendUsd: 0,
-    });
+    return dbUnavailable();
   }
 }
 

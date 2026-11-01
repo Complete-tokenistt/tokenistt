@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPool, isDbAvailable } from "@/lib/db";
 import { getSessionFromRequest, unauthorizedResponse } from "@/lib/auth";
-import { UNIT_ECONOMICS_METRICS } from "@/lib/dashboard-mock-data";
+import { dbUnavailable } from "@/lib/db-unavailable";
 
 export async function GET(req: NextRequest) {
   const session = getSessionFromRequest(req);
   if (!session) return unauthorizedResponse();
 
   const dbUp = await isDbAvailable();
-  if (!dbUp) {
-    return NextResponse.json({ metrics: [] });
-  }
+  if (!dbUp) return dbUnavailable();
 
   try {
     const pool = getPool();
@@ -67,14 +65,14 @@ export async function GET(req: NextRequest) {
         confidence: r.total_spend > 0 ? "measured" : "estimated",
         dataSource: "ledger + outcome count",
         freshness: "live",
-        trend: [costPerUnit * 1.2, costPerUnit * 1.1, costPerUnit],
+        trend: [costPerUnit],
       };
     });
 
     return NextResponse.json({ metrics: calculated });
   } catch (err: any) {
     console.error("[/api/unit-economics GET error]:", err.message);
-    return NextResponse.json({ metrics: [] });
+    return dbUnavailable();
   }
 }
 
@@ -91,18 +89,7 @@ export async function POST(req: NextRequest) {
     }
 
     const dbUp = await isDbAvailable();
-    if (!dbUp) {
-      return NextResponse.json({
-        success: true,
-        metric: {
-          id: Date.now(),
-          label: metric_name,
-          feature: feature_tag || "custom",
-          value: 0.15,
-          unit: "$",
-        },
-      });
-    }
+    if (!dbUp) return dbUnavailable();
 
     const pool = getPool();
     const today = new Date().toISOString().slice(0, 10);

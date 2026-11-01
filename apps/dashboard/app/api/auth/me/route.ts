@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSessionFromRequest, unauthorizedResponse } from '@/lib/auth';
+import { getSessionFromRequest, isOpenMode, unauthorizedResponse } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
   const session = getSessionFromRequest(req);
@@ -9,6 +9,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     authenticated: true,
+    open: isOpenMode(),
     user: {
       publicId: session.sub,
       orgId: session.orgId,

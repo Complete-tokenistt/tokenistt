@@ -2,21 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getPool, isDbAvailable } from '@/lib/db';
 import { getSessionFromRequest, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
 import { can } from '@/lib/rbac';
+import { dbUnavailable } from '@/lib/db-unavailable';
 
 export async function GET(req: NextRequest) {
   const session = getSessionFromRequest(req);
   if (!session) return unauthorizedResponse();
 
   const dbUp = await isDbAvailable();
-  if (!dbUp) {
-    return NextResponse.json({
-      teams: [
-        { id: '1', name: 'Core Engineering', slug: 'core-eng', cost_center: 'CC-ENG-01', total_spend: 18450.25, active_projects: 4 },
-        { id: '2', name: 'Customer Support', slug: 'customer-support', cost_center: 'CC-SUP-02', total_spend: 6320.10, active_projects: 2 },
-        { id: '3', name: 'Product Growth', slug: 'product-growth', cost_center: 'CC-MKT-03', total_spend: 3890.00, active_projects: 3 },
-      ],
-    });
-  }
+  if (!dbUp) return dbUnavailable();
 
   try {
     const pool = getPool();

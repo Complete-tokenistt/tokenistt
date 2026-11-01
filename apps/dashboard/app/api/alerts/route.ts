@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPool, isDbAvailable } from '@/lib/db';
 import { getSessionFromRequest, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
+import { dbUnavailable } from '@/lib/db-unavailable';
 import { can } from '@/lib/rbac';
 
 export async function GET(req: NextRequest) {
@@ -8,26 +9,7 @@ export async function GET(req: NextRequest) {
   if (!session) return unauthorizedResponse();
 
   const dbUp = await isDbAvailable();
-  if (!dbUp) {
-    return NextResponse.json({
-      alerts: [
-        {
-          id: '1',
-          severity: 'warn',
-          title: 'WARNING: Approaching Budget Limit',
-          message: 'Workspace Support Bot is at 88.5% of its $5,000.00 monthly cap.',
-          created_at: new Date(Date.now() - 3600000).toISOString(),
-        },
-        {
-          id: '2',
-          severity: 'critical',
-          title: 'CRITICAL: Budget Limit Exceeded',
-          message: 'Virtual key Sarah (dev) exceeded $500.00 monthly limit.',
-          created_at: new Date(Date.now() - 86400000).toISOString(),
-        },
-      ],
-    });
-  }
+  if (!dbUp) return dbUnavailable();
 
   try {
     const pool = getPool();
@@ -77,18 +59,7 @@ export async function POST(req: NextRequest) {
     }
 
     const dbUp = await isDbAvailable();
-    if (!dbUp) {
-      return NextResponse.json({
-        success: true,
-        alert: {
-          id: 'mock-new-alert',
-          title,
-          message,
-          severity: severity || 'warn',
-          created_at: new Date().toISOString(),
-        },
-      });
-    }
+    if (!dbUp) return dbUnavailable();
 
     const pool = getPool();
     const { rows } = await pool.query(

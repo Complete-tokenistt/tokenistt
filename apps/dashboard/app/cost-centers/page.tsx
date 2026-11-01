@@ -2,31 +2,29 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useDashboard } from "@/components/DashboardShell";
-import { getCostCenters } from "@/lib/mock-data";
 import Section from "@/components/Section";
 import CostCenterTable from "@/components/CostCenterTable";
 import { fmtUsd } from "@/lib/format";
 import type { CostCenterRow } from "@/lib/types";
 
 export default function CostCentersPage() {
-  const { isLive } = useDashboard();
   const [liveData, setLiveData] = useState<CostCenterRow[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
-    if (!isLive) return;
     let mounted = true;
-    setLoading(true);
 
     fetch("/api/cost-centers")
-      .then((res) => (res.ok ? res.json() : []))
+      .then((res) => (res.ok ? res.json() : null))
       .then((items) => {
-        if (mounted && Array.isArray(items)) {
-          setLiveData(items);
-        }
+        if (!mounted) return;
+        if (Array.isArray(items)) setLiveData(items);
+        else setLoadError(true);
       })
-      .catch(() => {})
+      .catch(() => {
+        if (mounted) setLoadError(true);
+      })
       .finally(() => {
         if (mounted) setLoading(false);
       });
@@ -34,9 +32,9 @@ export default function CostCentersPage() {
     return () => {
       mounted = false;
     };
-  }, [isLive]);
+  }, []);
 
-  const data = isLive ? liveData : getCostCenters();
+  const data = liveData;
   const total = data.reduce((s, c) => s + c.spendUsd, 0);
   const growing = data.filter((c) => c.momGrowthPct > 0).length;
 
@@ -62,7 +60,11 @@ export default function CostCentersPage() {
           </div>
         }
       >
-        {data.length === 0 ? (
+        {loading ? (
+          <div className="card" style={{ padding: "40px 20px", textAlign: "center", color: "var(--fg-4)", fontSize: 13.5 }}>Loading cost centers…</div>
+        ) : loadError ? (
+          <div className="card" style={{ padding: "40px 20px", textAlign: "center", color: "var(--red)", fontSize: 13.5 }}>Couldn&apos;t load cost centers.</div>
+        ) : data.length === 0 ? (
           <div className="card" style={{ padding: "40px 20px", textAlign: "center" }}>
             <div style={{ fontSize: 15, color: "var(--fg-2)", marginBottom: 8 }}>
               No cost center activity recorded yet

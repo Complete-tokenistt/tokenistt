@@ -4,12 +4,7 @@ import { useRef, useState } from "react";
 import type { InvoiceLine, ReconciliationRow } from "@/lib/types";
 import { parseCsv } from "@/lib/invoice-parse";
 
-const SAMPLE_CSV = `provider,period,billedUsd,currency
-openai,2026-07,12450,USD
-anthropic,2026-07,6150,USD
-bedrock,2026-07,2095,USD
-google,2026-07,560,USD
-mistral,2026-07,180,USD`;
+const TEMPLATE_CSV = "provider,period,billedUsd,currency\n";
 
 export default function InvoiceUploader({
   onReconciled,
@@ -101,8 +96,8 @@ export default function InvoiceUploader({
           CSV or PDF · OpenAI / Anthropic / Bedrock / Google / Mistral
         </span>
         <a
-          href={`data:text/csv;charset=utf-8,${encodeURIComponent(SAMPLE_CSV)}`}
-          download="sample-invoices.csv"
+          href={`data:text/csv;charset=utf-8,${encodeURIComponent(TEMPLATE_CSV)}`}
+          download="invoices-template.csv"
           className="mono"
           style={{
             marginLeft: "auto",
@@ -111,7 +106,7 @@ export default function InvoiceUploader({
             textDecoration: "none",
           }}
         >
-          Download sample CSV →
+          Download CSV template →
         </a>
       </div>
 

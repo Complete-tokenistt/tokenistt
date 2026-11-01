@@ -4,57 +4,50 @@ import { useState, useEffect } from "react";
 import { useDashboard } from "@/components/DashboardShell";
 import { Sparkline, NumTicker } from "@/components/Sparkline";
 import { ConfidenceBadge } from "@/components/StatusBadges";
-import { FORECAST_HISTORICAL, FORECAST_PROJECTED, FORECAST_ACCURACY, FORECAST_SCENARIOS } from "@/lib/dashboard-mock-data";
 
 const EMPTY_SCENARIO = { label: "", direction: "+", amount: "", addedBy: "" };
 
-type Scenario = (typeof FORECAST_SCENARIOS)[number];
+type Scenario = { id: number; label: string; addedBy: string; impact: string };
 
 export default function ForecastingPage() {
-  const { isLive, notify } = useDashboard();
-  const [scenarios, setScenarios] = useState<Scenario[]>(isLive ? [] : FORECAST_SCENARIOS);
+  const { notify } = useDashboard();
+  const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  const [loadError, setLoadError] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_SCENARIO);
   const [liveForecast, setLiveForecast] = useState<any>(null);
 
   useEffect(() => {
-    if (!isLive) {
-      setScenarios(FORECAST_SCENARIOS);
-      return;
-    }
-
     async function loadForecast() {
       try {
         const res = await fetch("/api/forecast");
-        if (!res.ok) return;
+        if (!res.ok) {
+          setLoadError(true);
+          return;
+        }
         const data = await res.json();
         if (data) {
           setLiveForecast(data);
         }
       } catch (err) {
         console.warn("Could not load /api/forecast:", err);
+        setLoadError(true);
       }
     }
     loadForecast();
-  }, [isLive]);
+  }, []);
 
-  const projectedSpend = isLive
-    ? Math.round(liveForecast?.forecastedMonthEndSpend ?? 0)
-    : FORECAST_PROJECTED[0];
+  const projectedSpend = Math.round(liveForecast?.forecastedMonthEndSpend ?? 0);
 
   const next30 = projectedSpend;
   const next90 = projectedSpend * 3;
 
-  const combined = isLive
-    ? (liveForecast?.historicalDaily?.length > 0
-        ? [...liveForecast.historicalDaily.map((d: any) => d.cost), projectedSpend]
-        : [0, 0, 0])
-    : [...FORECAST_HISTORICAL, projectedSpend, ...FORECAST_PROJECTED.slice(1)];
+  const combined: number[] =
+    liveForecast?.historicalDaily?.length > 0
+      ? [...liveForecast.historicalDaily.map((d: any) => d.cost), projectedSpend]
+      : [0, 0, 0];
 
-  const accuracyData = isLive ? [] : FORECAST_ACCURACY;
-  const avgAccuracy = accuracyData.length
-    ? Math.round(100 - accuracyData.reduce((a, f) => a + Math.abs(f.deltaPct), 0) / accuracyData.length)
-    : 100;
+  const accuracyData: { period: string; forecast: number; actual: number; deltaPct: number }[] = [];
 
   function addScenario(e: React.FormEvent) {
     e.preventDefault();
@@ -83,8 +76,8 @@ export default function ForecastingPage() {
             $<NumTicker value={next30} />
           </div>
           <ConfidenceBadge
-            level={isLive && next30 === 0 ? "estimated" : "measured"}
-            source={isLive ? "linear regression on live ledger" : "trend model on 12mo history"}
+            level={next30 === 0 ? "estimated" : "measured"}
+            source="linear regression on live ledger"
           />
         </div>
         <div className="card" style={{ padding: 18 }}>
@@ -93,20 +86,26 @@ export default function ForecastingPage() {
             $<NumTicker value={next90} />
           </div>
           <ConfidenceBadge
-            level={isLive && next90 === 0 ? "estimated" : "measured"}
-            source={isLive ? "linear regression on live ledger" : "trend model on 12mo history"}
+            level={next90 === 0 ? "estimated" : "measured"}
+            source="linear regression on live ledger"
           />
         </div>
         <div className="card" style={{ padding: 18 }}>
           <div className="mono dash-section-label">FORECAST ACCURACY · TRAILING 3MO</div>
-          <div className="mono" style={{ fontSize: 26, color: avgAccuracy > 95 ? "var(--green)" : "var(--amber)", marginTop: 8 }}>
-            {isLive ? (liveForecast?.historicalDaily?.length >= 7 ? "99%" : "N/A") : `${avgAccuracy}%`}
+          <div className="mono" style={{ fontSize: 26, color: "var(--fg-4)", marginTop: 8 }}>
+            N/A
           </div>
           <span className="mono" style={{ fontSize: 11.5, color: "var(--fg-4)" }}>
-            {isLive ? "requires 7+ days historical ledger" : "avg |forecast − actual| delta"}
+            accuracy tracking starts after the first closed billing cycle
           </span>
         </div>
       </div>
+
+      {loadError && (
+        <div className="card" style={{ padding: 14, marginBottom: 24, color: "var(--red)", fontSize: 13.5 }}>
+          Couldn&apos;t load forecast data.
+        </div>
+      )}
 
       <div className="card" style={{ padding: 20, marginBottom: 24 }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14 }}>
@@ -117,9 +116,9 @@ export default function ForecastingPage() {
         </div>
         <Sparkline data={combined} width={640} height={100} responsive stroke="var(--violet)" strokeWidth={1.6} />
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }} className="mono">
-          <span style={{ fontSize: 12, color: "var(--fg-4)" }}>{isLive ? "period start" : "12 months ago"}</span>
+          <span style={{ fontSize: 12, color: "var(--fg-4)" }}>period start</span>
           <span style={{ fontSize: 12, color: "var(--fg-4)" }}>today</span>
-          <span style={{ fontSize: 12, color: "var(--violet)" }}>{isLive ? "+30 days" : "+6 months"}</span>
+          <span style={{ fontSize: 12, color: "var(--violet)" }}>+30 days</span>
         </div>
       </div>
 

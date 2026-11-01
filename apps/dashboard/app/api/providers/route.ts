@@ -7,11 +7,10 @@
  *   - spendUsd: total cost_usd for this provider
  *   - sharePct: percentage of total spend
  *   - color: hex color code for visualization
- *
- * Falls back to mock data when DATABASE_URL is not configured.
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { dbUnavailable } from "@/lib/db-unavailable";
 import { getPool } from "@/lib/db";
 import { getSessionFromRequest, unauthorizedResponse } from "@/lib/auth";
 import { PROVIDER_COLORS, PROVIDER_LABELS } from "@/lib/format";
@@ -21,10 +20,8 @@ export async function GET(req: NextRequest) {
   const session = getSessionFromRequest(req);
   if (!session) return unauthorizedResponse();
 
-  // ── Fallback: no DB ────────────────────────────────────────────────────────
-  if (!process.env.DATABASE_URL) {
-    return NextResponse.json([]);
-  }
+  // No DB configured───────────────────────────────────────────────────────
+  if (!process.env.DATABASE_URL) return dbUnavailable();
 
   try {
     const pool = getPool();
@@ -71,7 +68,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(rows);
   } catch (err: any) {
     console.error("[/api/providers] DB error:", err.message);
-    return NextResponse.json([]);
+    return dbUnavailable();
   }
 }
 

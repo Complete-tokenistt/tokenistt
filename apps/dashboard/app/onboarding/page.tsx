@@ -1,737 +1,225 @@
 "use client";
 
-import { useState, useEffect, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useDashboard } from "@/components/DashboardShell";
+import { gatewayFetch } from "@/lib/useGateway";
 
-const STEPS = ["connect", "api key", "integrate", "confirm"];
+type Lang = "python" | "node" | "curl";
+type TestOption = { provider: string; model: string };
+type TestResult = {
+  model: string; provider: string | null; content: string; prompt_tokens: number | null;
+  completion_tokens: number | null; cost_usd: number | null; cost_status: string | null; latency_ms: number;
+};
 
-interface ProviderOption {
-  id: string;
-  name: string;
-  placeholder: string;
-  defaultBaseUrl: string;
-  recommendedModel: string;
-  hint: string;
+const STEPS = ["Create a key", "Send a request", "Connect your tools"];
+
+function snippet(lang: Lang, url: string, key: string, model: string) {
+  if (lang === "python") {
+    return `from openai import OpenAI
+
+client = OpenAI(base_url="${url}/v1", api_key="${key}")
+r = client.chat.completions.create(
+    model="${model}",
+    messages=[{"role": "user", "content": "Hello"}],
+)
+print(r.choices[0].message.content)`;
+  }
+  if (lang === "node") {
+    return `import OpenAI from "openai";
+
+const client = new OpenAI({ baseURL: "${url}/v1", apiKey: "${key}" });
+const r = await client.chat.completions.create({
+  model: "${model}",
+  messages: [{ role: "user", content: "Hello" }],
+});
+console.log(r.choices[0].message.content);`;
+  }
+  return `curl ${url}/v1/chat/completions \\
+  -H "Authorization: Bearer ${key}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"model":"${model}","messages":[{"role":"user","content":"Hello"}]}'`;
 }
 
-const PROVIDERS: ProviderOption[] = [
-  {
-    id: "groq",
-    name: "Groq (Fast / OpenAI-compatible)",
-    placeholder: "gsk_...",
-    defaultBaseUrl: "https://api.groq.com/openai/v1",
-    recommendedModel: "openai/gpt-oss-20b",
-    hint: "Ultra-fast inference. Keys begin with gsk_",
-
-  },
-  {
-    id: "openai",
-    name: "OpenAI",
-    placeholder: "sk-proj-...",
-    defaultBaseUrl: "https://api.openai.com/v1",
-    recommendedModel: "gpt-4o-mini",
-    hint: "Standard OpenAI keys begin with sk-",
-  },
-  {
-    id: "together",
-    name: "Together AI",
-    placeholder: "together_...",
-    defaultBaseUrl: "https://api.together.xyz/v1",
-    recommendedModel: "meta-llama/Llama-3-8b-chat-hf",
-    hint: "Open-source model hosting on Together API",
-  },
-  {
-    id: "mistral",
-    name: "Mistral AI",
-    placeholder: "mistral_...",
-    defaultBaseUrl: "https://api.mistral.ai/v1",
-    recommendedModel: "mistral-small-latest",
-    hint: "Mistral API platform key",
-  },
-  {
-    id: "anthropic",
-    name: "Anthropic Claude",
-    placeholder: "sk-ant-api03-...",
-    defaultBaseUrl: "https://api.anthropic.com/v1",
-    recommendedModel: "claude-3-5-haiku-20241022",
-    hint: "Anthropic Claude direct API key",
-  },
-];
-
 export default function OnboardingPage() {
-  const { workspace, notify } = useDashboard();
+  const { notify } = useDashboard();
   const [step, setStep] = useState(0);
 
-  // Form states
-  const [selectedProvider, setSelectedProvider] = useState<string>("groq");
-  const [apiKey, setApiKey] = useState<string>("");
-  const [customBaseUrl, setCustomBaseUrl] = useState<string>("");
-  const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
-  const [showKey, setShowKey] = useState<boolean>(false);
+  const [keyName, setKeyName] = useState("my-laptop");
+  const [creating, setCreating] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState("");
 
-  // Validation states
-  const [validating, setValidating] = useState<boolean>(false);
-  const [connecting, setConnecting] = useState<boolean>(false);
-  const [validationResult, setValidationResult] = useState<{
-    valid: boolean;
-    latency_ms?: number;
-    models?: string[];
-    error?: string;
-  } | null>(null);
+  const [gatewayUrl, setGatewayUrl] = useState("http://localhost:3000");
+  const [options, setOptions] = useState<TestOption[]>([]);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
+  const [model, setModel] = useState("");
+  const [lang, setLang] = useState<Lang>("python");
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<TestResult | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
 
-  // Step 1: Virtual Key state
-  const [virtualKey, setVirtualKey] = useState<string>("tktt_live_acme_jane_abc123def456");
-  const [keyCopied, setKeyCopied] = useState<boolean>(false);
-
-  // Step 2: Code integration snippet tab
-  const [codeLang, setCodeLang] = useState<"python" | "node" | "curl">("python");
-
-  // Step 3: Test request execution
-  const [sendingTest, setSendingTest] = useState<boolean>(false);
-  const [testResult, setTestResult] = useState<{
-    model: string;
-    totalTokens: number;
-    costUsd: number;
-    latencyMs: number;
-    content: string;
-  } | null>(null);
-
-  const activeProvider = PROVIDERS.find((p) => p.id === selectedProvider) || PROVIDERS[0];
-  const gatewayUrl =
-    typeof window !== "undefined"
-      ? `${window.location.protocol}//${window.location.hostname}:4000`
-      : "http://localhost:4000";
-
-  // Pre-load active virtual key if available
   useEffect(() => {
-    fetch("/api/providers/virtual-key")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.success && data.key?.prefix) {
-          setVirtualKey(data.key.prefix);
-        }
+    fetch("/api/test-request")
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d?.error?.message ?? `HTTP ${r.status}`);
+        setOptions(d.providers ?? []);
+        if (d.gateway_url) setGatewayUrl(d.gateway_url);
+        if (d.providers?.[0]) setModel(d.providers[0].model);
       })
-      .catch(() => {});
+      .catch((e) => setOptionsError(e.message));
   }, []);
 
-  async function handleTestConnection() {
-    if (!apiKey.trim()) {
-      notify("Please enter an API key first");
-      return;
-    }
-    setValidating(true);
-    setValidationResult(null);
-
+  async function createKey(e: React.FormEvent) {
+    e.preventDefault();
+    setKeyError(null);
+    setCreating(true);
     try {
-      const res = await fetch("/api/providers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          provider: selectedProvider,
-          apiKey: apiKey.trim(),
-          baseUrl: customBaseUrl.trim() || undefined,
-          action: "validate",
-        }),
-      });
-      const data = await res.json();
-      if (res.ok && (data.valid || data.success)) {
-        setValidationResult({
-          valid: true,
-          latency_ms: data.latency_ms,
-          models: data.models,
-        });
-        notify(`Connection verified (${data.latency_ms ?? 350}ms)`);
-      } else {
-        const errMsg = data.error?.message || (typeof data.error === "string" ? data.error : null) || "Failed to validate API key with upstream provider";
-        setValidationResult({
-          valid: false,
-          error: errMsg,
-        });
-      }
+      const out = await gatewayFetch<{ token: string }>("keys", { method: "POST", body: JSON.stringify({ name: keyName.trim() }) });
+      setApiKey(out.token);
+      setStep(1);
     } catch (err: any) {
-      setValidationResult({ valid: false, error: err.message });
+      setKeyError(err.message);
     } finally {
-      setValidating(false);
+      setCreating(false);
     }
   }
 
-  async function handleConnectProvider() {
-    if (!apiKey.trim()) {
-      notify("Please enter an API key");
-      return;
-    }
-
-    setConnecting(true);
-    try {
-      const res = await fetch("/api/providers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          provider: selectedProvider,
-          apiKey: apiKey.trim(),
-          baseUrl: customBaseUrl.trim() || undefined,
-          action: "connect",
-        }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        if (data.raw_token) {
-          setVirtualKey(data.raw_token);
-        } else if (data.key_prefix) {
-          setVirtualKey(data.key_prefix);
-        }
-        notify("Provider connected & secured with AES-256-GCM vault!");
-        setStep(1);
-      } else {
-        const errMsg = data.error?.message || (typeof data.error === "string" ? data.error : null) || "Connection failed. Please check the API key.";
-        setValidationResult({
-          valid: false,
-          error: errMsg,
-        });
-      }
-    } catch (err: any) {
-      setValidationResult({ valid: false, error: err.message });
-    } finally {
-      setConnecting(false);
-    }
-  }
-
-  function copyKey() {
-    navigator.clipboard?.writeText(virtualKey);
-    setKeyCopied(true);
-    notify("Virtual key copied to clipboard");
-    setTimeout(() => setKeyCopied(false), 3000);
-  }
-
-  async function sendTestRequest() {
-    setSendingTest(true);
+  async function sendTest() {
+    setSending(true);
+    setTestError(null);
+    setResult(null);
     try {
       const res = await fetch("/api/test-request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          virtualKey,
-          model: activeProvider.recommendedModel,
-          provider: selectedProvider,
-        }),
-
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ virtualKey: apiKey, model }),
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setTestResult({
-          model: data.model,
-          totalTokens: data.total_tokens || 35,
-          costUsd: data.cost_usd || 0.0003,
-          latencyMs: data.latency_ms || 420,
-          content: data.content || "Tokenistt Gateway is operational.",
-        });
-        notify("Test request completed and recorded in ledger!");
-      } else {
-        const errMsg = data.error?.message || (typeof data.error === "string" ? data.error : null) || "Test request failed";
-        notify(errMsg);
-      }
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error ?? `HTTP ${res.status}`);
+      setResult(d);
+      notify("Request sent — it is now in Request history");
     } catch (err: any) {
-      notify(`Test request error: ${err.message}`);
+      setTestError(err.message);
     } finally {
-      setSendingTest(false);
+      setSending(false);
     }
   }
+
+  const shownModel = model || "gpt-4o-mini";
+  const code = snippet(lang, gatewayUrl, apiKey || "tktt_live_…", shownModel);
 
   return (
     <div style={{ maxWidth: 760, margin: "0 auto", paddingBottom: 60 }}>
-      {/* Step progress track */}
       <div style={{ display: "flex", gap: 8, marginBottom: 32 }}>
         {STEPS.map((s, i) => (
           <div key={s} style={{ flex: 1 }}>
-            <div
-              style={{
-                height: 4,
-                borderRadius: 2,
-                background: i <= step ? "var(--violet)" : "var(--bg-3)",
-                transition: "background 0.2s ease",
-              }}
-            />
-            <div
-              className="mono"
-              style={{
-                fontSize: 11,
-                color: i === step ? "var(--violet)" : i < step ? "var(--fg-2)" : "var(--fg-4)",
-                marginTop: 6,
-                textTransform: "uppercase",
-                fontWeight: i === step ? 600 : 400,
-              }}
-            >
-              {i + 1} · {s}
+            <div style={{ height: 4, borderRadius: 2, background: i <= step ? "var(--violet)" : "var(--bg-3)" }} />
+            <div className="mono" style={{ fontSize: 11, marginTop: 6, color: i === step ? "var(--violet)" : i < step ? "var(--fg-2)" : "var(--fg-4)" }}>
+              {i + 1}. {s}
             </div>
           </div>
         ))}
       </div>
 
-      {/* STEP 0: CONNECT PROVIDER */}
       {step === 0 && (
-        <StepCard
-          num="01"
-          title="Connect your AI Provider"
-          desc="Paste your API key to route requests through Tokenistt. Your keys are encrypted at rest with AES-256-GCM in our vault and never logged."
-        >
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            {/* Provider Selector */}
-            <div>
-              <label style={{ fontSize: 13, color: "var(--fg-2)", fontWeight: 500, display: "block", marginBottom: 6 }}>
-                Select AI Provider
-              </label>
-              <select
-                value={selectedProvider}
-                onChange={(e) => {
-                  setSelectedProvider(e.target.value);
-                  setValidationResult(null);
-                }}
-                style={{
-                  width: "100%",
-                  padding: "10px 14px",
-                  borderRadius: 6,
-                  background: "var(--bg-2)",
-                  border: "1px solid var(--line-soft)",
-                  color: "var(--fg)",
-                  fontSize: 14,
-                  outline: "none",
-                }}
-              >
-                {PROVIDERS.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-              <span style={{ fontSize: 12, color: "var(--fg-4)", marginTop: 4, display: "block" }}>
-                {activeProvider.hint}
-              </span>
-            </div>
-
-            {/* API Key Input */}
-            <div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                <label style={{ fontSize: 13, color: "var(--fg-2)", fontWeight: 500 }}>
-                  {activeProvider.name.split(" ")[0]} API Key
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setShowKey(!showKey)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "var(--violet)",
-                    fontSize: 12,
-                    cursor: "pointer",
-                    padding: 0,
-                  }}
-                >
-                  {showKey ? "Hide key" : "Show key"}
-                </button>
-              </div>
-
-              <div style={{ display: "flex", gap: 8 }}>
-                <input
-                  type={showKey ? "text" : "password"}
-                  value={apiKey}
-                  onChange={(e) => {
-                    setApiKey(e.target.value);
-                    setValidationResult(null);
-                  }}
-                  placeholder={activeProvider.placeholder}
-                  className="mono"
-                  style={{
-                    flex: 1,
-                    padding: "10px 14px",
-                    borderRadius: 6,
-                    background: "var(--bg-2)",
-                    border: "1px solid var(--line-soft)",
-                    color: "var(--fg)",
-                    fontSize: 13.5,
-                    outline: "none",
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={handleTestConnection}
-                  disabled={validating || !apiKey.trim()}
-                  className="btn btn-ghost"
-                  style={{ whiteSpace: "nowrap" }}
-                >
-                  {validating ? "Testing..." : "Test Connection"}
-                </button>
-              </div>
-            </div>
-
-            {/* Advanced Base URL Toggle */}
-            <div>
-              <button
-                type="button"
-                onClick={() => setShowAdvanced(!showAdvanced)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "var(--fg-3)",
-                  fontSize: 12,
-                  cursor: "pointer",
-                  padding: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                }}
-              >
-                <span>{showAdvanced ? "▼" : "▶"}</span>
-                <span>Advanced: Custom Base URL / Proxy</span>
-              </button>
-
-              {showAdvanced && (
-                <div style={{ marginTop: 8 }}>
-                  <input
-                    type="text"
-                    value={customBaseUrl}
-                    onChange={(e) => setCustomBaseUrl(e.target.value)}
-                    placeholder={activeProvider.defaultBaseUrl}
-                    className="mono"
-                    style={{
-                      width: "100%",
-                      padding: "8px 12px",
-                      borderRadius: 6,
-                      background: "var(--bg-2)",
-                      border: "1px solid var(--line-soft)",
-                      color: "var(--fg)",
-                      fontSize: 12.5,
-                      outline: "none",
-                    }}
-                  />
-                  <span style={{ fontSize: 11, color: "var(--fg-4)", marginTop: 4, display: "block" }}>
-                    Default: {activeProvider.defaultBaseUrl}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Validation Feedback Banner */}
-            {validationResult && (
-              <div
-                style={{
-                  padding: "12px 16px",
-                  borderRadius: 6,
-                  border: validationResult.valid
-                    ? "1px solid oklch(0.65 0.18 145 / 0.4)"
-                    : "1px solid oklch(0.60 0.22 25 / 0.4)",
-                  background: validationResult.valid
-                    ? "oklch(0.65 0.18 145 / 0.08)"
-                    : "oklch(0.60 0.22 25 / 0.08)",
-                  fontSize: 13,
-                  color: validationResult.valid ? "var(--green)" : "var(--red)",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 4,
-                }}
-              >
-                <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
-                  {validationResult.valid ? "✓ Connection verified!" : "✗ Connection failed"}
-                  {validationResult.latency_ms && (
-                    <span className="mono" style={{ fontSize: 11, opacity: 0.85 }}>
-                      ({validationResult.latency_ms}ms)
-                    </span>
-                  )}
-                </div>
-                {validationResult.valid ? (
-                  <div style={{ fontSize: 12, color: "var(--fg-2)" }}>
-                    Ready to connect {activeProvider.name}. Virtual routing key will be generated.
-                  </div>
-                ) : (
-                  <div style={{ fontSize: 12, color: "var(--fg-2)" }}>
-                    {validationResult.error}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Actions */}
-            <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-              <button
-                type="button"
-                onClick={handleConnectProvider}
-                disabled={connecting || !apiKey.trim()}
-                className="btn btn-violet"
-                style={{ minWidth: 180 }}
-              >
-                {connecting ? "Securing & Connecting..." : "Connect Provider →"}
-              </button>
-            </div>
+        <form onSubmit={createKey} className="card" style={{ padding: 22 }}>
+          <h2 style={{ fontSize: 18, margin: "0 0 6px" }}>Create your API key</h2>
+          <p style={{ fontSize: 14, color: "var(--fg-3)", margin: "0 0 18px", lineHeight: 1.5 }}>
+            Your apps and editors use this key instead of a provider key. Tokenistt forwards each request to the provider and records its cost.
+          </p>
+          <label style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+            <span className="mono" style={{ fontSize: 11, color: "var(--fg-4)" }}>NAME</span>
+            <input className="mono dash-input" required value={keyName} onChange={(e) => setKeyName(e.target.value)} />
+          </label>
+          {keyError && <div className="mono" style={{ color: "var(--red)", fontSize: 12.5, marginBottom: 12 }}>{keyError}</div>}
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <button type="submit" className="btn btn-violet" disabled={creating || !keyName.trim()}>{creating ? "Creating…" : "Create key"}</button>
+            <button type="button" className="btn btn-ghost" onClick={() => setStep(1)}>I already have a key</button>
           </div>
-        </StepCard>
+        </form>
       )}
 
-      {/* STEP 1: TOKENISTT VIRTUAL KEY */}
       {step === 1 && (
-        <StepCard
-          num="02"
-          title="Your Tokenistt Virtual API Key"
-          desc="Your application calls Tokenistt using this virtual key. This isolates your provider credentials, enforces real-time budget caps, and attributes spend to workspaces."
-        >
-          <div
-            className="card"
-            style={{
-              padding: "16px 18px",
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              marginBottom: 16,
-              background: "var(--bg-2)",
-              border: "1px solid var(--line-soft)",
-            }}
-          >
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="mono" style={{ fontSize: 14, color: "var(--violet)", wordBreak: "break-all" }}>
-                {virtualKey}
-              </div>
-              <div style={{ fontSize: 11, color: "var(--fg-4)", marginTop: 4 }}>
-                Active · Scoped to {activeProvider.name.split(" ")[0]} · Budget tracking active
-              </div>
-            </div>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={copyKey}>
-              {keyCopied ? "✓ Copied" : "Copy"}
-            </button>
-          </div>
-
-          <div style={{ display: "flex", gap: 10 }}>
-            <button type="button" className="btn btn-violet" onClick={() => setStep(2)}>
-              Continue to Integration →
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={() => setStep(0)}>
-              Back
-            </button>
-          </div>
-        </StepCard>
-      )}
-
-      {/* STEP 2: INTEGRATE SDK / CURL */}
-      {step === 2 && (
-        <StepCard
-          num="03"
-          title="One line to integrate"
-          desc="Swap your provider's base_url to the Tokenistt Universal Gateway. Zero code refactors required."
-        >
-          {/* Language selector */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-            {(["python", "node", "curl"] as const).map((lang) => (
-              <button
-                key={lang}
-                type="button"
-                onClick={() => setCodeLang(lang)}
-                className="mono"
-                style={{
-                  padding: "4px 12px",
-                  borderRadius: 4,
-                  fontSize: 12,
-                  border: "1px solid",
-                  borderColor: codeLang === lang ? "var(--violet)" : "var(--line-soft)",
-                  background: codeLang === lang ? "oklch(0.55 0.20 295 / 0.15)" : "transparent",
-                  color: codeLang === lang ? "var(--violet)" : "var(--fg-3)",
-                  cursor: "pointer",
-                }}
-              >
-                {lang === "python" ? "Python" : lang === "node" ? "Node.js / TS" : "cURL"}
-              </button>
-            ))}
-          </div>
-
-          {/* Code Snippet Box */}
-          <pre
-            className="mono"
-            style={{
-              margin: "0 0 20px",
-              whiteSpace: "pre-wrap",
-              fontSize: 12.5,
-              lineHeight: 1.7,
-              color: "var(--fg-1)",
-              background: "var(--bg-2)",
-              padding: "16px 18px",
-              borderRadius: 6,
-              border: "1px solid var(--line-soft)",
-              overflowX: "auto",
-            }}
-          >
-            {codeLang === "python" && (
-              <>
-                {`from openai import OpenAI\n\n`}
-                {`client = OpenAI(\n`}
-                {`    base_url="`}<span style={{ color: "var(--violet)" }}>{`${gatewayUrl}/v1`}</span>{`",\n`}
-                {`    api_key="`}<span style={{ color: "var(--violet)" }}>{virtualKey}</span>{`"\n`}
-                {`)\n\n`}
-                {`response = client.chat.completions.create(\n`}
-                {`    model="`}<span style={{ color: "var(--green)" }}>{activeProvider.recommendedModel}</span>{`",\n`}
-                {`    messages=[{"role": "user", "content": "Hello Tokenistt!"}]\n`}
-                {`)\n`}
-                {`print(response.choices[0].message.content)`}
-              </>
-            )}
-
-            {codeLang === "node" && (
-              <>
-                {`import OpenAI from "openai";\n\n`}
-                {`const client = new OpenAI({\n`}
-                {`  baseURL: "`}<span style={{ color: "var(--violet)" }}>{`${gatewayUrl}/v1`}</span>{`",\n`}
-                {`  apiKey: "`}<span style={{ color: "var(--violet)" }}>{virtualKey}</span>{`",\n`}
-                {`});\n\n`}
-                {`const res = await client.chat.completions.create({\n`}
-                {`  model: "`}<span style={{ color: "var(--green)" }}>{activeProvider.recommendedModel}</span>{`",\n`}
-                {`  messages: [{ role: "user", content: "Hello Tokenistt!" }],\n`}
-                {`});\n`}
-                {`console.log(res.choices[0].message.content);`}
-              </>
-            )}
-
-            {codeLang === "curl" && (
-              <>
-                {`curl ${gatewayUrl}/v1/chat/completions \\\n`}
-                {`  -H "Content-Type: application/json" \\\n`}
-                {`  -H "Authorization: Bearer `}<span style={{ color: "var(--violet)" }}>{virtualKey}</span>{`" \\\n`}
-                {`  -d '{\n`}
-                {`    "model": "`}<span style={{ color: "var(--green)" }}>{activeProvider.recommendedModel}</span>{`",\n`}
-                {`    "messages": [{"role": "user", "content": "Hello Tokenistt!"}]\n`}
-                {`  }'`}
-              </>
-            )}
-          </pre>
-
-          <div style={{ display: "flex", gap: 10 }}>
-            <button type="button" className="btn btn-violet" onClick={() => setStep(3)}>
-              Continue to Live Test →
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={() => setStep(1)}>
-              Back
-            </button>
-          </div>
-        </StepCard>
-      )}
-
-      {/* STEP 3: LIVE TEST REQUEST */}
-      {step === 3 && (
-        <StepCard
-          num="04"
-          title="Verify your live gateway routing"
-          desc="Send an end-to-end request through the gateway to verify key decryption, token accounting, and cost tracking."
-        >
-          {!testResult ? (
-            <div>
-              <p style={{ fontSize: 13.5, color: "var(--fg-3)", marginBottom: 16 }}>
-                Click below to send a live ping using your Tokenistt virtual key and connected provider:
-              </p>
-              <div style={{ display: "flex", gap: 10 }}>
-                <button
-                  type="button"
-                  className="btn btn-violet"
-                  onClick={sendTestRequest}
-                  disabled={sendingTest}
-                >
-                  {sendingTest ? "Routing via Gateway..." : "Send a live test request →"}
-                </button>
-                <button type="button" className="btn btn-ghost" onClick={() => setStep(2)}>
-                  Back
-                </button>
+        <div className="card" style={{ padding: 22 }}>
+          <h2 style={{ fontSize: 18, margin: "0 0 6px" }}>Send a request</h2>
+          {apiKey ? (
+            <div style={{ marginBottom: 16 }}>
+              <div className="mono" style={{ fontSize: 11, color: "var(--violet)", marginBottom: 6 }}>YOUR KEY · shown once — copy it now</div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <code className="mono" style={{ fontSize: 12.5, wordBreak: "break-all", flex: 1 }}>{apiKey}</code>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => { navigator.clipboard?.writeText(apiKey); notify("Key copied"); }}>Copy</button>
               </div>
             </div>
           ) : (
-            <div
-              className="card"
-              style={{
-                padding: 24,
-                borderColor: "oklch(0.65 0.18 145 / 0.4)",
-                background: "oklch(0.65 0.18 145 / 0.06)",
-              }}
-            >
-              <div className="mono" style={{ fontSize: 12, color: "var(--green)", marginBottom: 12, fontWeight: 600 }}>
-                ✓ FIRST REQUEST RECEIVED & TRACKED
-              </div>
+            <label style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
+              <span className="mono" style={{ fontSize: 11, color: "var(--fg-4)" }}>YOUR API KEY</span>
+              <input className="mono dash-input" value={apiKey} onChange={(e) => setApiKey(e.target.value.trim())} placeholder="tktt_live_…" />
+            </label>
+          )}
 
-              {/* Metrics row */}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
-                  gap: 12,
-                  marginBottom: 16,
-                  padding: "12px 14px",
-                  borderRadius: 6,
-                  background: "var(--bg-2)",
-                  border: "1px solid var(--line-soft)",
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: 11, color: "var(--fg-4)" }}>MODEL</div>
-                  <div className="mono" style={{ fontSize: 13, color: "var(--fg)", marginTop: 2 }}>
-                    {testResult.model}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, color: "var(--fg-4)" }}>TOKENS</div>
-                  <div className="mono" style={{ fontSize: 13, color: "var(--fg)", marginTop: 2 }}>
-                    {testResult.totalTokens} tokens
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, color: "var(--fg-4)" }}>COST</div>
-                  <div className="mono" style={{ fontSize: 13, color: "var(--green)", marginTop: 2 }}>
-                    ${testResult.costUsd.toFixed(5)}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, color: "var(--fg-4)" }}>LATENCY</div>
-                  <div className="mono" style={{ fontSize: 13, color: "var(--fg)", marginTop: 2 }}>
-                    {testResult.latencyMs}ms
-                  </div>
-                </div>
-              </div>
+          <label style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
+            <span className="mono" style={{ fontSize: 11, color: "var(--fg-4)" }}>MODEL</span>
+            {options.length > 0 ? (
+              <select className="mono dash-select" value={model} onChange={(e) => setModel(e.target.value)}>
+                {options.map((o) => <option key={o.model} value={o.model}>{o.model} ({o.provider})</option>)}
+              </select>
+            ) : (
+              <input className="mono dash-input" value={model} onChange={(e) => setModel(e.target.value)} placeholder="gpt-4o-mini" />
+            )}
+            {optionsError && <span className="mono" style={{ fontSize: 12, color: "var(--red)" }}>{optionsError}</span>}
+            {!optionsError && options.length === 0 && (
+              <span style={{ fontSize: 12.5, color: "var(--fg-3)" }}>
+                No provider is configured on the gateway yet. Set <code>MOCK_PROVIDER=1</code> to try it offline, or add a provider key under <Link href="/providers" style={{ color: "var(--violet)" }}>Providers &amp; Keys</Link>.
+              </span>
+            )}
+          </label>
 
-              {/* Response message */}
-              <div style={{ fontSize: 13, color: "var(--fg-2)", fontStyle: "italic", marginBottom: 16 }}>
-                "{testResult.content}"
-              </div>
+          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+            {(["python", "node", "curl"] as Lang[]).map((l) => (
+              <button key={l} type="button" onClick={() => setLang(l)} className="mono"
+                style={{ padding: "4px 10px", fontSize: 12, borderRadius: 4, cursor: "pointer", border: "1px solid " + (lang === l ? "var(--violet)" : "var(--line-soft)"), background: "transparent", color: lang === l ? "var(--violet)" : "var(--fg-3)" }}>
+                {l}
+              </button>
+            ))}
+          </div>
+          <pre className="mono" style={{ background: "var(--bg-2)", border: "1px solid var(--line-soft)", borderRadius: 6, padding: 14, fontSize: 12.5, overflowX: "auto", margin: "0 0 16px" }}>{code}</pre>
 
-              <p style={{ fontSize: 13.5, color: "var(--fg-3)", lineHeight: 1.55, marginBottom: 20 }}>
-                {workspace} is live. Cost, budgets, and routing are tracking from here.
-              </p>
-
-              <div style={{ display: "flex", gap: 10 }}>
-                <Link href="/" className="btn btn-primary">
-                  Go to Overview Dashboard →
-                </Link>
-                <Link href="/providers" className="btn btn-ghost">
-                  View Connected Providers
-                </Link>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <button type="button" className="btn btn-violet" disabled={sending || !apiKey || !model} onClick={sendTest}>{sending ? "Sending…" : "Send it from here"}</button>
+            <button type="button" className="btn btn-ghost" onClick={() => setStep(2)}>{result ? "Continue →" : "Skip"}</button>
+          </div>
+          {testError && <div className="mono" style={{ color: "var(--red)", fontSize: 12.5, marginTop: 12 }}>{testError}</div>}
+          {result && (
+            <div style={{ marginTop: 16, padding: "12px 14px", background: "var(--bg-2)", border: "1px solid var(--line-soft)", borderRadius: 6 }}>
+              <div className="mono" style={{ fontSize: 11, color: "var(--fg-4)" }}>REPLY</div>
+              <div style={{ fontSize: 14, margin: "4px 0 10px" }}>{result.content || "(empty reply)"}</div>
+              <div className="mono" style={{ fontSize: 12.5, color: "var(--fg-3)" }}>
+                {result.provider ?? "provider"} · {result.prompt_tokens ?? "?"} in / {result.completion_tokens ?? "?"} out tokens ·{" "}
+                {result.cost_usd == null ? "cost n/a" : result.cost_status === "COST_UNAVAILABLE" ? "price unknown ($0)" : `$${result.cost_usd.toFixed(6)}`} · {result.latency_ms} ms
               </div>
             </div>
           )}
-        </StepCard>
+        </div>
       )}
-    </div>
-  );
-}
 
-function StepCard({
-  num,
-  title,
-  desc,
-  children,
-}: {
-  num: string;
-  title: string;
-  desc: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="card" style={{ padding: 28, background: "var(--bg-1)", border: "1px solid var(--line)" }}>
-      <div className="mono" style={{ fontSize: 12, color: "var(--violet)", marginBottom: 10, fontWeight: 600 }}>
-        {num}
-      </div>
-      <h2 style={{ fontSize: 22, marginBottom: 10, color: "var(--fg)", letterSpacing: "-0.01em" }}>{title}</h2>
-      <p style={{ fontSize: 14, color: "var(--fg-3)", lineHeight: 1.6, marginBottom: 24 }}>{desc}</p>
-      {children}
+      {step === 2 && (
+        <div className="card" style={{ padding: 22 }}>
+          <h2 style={{ fontSize: 18, margin: "0 0 6px" }}>Connect your tools</h2>
+          <p style={{ fontSize: 14, color: "var(--fg-3)", margin: "0 0 14px", lineHeight: 1.5 }}>
+            Anything that accepts an OpenAI base URL works. Use <code className="mono">{gatewayUrl}/v1</code> and your key in Continue, Cline, the OpenAI SDKs, LangChain and the rest.
+            Cursor needs a publicly reachable HTTPS URL — see the guide.
+          </p>
+          <ul style={{ fontSize: 14, color: "var(--fg-2)", lineHeight: 1.9, paddingLeft: 18, margin: "0 0 18px" }}>
+            <li><Link href="/docs" style={{ color: "var(--violet)" }}>Editor &amp; SDK setup guide</Link> (VS Code, Continue, Cline, Cursor, MCP)</li>
+            <li><Link href="/requests" style={{ color: "var(--violet)" }}>Request history</Link> — every call, with cost and latency</li>
+            <li><Link href="/providers" style={{ color: "var(--violet)" }}>Providers &amp; Keys</Link> — add your OpenAI / Anthropic / Groq keys</li>
+            <li><Link href="/budgets" style={{ color: "var(--violet)" }}>Budgets</Link> and <Link href="/routing" style={{ color: "var(--violet)" }}>Routing</Link> — control spend</li>
+            <li><Link href="/keys" style={{ color: "var(--violet)" }}>API keys</Link> — create more, revoke old ones</li>
+          </ul>
+          <Link href="/" className="btn btn-violet">Go to the dashboard</Link>
+        </div>
+      )}
     </div>
   );
 }

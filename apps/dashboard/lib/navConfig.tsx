@@ -1,7 +1,7 @@
 import type { ComponentType, SVGProps } from "react";
 import {
   IconGrid, IconList, IconBell, IconShield, IconGavel, IconPlug, IconShuffle,
-  IconTag, IconDatabase, IconReceipt, IconRuler, IconPuzzle, IconTrendingUp,
+  IconTag, IconKey, IconDatabase, IconReceipt, IconRuler, IconPuzzle, IconTrendingUp,
   IconTarget, IconColumns, IconChart, IconFlask, IconPresentation, IconUsers, IconGear,
 } from "@/components/icons";
 
@@ -12,9 +12,6 @@ export type NavGroup = { label: string; items: NavItem[] };
 // href -> existing, DB/API-backed page (governance, providers, cost-centers,
 // reconciliation, shadow-ai, team, benchmark, settings, overview) is left
 // completely untouched — this file only adds navigation to it.
-// The rest are net-new sections ported from the source dashboard preview,
-// running on local mock data (see lib/dashboard-mock-data.ts) same as they
-// did in the source — no new backend was built for them.
 const ALL_NAV_GROUPS: NavGroup[] = [
   {
     label: "Monitor",
@@ -32,6 +29,7 @@ const ALL_NAV_GROUPS: NavGroup[] = [
       { href: "/budgets", label: "Budgets", icon: IconShield },
       { href: "/governance", label: "Governance & Policies", icon: IconGavel },
       { href: "/providers", label: "Providers & Keys", icon: IconPlug },
+      { href: "/keys", label: "API keys", icon: IconKey },
       { href: "/routing", label: "Routing", icon: IconShuffle },
       { href: "/approvals", label: "Approvals", icon: IconGavel },
       { href: "/connectors", label: "Connectors", icon: IconPlug },
@@ -85,6 +83,7 @@ export const SECTION_META: Record<string, { title: string; kicker: string; desc:
   "/shadow-ai": { title: "Shadow AI", kicker: "Monitor", desc: "Unauthorized usage detected via expense & card integrations." },
   "/budgets": { title: "Budgets", kicker: "Control", desc: "Set limits, see status, get warned before they're blown." },
   "/governance": { title: "Governance & Policies", kicker: "Control", desc: "Control what's allowed to run, and prove it after the fact." },
+  "/keys": { title: "API keys", kicker: "Control", desc: "Keys your apps and editors use to call the gateway. Create, cap, and revoke them." },
   "/providers": { title: "Providers & Keys", kicker: "Control", desc: "Connect and manage every AI provider this workspace uses, and the keys behind them." },
   "/approvals": { title: "Approvals", kicker: "Control", desc: "Requests held by policy until someone signs off." },
   "/connectors": { title: "Connectors", kicker: "Control", desc: "Link GitHub, Jira, Slack, Linear, Analytics, Salesforce and CI/CD to attribute spend to real work." },

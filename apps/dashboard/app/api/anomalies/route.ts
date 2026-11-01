@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPool, isDbAvailable } from "@/lib/db";
-import { getAnomalies } from "@/lib/mock-data";
+import { dbUnavailable } from "@/lib/db-unavailable";
 import { getSessionFromRequest, unauthorizedResponse } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
@@ -11,14 +11,7 @@ export async function GET(req: NextRequest) {
   const period = url.searchParams.get("period") || "7d";
 
   const dbUp = await isDbAvailable();
-  if (!dbUp) {
-    const anomalies = getAnomalies();
-    return NextResponse.json({
-      period,
-      count: anomalies.length,
-      anomalies,
-    });
-  }
+  if (!dbUp) return dbUnavailable();
 
   try {
     const pool = getPool();
@@ -119,12 +112,7 @@ export async function GET(req: NextRequest) {
       source: "statistical_engine",
     });
   } catch (err: any) {
-    console.error("[/api/anomalies] Anomaly engine error, falling back:", err.message);
-    return NextResponse.json({
-      period,
-      count: 0,
-      anomalies: [],
-      source: "statistical_engine",
-    });
+    console.error("[/api/anomalies] error:", err.message);
+    return dbUnavailable();
   }
 }

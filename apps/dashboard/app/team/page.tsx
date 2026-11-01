@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useDashboard } from "@/components/DashboardShell";
-import { getTeamView } from "@/lib/mock-data";
 import Section from "@/components/Section";
 import StatCard from "@/components/StatCard";
 import TeamMemberTable from "@/components/TeamMemberTable";
@@ -18,24 +16,23 @@ import {
 } from "@/lib/format";
 
 export default function TeamPage() {
-  const { isLive } = useDashboard();
   const [liveTeam, setLiveTeam] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
-    if (!isLive) return;
     let mounted = true;
-    setLoading(true);
 
     fetch("/api/team")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (mounted && data) {
-          setLiveTeam(data);
-        }
+        if (!mounted) return;
+        if (data) setLiveTeam(data);
+        else setLoadError(true);
       })
       .catch((err) => {
         console.warn("Could not load /api/team:", err);
+        if (mounted) setLoadError(true);
       })
       .finally(() => {
         if (mounted) setLoading(false);
@@ -44,9 +41,16 @@ export default function TeamPage() {
     return () => {
       mounted = false;
     };
-  }, [isLive]);
+  }, []);
 
-  const t = isLive && liveTeam ? liveTeam : getTeamView();
+  if (loading) {
+    return <div className="card" style={{ padding: "48px 20px", textAlign: "center", color: "var(--fg-4)", fontSize: 13.5 }}>Loading team…</div>;
+  }
+  if (loadError || !liveTeam) {
+    return <div className="card" style={{ padding: "48px 20px", textAlign: "center", color: "var(--red)", fontSize: 13.5 }}>Couldn&apos;t load team data.</div>;
+  }
+
+  const t = liveTeam;
 
   const members = t.members || [];
   const alerts = t.alerts || [];
@@ -63,7 +67,7 @@ export default function TeamPage() {
       <div>
         <h2 className="text-lg font-semibold" style={{ color: "var(--fg)" }}>{t.teamName} team</h2>
         <p className="text-xs mono" style={{ color: "var(--fg-4)" }}>
-          Manager: {t.managerName} · {t.period} · {isLive ? "live workspace view" : "demo preview"}
+          Manager: {t.managerName} · {t.period}
         </p>
       </div>
 

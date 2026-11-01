@@ -1,65 +1,84 @@
 "use client";
 
-import { useState } from "react";
-import { Sparkline } from "@/components/Sparkline";
-import { MODEL_COMPARISON, MODEL_COMPARISON_RECOMMENDATION } from "@/lib/dashboard-mock-data";
+import { useMemo, useState } from "react";
+import { StateNote, useGateway } from "@/lib/useGateway";
+import { fmtUsd } from "@/lib/format";
 
-const TASK_TYPES = ["support-classification", "code-review", "doc-qa"];
+type Row = {
+  provider: string; model: string; requests: number;
+  avg_cost_usd: number | null; avg_latency_ms: number | null; error_rate: number | null;
+  input_per_1m: number | null; output_per_1m: number | null;
+};
+
+const usd = (n: number | null) => (n == null ? "—" : fmtUsd(n, 4));
+const keyOf = (r: Row) => `${r.provider}:${r.model}`;
 
 export default function ModelComparisonPage() {
-  const [taskType, setTaskType] = useState(TASK_TYPES[0]);
-  const rows = taskType === MODEL_COMPARISON_RECOMMENDATION.taskType ? MODEL_COMPARISON : [];
-  const cheapest = rows.length ? Math.min(...rows.map((r) => r.cost)) : 0;
+  const { data, error, loading } = useGateway<Row[]>("models");
+  const [onlyUsed, setOnlyUsed] = useState(false);
+  const [inTok, setInTok] = useState(1000);
+  const [outTok, setOutTok] = useState(300);
+
+  const rows = useMemo(() => {
+    const list = (data ?? []).filter((r) => !onlyUsed || r.requests > 0);
+    return list
+      .map((r) => ({
+        ...r,
+        est: r.input_per_1m != null && r.output_per_1m != null ? (inTok * r.input_per_1m + outTok * r.output_per_1m) / 1_000_000 : null,
+      }))
+      .sort((a, b) => (a.est ?? Infinity) - (b.est ?? Infinity));
+  }, [data, onlyUsed, inTok, outTok]);
+
+  const cheapest = rows.find((r) => r.est != null)?.est ?? null;
 
   return (
     <div>
-      <div className="dash-range-bar">
+      <div className="dash-range-bar" style={{ gap: 16, flexWrap: "wrap" }}>
         <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span className="mono" style={{ fontSize: 12, color: "var(--fg-3)" }}>task type</span>
-          <select className="mono dash-select" value={taskType} onChange={(e) => setTaskType(e.target.value)}>
-            {TASK_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
+          <span className="mono" style={{ fontSize: 12, color: "var(--fg-3)" }}>input tokens</span>
+          <input className="mono dash-input" type="number" min={0} style={{ width: 90 }} value={inTok} onChange={(e) => setInTok(Math.max(0, Number(e.target.value) || 0))} />
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="mono" style={{ fontSize: 12, color: "var(--fg-3)" }}>output tokens</span>
+          <input className="mono dash-input" type="number" min={0} style={{ width: 90 }} value={outTok} onChange={(e) => setOutTok(Math.max(0, Number(e.target.value) || 0))} />
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <input type="checkbox" checked={onlyUsed} onChange={(e) => setOnlyUsed(e.target.checked)} />
+          <span className="mono" style={{ fontSize: 12, color: "var(--fg-3)" }}>only models used in the last 30 days</span>
         </label>
       </div>
 
-      {rows.length === 0 ? (
-        <div className="card" style={{ padding: 40, textAlign: "center", color: "var(--fg-4)", fontSize: 14 }}>
-          No comparison data yet for &quot;{taskType}&quot; — connect more traffic tagged with this task type.
-        </div>
-      ) : (
-        <>
-          <div className="card" style={{ overflow: "hidden", marginBottom: 24 }}>
-            <div style={{ padding: "12px 18px", borderBottom: "1px solid var(--line-soft)", background: "var(--bg-2)" }}>
-              <span className="mono" style={{ fontSize: 12, color: "var(--fg-3)" }}>tokenistt · side-by-side · {taskType}</span>
-            </div>
-            <div className="data-table-wrap">
-              <div style={{ minWidth: 640 }}>
-                <div className="mono" style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 1fr 1fr 1.2fr", padding: "8px 18px", borderBottom: "1px solid var(--line-soft)", fontSize: 11.5, color: "var(--fg-4)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                  <span>Model</span><span>Cost / req</span><span>Latency</span><span>Quality</span><span>Trend · 6 releases</span>
-                </div>
-                {rows.map((r, i) => (
-                  <div key={r.model} style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 1fr 1fr 1.2fr", padding: "13px 18px", borderBottom: i < rows.length - 1 ? "1px solid var(--line-soft)" : "none", alignItems: "center" }}>
-                    <div>
-                      <span className="mono" style={{ fontSize: 14, color: r.model === MODEL_COMPARISON_RECOMMENDATION.recommended ? "var(--violet)" : "var(--fg)" }}>{r.model}</span>
-                      {r.model === MODEL_COMPARISON_RECOMMENDATION.recommended && <span className="mono" style={{ fontSize: 10, color: "var(--violet)", marginLeft: 6 }}>● RECOMMENDED</span>}
-                      <div className="mono" style={{ fontSize: 11.5, color: "var(--fg-4)", marginTop: 2 }}>{r.provider}</div>
-                    </div>
-                    <span className="mono" style={{ fontSize: 13.5, color: r.cost === cheapest ? "var(--green)" : "var(--fg-2)" }}>${r.cost.toFixed(4)}</span>
-                    <span className="mono" style={{ fontSize: 13.5, color: "var(--fg-2)" }}>{r.latency}ms</span>
-                    <span className="mono" style={{ fontSize: 13.5, color: r.quality >= 95 ? "var(--green)" : r.quality >= 90 ? "var(--amber)" : "var(--fg-2)" }}>{r.quality}</span>
-                    <Sparkline data={r.trend} width={130} height={26} stroke="var(--violet)" showFill={false} showDot={false} pad={2} strokeWidth={1.2} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+      <StateNote loading={loading} error={error} empty={!loading && !error && rows.length === 0 ? "No models to show yet." : undefined} />
 
-          <div className="card" style={{ padding: 20, background: "oklch(0.420 0.150 295 / 0.08)", borderColor: "oklch(0.420 0.150 295 / 0.30)" }}>
-            <div className="mono" style={{ fontSize: 11.5, color: "var(--violet)", letterSpacing: "0.05em", marginBottom: 8 }}>SWITCH RECOMMENDATION</div>
-            <div style={{ fontSize: 16, color: "var(--fg)" }}>Use <span className="mono" style={{ color: "var(--violet)" }}>{MODEL_COMPARISON_RECOMMENDATION.recommended}</span> for {taskType}</div>
-            <p style={{ fontSize: 14, color: "var(--fg-2)", marginTop: 8, lineHeight: 1.6 }}>{MODEL_COMPARISON_RECOMMENDATION.reasoning}</p>
+      {rows.length > 0 && (
+        <div className="card" style={{ overflow: "hidden" }}>
+          <div style={{ padding: "12px 18px", borderBottom: "1px solid var(--line-soft)", background: "var(--bg-2)" }}>
+            <span className="mono" style={{ fontSize: 12, color: "var(--fg-3)" }}>
+              price catalog + your observed traffic (30d) · estimate is for a {inTok}-in / {outTok}-out request · quality is not measured here
+            </span>
           </div>
-        </>
+          <div className="data-table-wrap">
+            <div style={{ minWidth: 760 }}>
+              <div className="mono" style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1fr 1fr 1fr 0.8fr", padding: "8px 18px", borderBottom: "1px solid var(--line-soft)", fontSize: 11.5, color: "var(--fg-4)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                <span>Model</span><span>Est. cost / req</span><span>$ / 1M in</span><span>$ / 1M out</span><span>Observed avg cost</span><span>Avg latency</span><span>Errors</span>
+              </div>
+              {rows.map((r, i) => (
+                <div key={keyOf(r)} style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1fr 1fr 1fr 0.8fr", padding: "12px 18px", borderBottom: i < rows.length - 1 ? "1px solid var(--line-soft)" : "none", alignItems: "center" }}>
+                  <div>
+                    <span className="mono" style={{ fontSize: 13.5, color: "var(--fg)" }}>{r.model}</span>
+                    <div className="mono" style={{ fontSize: 11.5, color: "var(--fg-4)", marginTop: 2 }}>{r.provider}{r.requests > 0 ? ` · ${r.requests.toLocaleString()} req` : ""}</div>
+                  </div>
+                  <span className="mono" style={{ fontSize: 13, color: r.est != null && r.est === cheapest ? "var(--green)" : "var(--fg-2)" }}>{usd(r.est)}</span>
+                  <span className="mono" style={{ fontSize: 13, color: "var(--fg-2)" }}>{r.input_per_1m != null ? `$${r.input_per_1m}` : "—"}</span>
+                  <span className="mono" style={{ fontSize: 13, color: "var(--fg-2)" }}>{r.output_per_1m != null ? `$${r.output_per_1m}` : "—"}</span>
+                  <span className="mono" style={{ fontSize: 13, color: "var(--fg-2)" }}>{usd(r.avg_cost_usd)}</span>
+                  <span className="mono" style={{ fontSize: 13, color: "var(--fg-2)" }}>{r.avg_latency_ms != null ? `${Math.round(r.avg_latency_ms)} ms` : "—"}</span>
+                  <span className="mono" style={{ fontSize: 13, color: (r.error_rate ?? 0) > 0.05 ? "var(--red)" : "var(--fg-2)" }}>{r.error_rate != null ? `${(r.error_rate * 100).toFixed(1)}%` : "—"}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

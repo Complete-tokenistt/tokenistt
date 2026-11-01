@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getPool, isDbAvailable } from "@/lib/db";
-import { reconcile } from "@/lib/mock-data";
+import { dbUnavailable } from "@/lib/db-unavailable";
 import { PROVIDER_LABELS } from "@/lib/format";
 import { getSessionFromRequest, unauthorizedResponse } from "@/lib/auth";
 import type { InvoiceLine, ReconciliationRow, ReconciliationStatus } from "@/lib/types";
@@ -17,12 +17,7 @@ export async function GET(req: NextRequest) {
   if (!session) return unauthorizedResponse();
 
   const dbUp = await isDbAvailable();
-  if (!dbUp) {
-    return NextResponse.json({
-      rows: [],
-      invoices: [],
-    });
-  }
+  if (!dbUp) return dbUnavailable();
 
   try {
     const pool = getPool();
@@ -137,9 +132,7 @@ export async function POST(req: NextRequest) {
     const invoices = body.invoices ?? [];
 
     const dbUp = await isDbAvailable();
-    if (!dbUp) {
-      return NextResponse.json({ rows: reconcile(invoices) });
-    }
+    if (!dbUp) return dbUnavailable();
 
     const pool = getPool();
 

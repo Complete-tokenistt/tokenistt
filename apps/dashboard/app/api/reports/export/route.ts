@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getPool, isDbAvailable } from '@/lib/db';
 import { getSessionFromRequest, unauthorizedResponse, forbiddenResponse } from '@/lib/auth';
 import { can } from '@/lib/rbac';
+import { dbUnavailable } from '@/lib/db-unavailable';
 
 export async function GET(req: NextRequest) {
   const session = getSessionFromRequest(req);
@@ -17,9 +18,10 @@ export async function GET(req: NextRequest) {
   const actorFilter = searchParams.get('actor');
 
   const dbUp = await isDbAvailable();
+  if (!dbUp) return dbUnavailable();
   let rows: any[] = [];
 
-  if (dbUp) {
+  {
     try {
       const pool = getPool();
       const conditions: string[] = [
@@ -72,30 +74,8 @@ export async function GET(req: NextRequest) {
       rows = res.rows;
     } catch (err: any) {
       console.error('[Export Query Error]:', err.message);
+      return dbUnavailable();
     }
-  }
-
-  // Fallback sample data if no rows in DB
-  if (rows.length === 0) {
-    rows = [
-      {
-        created_at: new Date().toISOString(),
-        request_id: 'gw-sample-123',
-        actor: 'user-sample',
-        cost_center: 'CC-Default',
-        provider: 'openai',
-        model: 'gpt-4o',
-        prompt_tokens: 120,
-        completion_tokens: 45,
-        total_tokens: 165,
-        cache_read_tokens: 0,
-        cache_creation_tokens: 0,
-        input_cost_usd: 0.00030,
-        output_cost_usd: 0.00045,
-        cost_usd: 0.00075,
-        status: 'success',
-      },
-    ];
   }
 
   if (format === 'json') {

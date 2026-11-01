@@ -2,52 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPool, isDbAvailable } from "@/lib/db";
 import { getSessionFromRequest, unauthorizedResponse, forbiddenResponse } from "@/lib/auth";
 import { can } from "@/lib/rbac";
-
-// In-memory fallback for mock/demo mode when DATABASE_URL is not set
-let mockPolicies = [
-  {
-    id: "1",
-    public_id: "11111111-1111-1111-1111-111111111111",
-    name: "Block GPT-4 for Interns",
-    description: "Block high-cost GPT-4 model requests from the Intern cost center team.",
-    is_enabled: true,
-    conditions: { cost_center: "interns", model: "gpt-4" },
-    actions: { effect: "block", message: "GPT-4 access is forbidden for the Intern team to manage budgets." },
-    created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
-    updated_at: new Date(Date.now() - 3600000 * 24).toISOString()
-  },
-  {
-    id: "2",
-    public_id: "22222222-2222-2222-2222-222222222222",
-    name: "Require Approval for High Cost",
-    description: "Require approval for any API request with estimated cost exceeding $0.50.",
-    is_enabled: true,
-    conditions: { cost_limit: 0.50 },
-    actions: { effect: "require_approval", message: "Request exceeds the policy pre-flight limit of $0.50. Approval is required." },
-    created_at: new Date(Date.now() - 3600000 * 12).toISOString(),
-    updated_at: new Date(Date.now() - 3600000 * 12).toISOString()
-  },
-  {
-    id: "3",
-    public_id: "33333333-3333-3333-3333-333333333333",
-    name: "Force Haiku for Summarization",
-    description: "Redirect any summarization tasks calling GPT-4 to the cost-efficient Claude 3 Haiku model.",
-    is_enabled: false,
-    conditions: { prompt_keyword: "summarize", model: "gpt-4" },
-    actions: { effect: "force_model", model: "claude-3-haiku" },
-    created_at: new Date(Date.now() - 3600000 * 6).toISOString(),
-    updated_at: new Date(Date.now() - 3600000 * 6).toISOString()
-  }
-];
+import { dbUnavailable } from "@/lib/db-unavailable";
 
 export async function GET(req: NextRequest) {
   const session = getSessionFromRequest(req);
   if (!session) return unauthorizedResponse();
 
   const dbUp = await isDbAvailable();
-  if (!dbUp) {
-    return NextResponse.json(mockPolicies);
-  }
+  if (!dbUp) return dbUnavailable();
 
   try {
     const pool = getPool();
@@ -59,8 +21,8 @@ export async function GET(req: NextRequest) {
     `, [session.orgId]);
     return NextResponse.json(rows);
   } catch (err: any) {
-    console.error("[/api/policies] DB list error, returning mock fallback:", err.message);
-    return NextResponse.json(mockPolicies);
+    console.error("[/api/policies] DB list error:", err.message);
+    return dbUnavailable();
   }
 }
 
@@ -78,21 +40,7 @@ export async function POST(req: NextRequest) {
     }
 
     const dbUp = await isDbAvailable();
-    if (!dbUp) {
-      const newPolicy = {
-        id: String(mockPolicies.length + 1),
-        public_id: crypto.randomUUID(),
-        name,
-        description: description || "",
-        is_enabled: is_enabled !== false,
-        conditions: conditions || {},
-        actions: actions || { effect: "block" },
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-      mockPolicies.unshift(newPolicy);
-      return NextResponse.json(newPolicy);
-    }
+    if (!dbUp) return dbUnavailable();
 
     const pool = getPool();
     const { rows } = await pool.query(`
@@ -129,22 +77,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const dbUp = await isDbAvailable();
-    if (!dbUp) {
-      const idx = mockPolicies.findIndex(p => p.public_id === public_id);
-      if (idx === -1) {
-        return NextResponse.json({ error: "Policy not found" }, { status: 404 });
-      }
-      mockPolicies[idx] = {
-        ...mockPolicies[idx],
-        ...(name !== undefined && { name }),
-        ...(description !== undefined && { description }),
-        ...(is_enabled !== undefined && { is_enabled }),
-        ...(conditions !== undefined && { conditions }),
-        ...(actions !== undefined && { actions }),
-        updated_at: new Date().toISOString()
-      };
-      return NextResponse.json(mockPolicies[idx]);
-    }
+    if (!dbUp) return dbUnavailable();
 
     const pool = getPool();
     const { rows } = await pool.query(`
@@ -193,14 +126,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     const dbUp = await isDbAvailable();
-    if (!dbUp) {
-      const idx = mockPolicies.findIndex(p => p.public_id === public_id);
-      if (idx === -1) {
-        return NextResponse.json({ error: "Policy not found" }, { status: 404 });
-      }
-      mockPolicies.splice(idx, 1);
-      return NextResponse.json({ success: true });
-    }
+    if (!dbUp) return dbUnavailable();
 
     const pool = getPool();
     const { rowCount } = await pool.query(`
