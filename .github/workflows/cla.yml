@@ -15,10 +15,13 @@ permissions:
 jobs:
   cla:
     runs-on: ubuntu-latest
+    # Bot PRs are skipped: Dependabot runs get a read-only token, so the action can't
+    # comment or set status, and bots don't sign CLAs anyway. Skipped counts as passing.
     if: >-
-      (github.event.comment.body == 'recheck' ||
-       github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA') ||
-      github.event_name == 'pull_request_target'
+      !endsWith(github.event.pull_request.user.login, '[bot]') &&
+      ((github.event.comment.body == 'recheck' ||
+        github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA') ||
+       github.event_name == 'pull_request_target')
     steps:
       # Never checks out PR code, so pull_request_target is safe here.
       - uses: contributor-assistant/github-action@v2.6.1
