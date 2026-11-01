@@ -46,7 +46,7 @@
     "@types/nodemailer": "^6.4.24",
     "@types/pg": "^8.11.11",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^7.0.2"
   },
   "engines": {
     "node": ">=18.0.0"
