@@ -1,0 +1,90 @@
+{
+  "name": "tokenistt-vscode",
+  "displayName": "Tokenistt — AI usage & spend",
+  "description": "See what your AI agents and assistants are costing you, live in VS Code: spend today and this month, budget headroom and recent requests, from your own Tokenistt gateway.",
+  "version": "0.1.0",
+  "publisher": "tokenistt",
+  "license": "Apache-2.0",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Complete-tokenistt/tokenistt.git",
+    "directory": "apps/vscode-extension"
+  },
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "keywords": ["ai", "llm", "cost", "usage", "openai", "anthropic", "gateway"],
+  "main": "./out/extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      { "command": "tokenistt.setApiKey", "title": "Tokenistt: Set API Key" },
+      { "command": "tokenistt.clearApiKey", "title": "Tokenistt: Remove API Key" },
+      { "command": "tokenistt.refresh", "title": "Tokenistt: Refresh Usage", "icon": "$(refresh)" },
+      { "command": "tokenistt.openDashboard", "title": "Tokenistt: Open Dashboard" },
+      { "command": "tokenistt.openRequestHistory", "title": "Tokenistt: Open Request History" },
+      { "command": "tokenistt.copyConnectionSnippet", "title": "Tokenistt: Copy OpenAI Connection Settings" }
+    ],
+    "viewsContainers": {
+      "activitybar": [{ "id": "tokenistt", "title": "Tokenistt", "icon": "media/icon.svg" }]
+    },
+    "views": {
+      "tokenistt": [{ "id": "tokenistt.usage", "name": "Usage" }]
+    },
+    "viewsWelcome": [
+      {
+        "view": "tokenistt.usage",
+        "contents": "Connect to your Tokenistt gateway to see your AI usage.\n[Set API key](command:tokenistt.setApiKey)\nNo key yet? Create one under **API keys** in your Tokenistt dashboard.\n[Open dashboard](command:tokenistt.openDashboard)",
+        "when": "!tokenistt.hasKey"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        { "command": "tokenistt.refresh", "when": "view == tokenistt.usage", "group": "navigation" },
+        { "command": "tokenistt.openDashboard", "when": "view == tokenistt.usage" },
+        { "command": "tokenistt.setApiKey", "when": "view == tokenistt.usage" }
+      ]
+    },
+    "configuration": {
+      "title": "Tokenistt",
+      "properties": {
+        "tokenistt.gatewayUrl": {
+          "type": "string",
+          "default": "http://localhost:3000",
+          "description": "Base URL of your Tokenistt gateway (without /v1)."
+        },
+        "tokenistt.dashboardUrl": {
+          "type": "string",
+          "default": "http://localhost:3001",
+          "description": "URL of your Tokenistt dashboard, used by the 'Open Dashboard' commands."
+        },
+        "tokenistt.refreshSeconds": {
+          "type": "number",
+          "default": 60,
+          "minimum": 10,
+          "description": "How often to refresh usage."
+        },
+        "tokenistt.budgetWarnPercent": {
+          "type": "number",
+          "default": 80,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Show a warning when this percentage of the key's budget is used."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node build.cjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "package": "npm run build && npx --yes @vscode/vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.3"
+  }
+}
