@@ -31,5 +31,12 @@ for (const f of [...files, 'views.sql']) {
   await client.query(readFileSync(join(dir, f), 'utf8'));
   if (tracked) await client.query('INSERT INTO schema_migrations(name) VALUES ($1)', [f]);
 }
+// Open (no-login) mode needs one organization to act as; create it on a fresh database.
+if (process.env.AUTH_MODE === 'open') {
+  await client.query(
+    `INSERT INTO organizations (name, slug, plan)
+     SELECT 'Local workspace', 'local', 'team' WHERE NOT EXISTS (SELECT 1 FROM organizations)`
+  );
+}
 await client.end();
 console.log('migrations up to date');
