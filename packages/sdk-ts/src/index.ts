@@ -35,3 +35,6 @@ export * from './types';
 
 import { Tokenistt } from './client';
 export default Tokenistt;
+
+export { gatewayHeaders } from './client';
+export type { Attribution, KeyUsage } from './client';
