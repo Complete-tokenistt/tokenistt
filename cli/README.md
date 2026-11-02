@@ -94,6 +94,25 @@ The viewer needs no network. It listens only on `127.0.0.1`, requires the random
 
 Hooks never block the agent: they do one small file append, and always exit successfully even if something goes wrong.
 
+## Project memory
+
+`tokenistt memory update` builds memory from things it can point at, so you can always see where an entry came from:
+
+| Source | Becomes |
+|---|---|
+| Finished agent sessions | session summaries, implementation progress, debugging history (tests failed, then passed), known issues (tests still failing at the end) |
+| Decision records (`docs/adr/*.md`, `decisions/*.md`) and `Decision:` commit trailers | architectural decisions |
+| Commits | recent changes |
+| The graph | architecture, module context, important dependencies |
+| README, manifests, `CONTRIBUTING` and agent instruction files | project overview, tech stack, a pointer to your conventions |
+| You, with `tokenistt memory add` | whatever you tell it, such as open tasks or failed approaches |
+
+There's no model in the loop, so **it won't infer a decision from your code**: decisions are only recorded where someone wrote one down. Routine commands never become memories.
+
+Nothing is overwritten. An updated fact supersedes the old version, which stays in the history (`memory show --id`). A memory goes stale when its subject has left the graph, when its review date passes, or when something contradicts it: a failing-tests issue goes stale once tests pass in a later session on that branch. Stale entries are still shown, labelled as stale.
+
+Memory stays in `.tokenistt/`, and anything credential-shaped is scrubbed before it's stored.
+
 ## Credentials
 
 The gateway has three kinds of credential. Use whichever matches what you need to do:
@@ -142,6 +161,7 @@ endpoint). Dashboard tokens expire; `tokenistt auth status` shows when, and `doc
 | `tokenistt agents` | Which coding agents are installed and connected. `connect <agent>`, `disconnect <agent>`, `capabilities` |
 | `tokenistt sessions` | Recent agent sessions. `history`, `inspect <id>`, `compare <id1> <id2>`, `--agent` |
 | `tokenistt watch` | Live view of agent sessions. `--agent`, `--project <path>`. Prints events as text or NDJSON when piped |
+| `tokenistt memory` | What Tokenistt remembers about this project. `update`, `show`, `search`, `add`, `edit`, `forget`, `export`, `stats` |
 | `tokenistt login` | Authenticate and store credentials (see above) |
 | `tokenistt logout` | Remove stored credentials (environment variables are untouched and reported) |
 | `tokenistt auth status` | Which credentials are in effect, masked, with source and expiry. Local, no network |
