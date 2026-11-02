@@ -9,6 +9,8 @@ import { registerConnect } from './commands/connect.js';
 import { registerGraph } from './commands/graph.js';
 import { registerInit } from './commands/init.js';
 import { registerMap } from './commands/map.js';
+import { registerContext } from './commands/context.js';
+import { registerMcp } from './commands/mcp.js';
 import { registerMemory } from './commands/memory.js';
 import { registerSessions } from './commands/sessions.js';
 import { registerWatch } from './commands/watch.js';
@@ -45,6 +47,8 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
   registerSessions(program, getCtx);
   registerWatch(program, getCtx);
   registerMemory(program, getCtx);
+  registerContext(program, getCtx);
+  registerMcp(program, getCtx);
   return program;
 }
 
