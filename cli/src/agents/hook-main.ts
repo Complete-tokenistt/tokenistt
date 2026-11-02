@@ -1,14 +1,15 @@
 /**
  * The hook fast path: `tokenistt hook <agent>`, run by the agent on every event, so it has to be quick and invisible.
  * It reads stdin, appends normalized events to a file and exits. It never fails the agent: whatever goes wrong, the
- * exit code is 0 and stdout stays empty (an agent may read stdout as instructions). Events are ingested into SQLite
- * later, by the commands that need them, so nothing here waits on a database.
+ * exit code is 0. Stdout stays empty (an agent may read it as instructions), except at session start when the user
+ * has run `context inject`. Events are ingested into SQLite later, so nothing here waits on a database.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { contextFile, hookOutput } from '../context/inject.js';
 import { SAFE_SESSION } from './normalize.js';
 import { adapterFor } from './registry.js';
-import type { CommandPrivacy, NormalizeContext } from './schemas.js';
+import type { AgentId, CommandPrivacy, NormalizeContext } from './schemas.js';
 
 const MAX_STDIN = 8 * 1024 * 1024;
 
@@ -78,6 +79,18 @@ export function handleHook(agent: string, stdin: string, now: Date = new Date())
   return written;
 }
 
+/** Context prepared earlier by `context inject`, which is only read here, so a session start stays fast. */
+export function sessionStartOutput(agent: string, input: Record<string, unknown>): string | undefined {
+  const adapter = adapterFor(agent);
+  const isStart = input.hook_event_name === 'SessionStart' || (adapter.id === 'antigravity' && !input.toolCall && input.invocationNum === undefined && input.executionNum === undefined && input.terminationReason === undefined);
+  if (!isStart) return undefined;
+  const cwd = adapter.hookCwd ? adapter.hookCwd(input) : typeof input.cwd === 'string' ? input.cwd : undefined;
+  const root = cwd ? findProjectRoot(cwd) : undefined;
+  if (!root) return undefined;
+  const file = contextFile(root, adapter.id as AgentId);
+  return existsSync(file) ? hookOutput(adapter.id as AgentId, readFileSync(file, 'utf8')) : undefined;
+}
+
 export async function runHook(argv: string[]): Promise<void> {
   try {
     const agent = argv[3];
@@ -89,7 +102,10 @@ export async function runHook(argv: string[]): Promise<void> {
       if (size > MAX_STDIN) return;
       chunks.push(c as Buffer);
     }
-    handleHook(agent, Buffer.concat(chunks).toString('utf8'));
+    const stdin = Buffer.concat(chunks).toString('utf8');
+    handleHook(agent, stdin);
+    const output = sessionStartOutput(agent, JSON.parse(stdin) as Record<string, unknown>);
+    if (output) process.stdout.write(output);
   } catch {
     // Observability must never get in the way of the agent.
   } finally {
