@@ -1,7 +1,11 @@
 /** Routes a file to its extractor. Adding a language means adding an entry here and a tested visitor. */
 import { posix } from 'node:path';
 import { FileBuilder, type Visitor } from '../builder.js';
-import { parserFor } from '../parser.js';
+import { analyzeJava } from '../frameworks/java.js';
+import { analyzeJavaScript } from '../frameworks/javascript.js';
+import { extractPrisma } from '../frameworks/prisma.js';
+import { analyzePython } from '../frameworks/python.js';
+import { parserFor, type SyntaxNode } from '../parser.js';
 import { emptyExtract, type FileExtract } from '../schema.js';
 import { extractMarkdown, extractPackageJson, extractTsconfig, extractYaml } from './config.js';
 import { extractCargoToml, extractComposerJson, extractCsproj, extractGoMod, extractPomXml, extractPyproject } from './manifests.js';
@@ -46,6 +50,14 @@ const TREE_LANGUAGES: Record<string, TreeLanguage> = {
   '.hh': { language: 'cpp', grammar: 'cpp', visit: visitC },
 };
 
+/** Framework analyzers run after a language's structural pass, so they can see its symbols. */
+const ANALYZERS: Record<string, (root: SyntaxNode, x: FileExtract) => void> = {
+  typescript: analyzeJavaScript,
+  javascript: analyzeJavaScript,
+  python: analyzePython,
+  java: analyzeJava,
+};
+
 const MANIFESTS: Record<string, (text: string, x: FileExtract) => void> = {
   'go.mod': extractGoMod,
   'Cargo.toml': extractCargoToml,
@@ -69,12 +81,18 @@ export async function extractFile(path: string, text: string, sha: string, bytes
     try {
       x.parseErrors = parsed.rootNode.hasError;
       new FileBuilder(x).walk(parsed.rootNode, tree.visit);
+      ANALYZERS[tree.language]?.(parsed.rootNode, x);
     } finally {
       parsed.delete();
     }
     return x;
   }
 
+  if (ext === '.prisma') {
+    const x = emptyExtract(path, sha, bytes, 'prisma');
+    extractPrisma(text, x);
+    return x;
+  }
   if (ext === '.sql') {
     const x = emptyExtract(path, sha, bytes, 'sql');
     extractSql(text, x);

@@ -4,7 +4,7 @@
  */
 export const GRAPH_SCHEMA_VERSION = '1.0';
 /** Bump when extraction output changes, so cached per-file results are thrown away. */
-export const EXTRACTOR_VERSION = 1;
+export const EXTRACTOR_VERSION = 2;
 
 export type NodeType =
   | 'repository' | 'directory' | 'file' | 'function' | 'method' | 'class' | 'interface' | 'type' | 'variable'
@@ -72,6 +72,7 @@ export const columnId = (table: string, column: string): string => `col:${table}
 export const testId = (path: string): string => `test:${path}`;
 export const docId = (path: string): string => `doc:${path}`;
 export const serviceId = (file: string, name: string): string => `svc:${file}#${name}`;
+export const endpointId = (file: string, method: string, path: string): string => `api:${file}#${method} ${path}`;
 
 export type SymbolKind = 'function' | 'method' | 'class' | 'interface' | 'type' | 'variable';
 
@@ -134,9 +135,53 @@ export interface TableDef {
   endLine: number;
   /** A view rather than a base table. */
   view?: boolean;
+  /** Declared through an ORM rather than DDL. */
+  orm?: 'drizzle' | 'prisma' | 'django' | 'jpa';
+  /** The code name for this table, for linking usages: a Drizzle variable or an ORM model. */
+  variable?: string;
+  model?: string;
   columns: Array<{ name: string; line: number }>;
   references: Array<{ table: string; column?: string; line: number }>;
   readsFrom: string[];
+}
+
+export interface EndpointDef {
+  method: string;
+  path: string;
+  framework: string;
+  line: number;
+  /** The router variable, used to apply mount prefixes. */
+  router?: string;
+  /** `qualified` names a symbol in this file; otherwise it is resolved like a call. */
+  handler?: { name: string; object?: string; qualified?: boolean };
+  /** Calls made inside an inline handler, so a route links to what it does. */
+  calls?: Array<{ callee: string; object?: string; line: number }>;
+}
+
+/** app.use('/v1', router) */
+export interface MountDef {
+  prefix: string;
+  router: string;
+  on: string;
+  line: number;
+}
+
+export interface TableAccess {
+  /** Exactly one of these names the table. */
+  table?: string;
+  variable?: string;
+  model?: string;
+  access: 'read' | 'write';
+  via: 'sql' | 'drizzle' | 'prisma' | 'supabase' | 'django';
+  from?: string;
+  line: number;
+}
+
+/** A dependency that is neither a call nor an import: JSX usage, constructor injection. */
+export interface UseRef {
+  from?: string;
+  name: string;
+  line: number;
 }
 
 export interface AlteredTable {
@@ -193,8 +238,15 @@ export interface FileExtract {
   tsconfig?: TsconfigInfo;
   services: ComposeService[];
   docLinks: string[];
+  endpoints: EndpointDef[];
+  mounts: MountDef[];
+  routerPrefixes: Array<{ router: string; prefix: string }>;
+  tableAccess: TableAccess[];
+  uses: UseRef[];
+  /** Top-level symbols that are React components. */
+  components: string[];
 }
 
 export function emptyExtract(path: string, sha: string, bytes: number, language?: string): FileExtract {
-  return { path, language, sha, bytes, parseErrors: false, symbols: [], imports: [], reExports: [], calls: [], heritage: [], env: [], tables: [], altered: [], services: [], docLinks: [] };
+  return { path, language, sha, bytes, parseErrors: false, symbols: [], imports: [], reExports: [], calls: [], heritage: [], env: [], tables: [], altered: [], services: [], docLinks: [], endpoints: [], mounts: [], routerPrefixes: [], tableAccess: [], uses: [], components: [] };
 }
