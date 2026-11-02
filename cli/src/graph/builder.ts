@@ -7,6 +7,8 @@ const line = (n: SyntaxNode): number => n.startPosition.row + 1;
 
 export class FileBuilder {
   private scopes: SymbolDef[] = [];
+  /** The variable that means "this object" in the current method, in languages that name it (Go receivers). */
+  selfName: string | undefined;
 
   constructor(readonly extract: FileExtract) {}
 
@@ -35,6 +37,27 @@ export class FileBuilder {
     const def: SymbolDef = { kind, name, qualified, parent: parent?.qualified, startLine: line(node), endLine: node.endPosition.row + 1, exported };
     this.extract.symbols.push(def);
     return def;
+  }
+
+  /** For methods declared outside their type: Go receivers, C++ `void A::m()`. */
+  defineIn(owner: string | undefined, kind: SymbolKind, name: string, node: SyntaxNode, exported = false): SymbolDef {
+    if (!owner) return this.define(kind === 'method' ? 'function' : kind, name, node, exported);
+    const qualified = `${owner}.${name}`;
+    const existing = this.extract.symbols.find((s) => s.kind === kind && s.qualified === qualified);
+    if (existing) {
+      existing.exported ||= exported;
+      return existing;
+    }
+    const def: SymbolDef = { kind, name, qualified, parent: owner, startLine: line(node), endLine: node.endPosition.row + 1, exported };
+    this.extract.symbols.push(def);
+    return def;
+  }
+
+  withSelf(name: string | undefined, fn: () => void): void {
+    const previous = this.selfName;
+    this.selfName = name;
+    fn();
+    this.selfName = previous;
   }
 
   call(callee: string, node: SyntaxNode, object?: string): void {
