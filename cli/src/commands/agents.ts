@@ -1,11 +1,12 @@
 import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { Command } from 'commander';
 import { UsageError } from '../core/errors.js';
 import { confirm } from '../core/prompt.js';
 import { applyPlan, hookCommand, isConnected, planConnect, planDisconnect, previewDiff } from '../agents/connect.js';
 import { ADAPTERS, adapterFor } from '../agents/registry.js';
 import { CAPABILITY_KEYS } from '../agents/schemas.js';
-import { requireProject } from '../store/project.js';
+import { projectDir, requireProject } from '../store/project.js';
 import type { AgentAdapter, HookTarget } from '../agents/adapter.js';
 import type { Context } from '../context.js';
 
@@ -20,7 +21,7 @@ function targetFor(adapter: AgentAdapter, root: string, home: string, user: bool
   return target;
 }
 
-async function runChange(ctx: Context, adapter: AgentAdapter, target: HookTarget, plan: { before: string; after: string; changed: boolean }, verb: 'connect' | 'disconnect', o: { yes?: boolean; dryRun?: boolean }): Promise<boolean> {
+async function runChange(ctx: Context, adapter: AgentAdapter, target: HookTarget, plan: { before: string; after: string; changed: boolean }, verb: 'connect' | 'disconnect', o: { yes?: boolean; dryRun?: boolean }, root: string): Promise<boolean> {
   if (!plan.changed) {
     ctx.out.result({ agent: adapter.id, file: target.file, changed: false }, () => ctx.out.info(verb === 'connect' ? `${adapter.displayName} is already connected.` : `${adapter.displayName} is not connected in ${target.file}.`));
     return false;
@@ -42,7 +43,7 @@ async function runChange(ctx: Context, adapter: AgentAdapter, target: HookTarget
       return false;
     }
   }
-  const backup = applyPlan(target, plan.after);
+  const backup = applyPlan(target, plan.after, new Date(), target.scope === 'project' ? join(projectDir(root), 'backups') : undefined);
   ctx.out.result({ agent: adapter.id, file: target.file, changed: true, backup: backup ?? null }, () => {
     ctx.out.success(`${verb === 'connect' ? 'Connected' : 'Disconnected'} ${adapter.displayName} (${target.file}).`);
     if (backup) ctx.out.info(`Previous version saved as ${backup}`);
@@ -84,7 +85,7 @@ export function registerAgents(program: Command, getCtx: GetCtx): void {
       const adapter = adapterFor(agent);
       const project = requireProject(process.cwd());
       const target = targetFor(adapter, project.repo.root, homeOf(ctx.env), o.user);
-      const changed = await runChange(ctx, adapter, target, planConnect(adapter, target, hookCommand(adapter.id)), 'connect', o);
+      const changed = await runChange(ctx, adapter, target, planConnect(adapter, target, hookCommand(adapter.id)), 'connect', o, project.repo.root);
       if (changed && adapter.afterConnect) ctx.out.info(adapter.afterConnect);
     });
 
@@ -99,7 +100,7 @@ export function registerAgents(program: Command, getCtx: GetCtx): void {
       const adapter = adapterFor(agent);
       const project = requireProject(process.cwd());
       const target = targetFor(adapter, project.repo.root, homeOf(ctx.env), o.user);
-      await runChange(ctx, adapter, target, planDisconnect(adapter, target), 'disconnect', o);
+      await runChange(ctx, adapter, target, planDisconnect(adapter, target), 'disconnect', o, project.repo.root);
     });
 
   agents

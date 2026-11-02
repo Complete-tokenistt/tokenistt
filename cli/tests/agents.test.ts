@@ -35,6 +35,21 @@ describe('command privacy', () => {
     assert.equal(commandName('sudo docker ps'), 'docker ps');
     assert.equal(commandName('curl https://x.dev/?token=abc'), 'curl');
   });
+  it('finds the step that matters in a chained command', () => {
+    assert.equal(commandName('cd app && npm test'), 'npm test');
+    assert.equal(commandName('cd /d/x; S=C:/tmp/y; git status --short | head'), 'git status');
+    assert.equal(commandName('export TOKEN=abc123; node deploy.js --key=abc123'), 'node');
+    assert.equal(commandName('cd app'), 'cd');
+    assert.equal(commandName('cat <<EOF\nsecret body\nEOF'), 'cat');
+    assert.doesNotMatch(commandName('cd x && TOKEN=abc123 deploy'), /abc123/);
+  });
+  it('keeps a second word only for tools where it names an action', () => {
+    assert.equal(commandName('mysql hunter2'), 'mysql');
+    assert.equal(commandName('deploy prod'), 'deploy');
+    assert.equal(commandName('cat notes'), 'cat');
+    assert.equal(commandName('docker ps'), 'docker ps');
+    assert.equal(commandName('npm run build'), 'npm run');
+  });
   it('scrubs secrets when full commands are opted into', () => {
     const r = redactCommand('API_TOKEN=abc123 curl -H "Authorization: Bearer abcdefghijkl" --password hunter2 https://u:pw123@host/x --api-key=k9');
     for (const leak of ['abc123', 'abcdefghijkl', 'hunter2', 'pw123', 'k9']) assert.doesNotMatch(r, new RegExp(leak), leak);
@@ -420,6 +435,9 @@ describe('tokenistt agents (end to end)', () => {
     assert.match(readFileSync(join(t.dir, '.claude', 'settings.local.json'), 'utf8'), /hook claude-code/);
     assert.match(runCli(t.dir, ['agents', 'connect', 'claude', '--yes'], { env }).out, /already connected/);
     assert.equal(runCli(t.dir, ['agents', 'disconnect', 'claude', '--yes'], { env }).code, 0);
+    const untracked = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: t.dir, encoding: 'utf8' }).stdout;
+    assert.doesNotMatch(untracked, /backup/, 'a backup must not sit where it could be committed');
+    assert.equal(readdirSync(join(t.dir, '.tokenistt', 'backups')).length, 1);
     assert.doesNotMatch(readFileSync(join(t.dir, '.claude', 'settings.local.json'), 'utf8'), /tokenistt/);
   });
   it('--user writes to the home settings', () => {
