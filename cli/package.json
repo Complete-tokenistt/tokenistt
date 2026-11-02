@@ -17,8 +17,8 @@
     "node": ">=22.13"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.build.json && node scripts/build-viewer.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p viewer/tsconfig.json",
     "test": "node scripts/test.mjs",
     "prepublishOnly": "npm run build"
   },
@@ -33,6 +33,9 @@
   "devDependencies": {
     "@types/node": "^22.13.0",
     "@types/picomatch": "^4.0.2",
+    "cytoscape": "3.34.4",
+    "cytoscape-fcose": "2.2.0",
+    "esbuild": "^0.28.2",
     "tsx": "^4.23.15",
     "typescript": "^5.7.0"
   },

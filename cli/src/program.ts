@@ -5,6 +5,7 @@ import { Output, shouldUseColor } from './core/output.js';
 import { createContext, type Context, type GlobalOptions } from './context.js';
 import { registerAuth } from './commands/auth.js';
 import { registerConnect } from './commands/connect.js';
+import { registerGraph } from './commands/graph.js';
 import { registerInit } from './commands/init.js';
 import { registerMap } from './commands/map.js';
 
@@ -35,6 +36,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
   registerConnect(program, getCtx);
   registerInit(program, getCtx);
   registerMap(program, getCtx);
+  registerGraph(program, getCtx);
   return program;
 }
 
