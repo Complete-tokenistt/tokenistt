@@ -17,6 +17,9 @@ import { resolvePricing, calculateCost, getAvailableModels } from '../services/p
 import { estimateRequestTokens } from '../providers/base.js';
 import { createConnector, listConnectors, deleteConnector, runSync, testConnector } from '../services/connectorService.js';
 import { listConnectorTypes, ConnectorError } from '../connectors/registry.js';
+import { checkPolicies } from '../db/policies.js';
+import { resolveAttribution } from '../services/workspaceResolver.js';
+import type { AuthContext } from '../db/auth.js';
 
 export const managementRouter = Router();
 managementRouter.use(adminAuth);
@@ -169,6 +172,38 @@ managementRouter.delete('/policies/:id', ...endpoint('policies:write', async (re
   notFound(rows[0], 'Policy');
   audit(req, org, 'policy.delete', 'policy', pid(req), rows[0], undefined);
   return { deleted: true };
+}));
+
+/**
+ * Dry-run the policy engine against a hypothetical request. Evaluates the organization's enabled
+ * policies exactly as the proxy would, but writes no decision rows and creates no approval requests.
+ * The call itself is audit-logged.
+ */
+managementRouter.post('/policies/test', ...endpoint('spend:read', async (req, org) => {
+  const b = req.body ?? {};
+  need(typeof b.model === 'string' && b.model.trim(), 'model is required');
+  need(b.prompt === undefined || typeof b.prompt === 'string', 'prompt must be a string');
+  const a = b.attribution ?? {};
+  const attribution = await resolveAttribution({ organizationId: BigInt(org) } as AuthContext, {
+    'x-tokenistt-team': a.team, 'x-tokenistt-project': a.project, 'x-tokenistt-environment': a.environment,
+    'x-tokenistt-repo': a.repo, 'x-tokenistt-ticket': a.ticket, 'x-tokenistt-feature': a.feature,
+    'x-tokenistt-customer': a.customer, 'x-tokenistt-employee': a.employee,
+  });
+  const auth = {
+    organizationId: BigInt(org), virtualKeyId: BigInt(0), costCenter: typeof b.cost_center === 'string' ? b.cost_center : 'default',
+    actor: req.principal!.actor, attribution,
+  } as AuthContext;
+  const result = await checkPolicies(
+    auth, { model: b.model.trim(), messages: [{ role: 'user', content: b.prompt ?? '' }] } as any, undefined, { dryRun: true });
+  audit(req, org, 'policy.test', 'policy', undefined, undefined, { model: b.model, decision: result.allowed ? 'allow' : result.code, policy: result.matchedPolicy });
+  return {
+    dry_run: true,
+    allowed: result.allowed,
+    code: result.code ?? null,
+    reason: result.reason ?? null,
+    matched_policy: result.matchedPolicy ?? null,
+    model_after_policies: result.modifiedRequest?.model ?? b.model.trim(),
+  };
 }));
 
 // ── Routing rules ────────────────────────────────────────────────────────────
@@ -485,6 +520,67 @@ managementRouter.get('/attribution', ...endpoint('spend:read', async (req, org) 
     `SELECT dimension, value, label, cost_usd::text, total_tokens::text, requests::text, first_seen, last_seen
        FROM v_cost_by_dimension WHERE organization_id = $1 AND ($2::text IS NULL OR dimension = $2)
       ORDER BY cost_usd DESC LIMIT 200`, [org, dim])).rows;
+}));
+
+// ── Who am I + usage summary (used by the CLI; the dashboard can use them too) ────────
+
+managementRouter.get('/whoami', ...endpoint('spend:read', async (req, org) => {
+  const { rows } = await pool().query(`SELECT public_id::text AS id, name, slug FROM organizations WHERE id = $1`, [org]);
+  notFound(rows[0], 'Organization');
+  return { actor: req.principal!.actor, role: req.principal!.role, operator: req.principal!.organizationId === null, organization: rows[0] };
+}));
+
+/** Whitelisted grouping expressions: `group_by` never reaches SQL as text. */
+const GROUPS: Record<string, string> = {
+  provider: `t.provider`,
+  model: `t.model`,
+  user: `t.actor`,
+  customer: `t.customer`,
+  endpoint: `t.endpoint`,
+  project: `COALESCE(p.slug, t.project_tag)`,
+  feature: `t.feature`,
+  environment: `t.environment`,
+  lead: `t.metadata->>'lead'`,
+  session: `t.metadata->>'session'`,
+  day: `to_char(date_trunc('day', t.created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD')`,
+};
+
+managementRouter.get('/usage/summary', ...endpoint('spend:read', async (req, org) => {
+  const groupBy = req.query.group_by ? String(req.query.group_by) : null;
+  need(groupBy === null || groupBy === 'none' || GROUPS[groupBy], `group_by must be one of ${['none', ...Object.keys(GROUPS)].join('|')}`);
+  const day = (name: string, fallback: Date): Date => {
+    const raw = req.query[name];
+    if (raw === undefined) return fallback;
+    const d = new Date(String(raw));
+    need(!Number.isNaN(d.getTime()), `${name} must be an ISO-8601 date`);
+    return d;
+  };
+  const until = day('until', new Date());
+  const since = day('since', new Date(until.getTime() - 30 * 24 * 3600 * 1000));
+  need(since < until, 'since must be before until');
+  const key = groupBy && groupBy !== 'none' ? GROUPS[groupBy] : `'all'`;
+  const q = (n: string) => (req.query[n] ? String(req.query[n]) : null);
+  const { rows } = await pool().query(
+    `SELECT ${key} AS key,
+            count(*)::int AS requests,
+            COALESCE(sum(t.prompt_tokens),0)::bigint::text AS input_tokens,
+            COALESCE(sum(t.completion_tokens),0)::bigint::text AS output_tokens,
+            COALESCE(sum(t.cache_read_tokens),0)::bigint::text AS cached_tokens,
+            COALESCE(sum(t.total_tokens),0)::bigint::text AS total_tokens,
+            COALESCE(sum(t.cost_usd),0)::text AS cost_usd,
+            count(*) FILTER (WHERE t.status <> 'success')::int AS errors,
+            count(*) FILTER (WHERE t.status = 'success' AND t.cost_usd = 0 AND t.total_tokens > 0)::int AS zero_cost_requests,
+            round(avg(t.duration_ms))::int AS avg_latency_ms,
+            round(percentile_cont(0.5) WITHIN GROUP (ORDER BY t.duration_ms))::int AS p50_latency_ms,
+            round(percentile_cont(0.95) WITHIN GROUP (ORDER BY t.duration_ms))::int AS p95_latency_ms,
+            min(t.created_at) AS first_seen, max(t.created_at) AS last_seen
+       FROM transactions t LEFT JOIN projects p ON p.id = t.project_id
+      WHERE t.organization_id = $1 AND t.created_at >= $2 AND t.created_at < $3
+        AND ($4::text IS NULL OR t.provider = $4) AND ($5::text IS NULL OR t.model = $5)
+        AND ($6::text IS NULL OR COALESCE(p.slug, t.project_tag) = $6) AND ($7::text IS NULL OR t.actor = $7)
+      GROUP BY 1 ORDER BY sum(t.cost_usd) DESC, count(*) DESC, 1 LIMIT $8`,
+    [org, since.toISOString(), until.toISOString(), q('provider'), q('model'), q('project'), q('user'), limitOf(req, 500)]);
+  return { group_by: groupBy ?? 'none', since: since.toISOString(), until: until.toISOString(), rows };
 }));
 
 // ── Request history + cost report (CSV) ──────────────────────────────────────
