@@ -56,6 +56,22 @@ tokenistt connection status
 | Manifests | line scan | `go.mod`, `Cargo.toml`, `pom.xml`, `pyproject.toml`, `.csproj` dependencies | tested on fixtures |
 | Markdown | link scan | relative links to files | tested |
 
+Framework analyzers, each tested on fixtures, add API endpoints, components and table access on top:
+
+| Framework | What it finds |
+|---|---|
+| Express and similar routers | routes on variables named `app`, `server` or `*router`, `app.use` mount prefixes, handlers and the calls inside inline handlers |
+| Next.js | App Router `route` and `page` files, `pages/api` |
+| React | components (capitalised functions in `.tsx`/`.jsx` that render JSX) and which components use which |
+| NestJS | `@Controller`, `@Get` and friends, constructor injection |
+| FastAPI, Flask | route decorators, `APIRouter` prefixes, `include_router` |
+| Django | `urls.py` paths without `include` prefixes, models, `Model.objects` access |
+| Spring Boot | `@RestController`, `@GetMapping` and friends, `@Autowired`, `@Entity` |
+| PostgreSQL | tables read or written by SQL strings in `query`-style calls, only if the repository defines the table |
+| Drizzle, Prisma, Supabase | table definitions and access through the client |
+
+These read syntax, so a route built from a variable, or a client under an unusual name, is missed rather than guessed. A mount prefix held in a variable, like FastAPI's `prefix=settings.API_V1_STR`, leaves the route without that prefix. Node.js entry points come from `package.json`.
+
 C# base classes and interfaces share one syntax, so the `I` prefix convention decides between `EXTENDS` and `IMPLEMENTS`. Files in other languages still appear as file nodes.
 
 Macros are not expanded, so macro-heavy C and C++ report syntax errors and yield partial symbols: 245 of nlohmann/json's 619 C++ files did when we tried it. Those files are counted in `--stats`.

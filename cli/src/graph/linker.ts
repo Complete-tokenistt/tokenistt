@@ -5,8 +5,8 @@
 import { isBuiltin } from 'node:module';
 import { posix } from 'node:path';
 import {
-  columnId, dirId, docId, envId, fileId, moduleId, packageId, serviceId, symbolId, tableId, testId,
-  type EdgeType, type FileExtract, type GraphEdge, type GraphNode, type ImportRef, type Resolution, type SymbolDef,
+  columnId, dirId, docId, endpointId, envId, fileId, moduleId, packageId, serviceId, symbolId, tableId, testId,
+  type EdgeType, type EndpointDef, type FileExtract, type GraphEdge, type GraphNode, type ImportRef, type Resolution, type SymbolDef,
 } from './schema.js';
 
 /** Languages where a bare name inside a method means the method on the same class first. */
@@ -473,7 +473,21 @@ class Linker {
       const subject = x.path.replace(/_test\.go$/, '.go');
       if (subject !== x.path && this.byPath.has(subject)) this.edge(testId(x.path), fileId(subject), 'TESTS', 'exact', 0.9);
     }
-    for (const imp of x.imports) {
+    for (let imp of x.imports) {
+      // Python's `from pkg import name` may name a submodule rather than an attribute of pkg.
+      if (imp.style === 'python' && imp.bindings.length) {
+        const remaining = imp.bindings.filter((b) => {
+          const sub = this.resolvePython(x.path, imp.source.endsWith('.') ? `${imp.source}${b.imported}` : `${imp.source}.${b.imported}`).file;
+          if (!sub) return true;
+          this.stats.importsResolved++;
+          this.edge(file, fileId(sub), 'IMPORTS', 'resolved', 1, imp.line);
+          if (test && !isTestPath(sub)) this.edge(testId(x.path), fileId(sub), 'TESTS', 'import', 0.8, imp.line);
+          bindings.set(b.local, { files: [sub], imported: '*' });
+          return false;
+        });
+        if (remaining.length === 0) continue;
+        imp = { ...imp, bindings: remaining };
+      }
       const resolved = this.resolveImport(x.path, imp);
       const { external } = resolved;
       const targets = resolved.files ?? (resolved.file ? [resolved.file] : []);
@@ -598,6 +612,146 @@ class Linker {
     }
   }
 
+  /** Whether a package manifest at or above this file depends on the package. */
+  private hasDependency(path: string, dep: string): boolean {
+    let dir = posix.dirname(path);
+    for (;;) {
+      const m = this.byPath.get(dir === '.' ? 'package.json' : posix.join(dir, 'package.json'))?.manifest;
+      if (m?.dependencies.some((d) => d.name === dep)) return true;
+      if (dir === '.' || dir === '') return false;
+      dir = posix.dirname(dir);
+    }
+  }
+
+  /** Next.js routes come from the file system, so they are found from paths once manifests are known. */
+  private nextRoutes(x: FileExtract): EndpointDef[] {
+    if (!/\.(ts|tsx|js|jsx)$/.test(x.path) || !this.hasDependency(x.path, 'next')) return [];
+    const toPath = (raw: string): string => {
+      const segments = raw.split('/').filter((p) => p && !/^\(.*\)$/.test(p) && !p.startsWith('@'));
+      const joined = `/${segments.join('/')}`.replace(/\[\.\.\.(\w+)\]/g, '*$1').replace(/\[\[\.\.\.(\w+)\]\]/g, '*$1').replace(/\[(\w+)\]/g, ':$1');
+      return joined;
+    };
+    const app = /(?:^|\/)app\/(?:(.*)\/)?(route|page)\.[a-z]+$/.exec(x.path);
+    if (app) {
+      const path = toPath(app[1] ?? '');
+      if (app[2] === 'page') {
+        const page = x.defaultExport ?? x.symbols.find((s) => s.exported)?.qualified;
+        return [{ method: 'PAGE', path, framework: 'nextjs', line: 1, ...(page ? { handler: { name: page, qualified: true } } : {}) }];
+      }
+      return x.symbols.filter((s) => s.exported && !s.parent && /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)$/.test(s.name))
+        .map((s) => ({ method: s.name, path, framework: 'nextjs', line: s.startLine, handler: { name: s.qualified, qualified: true } }));
+    }
+    const pages = /(?:^|\/)pages\/(api\/.*)\.[a-z]+$/.exec(x.path);
+    if (pages) {
+      const path = toPath((pages[1] ?? '').replace(/\/index$/, ''));
+      return [{ method: 'ANY', path, framework: 'nextjs', line: 1, ...(x.defaultExport ? { handler: { name: x.defaultExport, qualified: true } } : {}) }];
+    }
+    return [];
+  }
+
+  /** The URL prefix a router gets from where it is mounted, following nested mounts. */
+  private computePrefixes(): Map<string, string> {
+    const parents = new Map<string, { parent: string; prefix: string }>();
+    const key = (file: string, router: string) => `${file}\0${router}`;
+    for (const x of this.extracts) {
+      for (const m of x.mounts) {
+        // `items.router` is the router variable inside an imported module.
+        const [head = '', member] = m.router.split('.');
+        const b = this.bindings.get(x.path)?.get(head);
+        const child = b ? this.routerKey(b.files, member ?? b.imported, key) : key(x.path, m.router);
+        if (child) parents.set(child, { parent: key(x.path, m.on), prefix: m.prefix });
+      }
+    }
+    const out = new Map<string, string>();
+    for (const start of parents.keys()) {
+      let prefix = '';
+      let at: string | undefined = start;
+      for (let i = 0; at && i < 16; i++) {
+        const p = parents.get(at);
+        if (!p) break;
+        prefix = `${p.prefix}${prefix}`;
+        at = p.parent;
+      }
+      out.set(start, prefix);
+    }
+    return out;
+  }
+
+  private routerKey(files: string[], imported: string, key: (f: string, r: string) => string): string | undefined {
+    for (const f of files) {
+      const x = this.byPath.get(f);
+      if (!x) continue;
+      const name = imported === 'default' ? x.defaultExport : imported === '*' ? undefined : imported;
+      if (name) return key(f, name);
+    }
+    return undefined;
+  }
+
+  private tableForAccess(x: FileExtract, a: { table?: string; variable?: string; model?: string }): string | undefined {
+    if (a.table) return this.nodes.has(tableId(a.table)) ? a.table : undefined;
+    if (a.model) {
+      const lower = a.model.toLowerCase();
+      for (const e of this.extracts) {
+        const t = e.tables.find((d) => d.model === a.model || d.model?.toLowerCase() === lower);
+        if (t) return t.name;
+      }
+      return undefined;
+    }
+    if (!a.variable) return undefined;
+    const local = x.tables.find((t) => t.variable === a.variable);
+    if (local) return local.name;
+    const b = this.bindings.get(x.path)?.get(a.variable);
+    for (const f of b?.files ?? []) {
+      const t = this.byPath.get(f)?.tables.find((d) => d.variable === b?.imported);
+      if (t) return t.name;
+    }
+    return undefined;
+  }
+
+  private frameworks(x: FileExtract, prefixes: Map<string, string>): void {
+    const file = fileId(x.path);
+    const symbolFor = (qualified: string | undefined): string => {
+      const s = qualified ? x.symbols.find((d) => d.qualified === qualified) : undefined;
+      return s ? this.symbolNodeId(x, s) : file;
+    };
+    for (const e of [...x.endpoints, ...this.nextRoutes(x)]) {
+      const local = e.router ? x.routerPrefixes.find((r) => r.router === e.router)?.prefix ?? '' : '';
+      const mounted = e.router ? prefixes.get(`${x.path}\0${e.router}`) ?? '' : '';
+      const path = `${mounted}${local}${e.path}`.replace(/\/{2,}/g, '/').replace(/(.)\/$/, '$1') || '/';
+      const id = endpointId(x.path, e.method, path);
+      this.node({ id, type: 'endpoint', name: `${e.method} ${path}`, path: x.path, startLine: e.line, metadata: { method: e.method, route: path, framework: e.framework } });
+      this.edge(file, id, 'CONTAINS', 'exact', 1, e.line);
+      if (e.handler) {
+        const target = e.handler.qualified
+          ? (() => { const s = x.symbols.find((d) => d.qualified === e.handler?.name); return s ? { id: this.symbolNodeId(x, s), confidence: 0.95 } : undefined; })()
+          : this.resolveName(x, e.handler.name, e.handler.object, undefined);
+        if (target) this.edge(target.id, id, 'CONNECTS_TO', 'framework', target.confidence, e.line);
+      }
+      for (const c of e.calls ?? []) {
+        const target = this.resolveName(x, c.callee, c.object, undefined);
+        if (target) this.edge(id, target.id, 'CALLS', target.resolution, target.confidence, c.line);
+      }
+    }
+    for (const u of x.uses) {
+      const target = this.resolveName(x, u.name, undefined, undefined);
+      if (target) this.edge(symbolFor(u.from), target.id, 'USES', 'framework', target.confidence, u.line);
+    }
+    for (const a of x.tableAccess) {
+      const table = this.tableForAccess(x, a);
+      if (table) this.edge(symbolFor(a.from), tableId(table), a.access === 'write' ? 'WRITES_TO' : 'READS_FROM', 'framework', a.via === 'sql' ? 0.8 : 0.85, a.line);
+    }
+    for (const name of x.components) {
+      const s = x.symbols.find((d) => d.qualified === name);
+      const n = s ? this.nodes.get(this.symbolNodeId(x, s)) : undefined;
+      if (n) n.type = 'component';
+    }
+    if (x.manifest?.entry && x.manifest.ecosystem === 'npm') {
+      const hit = this.firstExisting(posix.join(posix.dirname(x.path), x.manifest.entry)) ?? this.firstExisting(posix.join(posix.dirname(x.path), x.manifest.entry.replace(/^\.?\/?(dist|build|lib|out)\//, 'src/')));
+      const n = hit ? this.nodes.get(fileId(hit)) : undefined;
+      if (n) n.metadata = { ...n.metadata, entryPoint: true };
+    }
+  }
+
   /** A service depending on something defined elsewhere would leave a dangling edge; drop those. */
   private pruneDangling(): void {
     for (const [key, e] of this.edges) if (!this.nodes.has(e.source) || !this.nodes.has(e.target)) this.edges.delete(key);
@@ -613,6 +767,9 @@ class Linker {
       this.database(x);
       this.config(x);
     }
+    // After every table exists, so raw SQL only links to tables the repository really defines.
+    const prefixes = this.computePrefixes();
+    for (const x of this.extracts) this.frameworks(x, prefixes);
     this.pruneDangling();
     return {
       nodes: [...this.nodes.values()].sort((a, b) => byBytes(a.id, b.id)),
