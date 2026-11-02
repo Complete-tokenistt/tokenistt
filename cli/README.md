@@ -103,7 +103,7 @@ endpoint). Dashboard tokens expire; `tokenistt auth status` shows when, and `doc
 | Command | What it does |
 |---|---|
 | `tokenistt init` | Set up this repository: `.tokenistt/` and the local database. Safe to re-run; needs no network |
-| `tokenistt map` | Build the codebase knowledge graph in `.tokenistt/graph`. `--full`, `--stats`, `--export json [--out dir]`. Needs no network |
+| `tokenistt map` | Build the codebase knowledge graph in `.tokenistt/graph`. `--full`, `--incremental`, `--watch`, `--stats`, `--export json [--out dir]`, `--import file`. Needs no network |
 | `tokenistt login` | Authenticate and store credentials (see above) |
 | `tokenistt logout` | Remove stored credentials (environment variables are untouched and reported) |
 | `tokenistt auth status` | Which credentials are in effect, masked, with source and expiry. Local, no network |
