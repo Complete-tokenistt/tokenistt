@@ -23,6 +23,11 @@ export async function ask(question: string, fallback?: string): Promise<string> 
   return answer.trim() || fallback || '';
 }
 
+/** Anything but an explicit yes is a no. */
+export async function confirm(question: string): Promise<boolean> {
+  return /^y(es)?$/i.test(await ask(`${question} [y/N]`));
+}
+
 /** Prompt without echoing what is typed. */
 export async function askSecret(question: string): Promise<string> {
   requireTty(question);
