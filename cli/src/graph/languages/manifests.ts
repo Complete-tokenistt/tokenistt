@@ -58,7 +58,12 @@ export function extractPyproject(text: string, x: FileExtract): void {
 }
 
 export function extractPomXml(text: string, x: FileExtract): void {
-  const withoutComments = text.replace(/<!--[\s\S]*?-->/g, '');
+  let withoutComments = text;
+  let previous: string;
+  do {
+    previous = withoutComments;
+    withoutComments = withoutComments.replace(/<!--[\s\S]*?-->/g, '');
+  } while (withoutComments !== previous);
   // The project's own artifactId is the first one outside <parent>.
   const name = /<artifactId>([^<]+)<\/artifactId>/.exec(withoutComments.replace(/<parent>[\s\S]*?<\/parent>/, ''))?.[1]?.trim();
   const deps: ManifestInfo['dependencies'] = [];
