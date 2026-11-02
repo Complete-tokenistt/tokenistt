@@ -1,7 +1,7 @@
 {
   "name": "tokenistt",
   "version": "0.1.0",
-  "description": "Command-line client for a self-hosted Tokenistt gateway: authenticate, inspect AI usage and cost, test policies.",
+  "description": "Open-source AI cost visibility and governance, with developer intelligence for your repositories.",
   "keywords": ["tokenistt", "cli", "llm", "ai", "cost", "usage", "governance"],
   "license": "Apache-2.0",
   "type": "module",
@@ -14,12 +14,12 @@
     "README.md"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test --test-force-exit --test-timeout=60000 tests/*.test.ts",
+    "test": "node scripts/test.mjs",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
@@ -28,7 +28,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^20.19.43",
+    "@types/node": "^22.13.0",
     "tsx": "^4.23.15",
     "typescript": "^5.7.0"
   },
