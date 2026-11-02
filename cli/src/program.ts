@@ -5,6 +5,7 @@ import { Output, shouldUseColor } from './core/output.js';
 import { createContext, type Context, type GlobalOptions } from './context.js';
 import { registerAuth } from './commands/auth.js';
 import { registerConnect } from './commands/connect.js';
+import { registerInit } from './commands/init.js';
 
 const require = createRequire(import.meta.url);
 export const VERSION: string = (require('../package.json') as { version: string }).version;
@@ -17,7 +18,7 @@ export interface ProgramDeps {
 export function buildProgram(deps: ProgramDeps = {}): Command {
   const env = deps.env ?? process.env;
   const program = new Command('tokenistt')
-    .description('Command-line client for a self-hosted Tokenistt gateway')
+    .description('Open-source AI cost visibility and governance, with developer intelligence for your repositories')
     .version(VERSION, '-V, --version')
     .option('--json', 'machine-readable output on stdout')
     .option('--quiet', 'suppress informational output')
@@ -31,6 +32,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
 
   registerAuth(program, getCtx);
   registerConnect(program, getCtx);
+  registerInit(program, getCtx);
   return program;
 }
 

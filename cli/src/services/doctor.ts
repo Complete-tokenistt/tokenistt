@@ -2,9 +2,13 @@
  * `tokenistt doctor`: each check says what it found and, when it is not fine, exactly what to do.
  * Later phases register further checks (project config, SDK integration, local queue, policies).
  */
+import { existsSync } from 'node:fs';
 import { ApiClient } from '../api/client.js';
 import { ApiError, CliError } from '../core/errors.js';
 import { configFile, isFileTooOpen, type ResolvedConfig } from '../config/store.js';
+import { repoInfo } from '../project/git.js';
+import { databasePath, openDatabase, SCHEMA_VERSION } from '../store/db.js';
+import { readProjectConfig } from '../store/project.js';
 import { describeToken, type Health, type KeyUsage, type Whoami } from './auth.js';
 
 export type CheckStatus = 'ok' | 'warn' | 'fail' | 'skip';
@@ -22,17 +26,45 @@ export interface DoctorContext {
   client: ApiClient;
   nodeVersion: string;
   env: NodeJS.ProcessEnv;
+  cwd?: string;
 }
 
-const MIN_NODE_MAJOR = 20;
+const MIN_NODE: [number, number] = [22, 13];
 
 type Check = (ctx: DoctorContext) => Promise<CheckResult> | CheckResult;
 
 const nodeVersion: Check = ({ nodeVersion: v }) => {
-  const major = Number(v.replace(/^v/, '').split('.')[0]);
-  return major >= MIN_NODE_MAJOR
+  const [major = 0, minor = 0] = v.replace(/^v/, '').split('.').map(Number);
+  const ok = major > MIN_NODE[0] || (major === MIN_NODE[0] && minor >= MIN_NODE[1]);
+  const min = MIN_NODE.join('.');
+  return ok
     ? { id: 'node', title: 'Node.js version', status: 'ok', detail: v }
-    : { id: 'node', title: 'Node.js version', status: 'fail', detail: `${v} is older than ${MIN_NODE_MAJOR}`, fix: `Install Node.js ${MIN_NODE_MAJOR} or newer.` };
+    : { id: 'node', title: 'Node.js version', status: 'fail', detail: `${v} is older than ${min}`, fix: `Install Node.js ${min} or newer.` };
+};
+
+const project: Check = ({ cwd }) => {
+  const title = 'Project';
+  const repo = repoInfo(cwd ?? process.cwd());
+  if (!repo) return { id: 'project', title, status: 'skip', detail: 'Not inside a Git repository' };
+  try {
+    const config = readProjectConfig(repo.root);
+    if (!config) return { id: 'project', title, status: 'skip', detail: `${repo.name} is not set up`, fix: 'Run `tokenistt init` for local features.' };
+    return { id: 'project', title, status: 'ok', detail: `${config.name} (${config.projectId})` };
+  } catch (err) {
+    return { id: 'project', title, status: 'fail', detail: err instanceof CliError ? err.message : String(err), fix: err instanceof CliError ? err.hint : undefined };
+  }
+};
+
+const localDatabase: Check = ({ cwd }) => {
+  const title = 'Local database';
+  const repo = repoInfo(cwd ?? process.cwd());
+  if (!repo || !existsSync(databasePath(repo.root))) return { id: 'local-db', title, status: 'skip', detail: 'Not created yet' };
+  try {
+    openDatabase(repo.root).close();
+    return { id: 'local-db', title, status: 'ok', detail: `schema ${SCHEMA_VERSION}` };
+  } catch (err) {
+    return { id: 'local-db', title, status: 'fail', detail: err instanceof CliError ? err.message : String(err), fix: err instanceof CliError ? err.hint : undefined };
+  }
 };
 
 const configPermissions: Check = ({ env, cfg }) => {
@@ -94,7 +126,7 @@ const ingestKey: Check = async ({ client }) => {
   }
 };
 
-export const CHECKS: Check[] = [nodeVersion, configPermissions, credentials, gatewayHealth, managementAuth, ingestKey];
+export const CHECKS: Check[] = [nodeVersion, project, localDatabase, configPermissions, credentials, gatewayHealth, managementAuth, ingestKey];
 
 export interface DoctorReport {
   ok: boolean;

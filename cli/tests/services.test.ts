@@ -180,17 +180,17 @@ describe('doctor', () => {
     try {
       const e = env();
       const cfg = resolveConfig({ ...e, TOKENISTT_API_URL: gw.url, TOKENISTT_TOKEN: fakeJwt(), TOKENISTT_API_KEY: KEY });
-      const ok = await runDoctor({ cfg, client: mk(cfg), nodeVersion: 'v22.1.0', env: e });
+      const ok = await runDoctor({ cfg, client: mk(cfg), nodeVersion: 'v22.13.0', env: e });
       assert.equal(ok.ok, true);
       assert.equal(ok.summary.fail, 0);
 
       const old = await runDoctor({ cfg, client: mk(cfg), nodeVersion: 'v16.0.0', env: e });
       const node = old.checks.find((c) => c.id === 'node')!;
       assert.equal(node.status, 'fail');
-      assert.match(node.fix!, /Node\.js 20/);
+      assert.match(node.fix!, /Node\.js 22\.13/);
 
       const none = resolveConfig({ ...e, TOKENISTT_API_URL: gw.url });
-      const bare = await runDoctor({ cfg: none, client: mk(none), nodeVersion: 'v22.1.0', env: e });
+      const bare = await runDoctor({ cfg: none, client: mk(none), nodeVersion: 'v22.13.0', env: e });
       assert.equal(bare.ok, false);
       assert.match(bare.checks.find((c) => c.id === 'credentials')!.fix!, /tokenistt login/);
     } finally { await gw.close(); }
@@ -199,7 +199,7 @@ describe('doctor', () => {
   it('flags an expired token and an unreachable gateway with specific advice', async () => {
     const e = env();
     const cfg = resolveConfig({ ...e, TOKENISTT_API_URL: 'http://127.0.0.1:1', TOKENISTT_TOKEN: fakeJwt(-60) });
-    const r = await runDoctor({ cfg, client: mk(cfg), nodeVersion: 'v22.0.0', env: e });
+    const r = await runDoctor({ cfg, client: mk(cfg), nodeVersion: 'v22.13.0', env: e });
     assert.match(r.checks.find((c) => c.id === 'credentials')!.detail, /expired/);
     const gw = r.checks.find((c) => c.id === 'gateway')!;
     assert.equal(gw.status, 'fail');
@@ -211,7 +211,7 @@ describe('doctor', () => {
     try {
       const e = env();
       const cfg = resolveConfig({ ...e, TOKENISTT_API_URL: gw.url, TOKENISTT_API_KEY: KEY });
-      const r = await runDoctor({ cfg, client: mk(cfg), nodeVersion: 'v22.0.0', env: e });
+      const r = await runDoctor({ cfg, client: mk(cfg), nodeVersion: 'v22.13.0', env: e });
       assert.equal(r.checks.find((c) => c.id === 'gateway')!.status, 'warn');
     } finally { await gw.close(); }
   });

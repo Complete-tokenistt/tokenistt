@@ -17,7 +17,7 @@ npm run build -w cli
 node cli/bin/tokenistt.js --help          # or: npm link -w cli   →  tokenistt --help
 ```
 
-Requires Node.js 20 or newer.
+Requires Node.js 22.13 or newer (the local database uses Node's built-in SQLite).
 
 ## Quick start
 
@@ -72,6 +72,7 @@ endpoint). Dashboard tokens expire; `tokenistt auth status` shows when, and `doc
 
 | Command | What it does |
 |---|---|
+| `tokenistt init` | Set up this repository: `.tokenistt/` and the local database. Safe to re-run; needs no network |
 | `tokenistt login` | Authenticate and store credentials (see above) |
 | `tokenistt logout` | Remove stored credentials (environment variables are untouched and reported) |
 | `tokenistt auth status` | Which credentials are in effect, masked, with source and expiry. Local, no network |
@@ -80,7 +81,7 @@ endpoint). Dashboard tokens expire; `tokenistt auth status` shows when, and `doc
 | `tokenistt connect` | Verify the link; list your organization, workspaces and projects; remember the connection |
 | `tokenistt disconnect` | Forget the saved connection (keeps credentials) |
 | `tokenistt connection status` | Probe the gateway now: `connected`, `offline` or `unauthorized` |
-| `tokenistt doctor` | Check Node version, config file permissions, credentials, gateway health, management access and API key |
+| `tokenistt doctor` | Check Node version, project setup, local database, config file permissions, credentials, gateway health, management access and API key |
 
 ### Global options
 
@@ -134,7 +135,7 @@ tell "retry later" from "fix the credentials" (`3`).
 Planned in this order (see [`docs/cli/PLAN.md`](../docs/cli/PLAN.md)); none of these exist yet:
 
 1. `usage`, `cost`, `attribution`, `models`, `providers` — reads from the gateway's `/v1/admin/usage/summary` (already shipped in the gateway).
-2. `init`, local SQLite queue and `sync` — records usage events locally and sends them to `/v1/ingest/events` (already shipped); needs Node 22.13+ for the local store.
+2. Local SQLite queue and `sync` — records usage events locally and sends them to `/v1/ingest/events` (already shipped).
 3. `policy` (YAML apply/test, using the gateway's dry-run endpoint) and `optimize` (rule-based findings with evidence).
 4. npm publishing workflow.
 
@@ -151,4 +152,4 @@ npm run typecheck -w cli
 ```
 
 Layout: `src/commands` (thin commander wiring) → `src/services` (logic, no terminal I/O) → `src/api` (gateway client) and
-`src/config` (credential store); `src/core` holds output, errors, redaction and prompts.
+`src/config` (credential store); `src/project` reads git and manifests; `src/store` owns `.tokenistt/` and SQLite; `src/core` holds output, errors, redaction and prompts.

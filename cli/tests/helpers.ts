@@ -1,8 +1,11 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export interface Recorded {
   method: string;
@@ -64,4 +67,34 @@ export function standardGateway() {
       ? { json: { key: { name: 'ci-key', prefix: 'tktt_live_good_ke...' }, month: { requests: 3, cost_usd: 0.12 } } }
       : { status: 401, json: { error: { message: 'Invalid or revoked key.' } } }),
   });
+}
+
+const MAIN = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'main.ts');
+const TSX = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href;
+
+/** Runs the real CLI with the given working directory, isolated from the developer's own config. */
+export function runCli(cwd: string, args: string[], opts: { stdin?: string; env?: Record<string, string> } = {}) {
+  const r = spawnSync(process.execPath, ['--import', TSX, MAIN, ...args], {
+    cwd,
+    input: opts.stdin ?? '',
+    encoding: 'utf8',
+    env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, NO_COLOR: '1', TOKENISTT_CONFIG_DIR: join(cwd, '.test-config'), ...opts.env },
+  });
+  return { code: r.status ?? -1, out: r.stdout, err: r.stderr };
+}
+
+/** A throwaway repository, with one commit when files are given. */
+export function gitRepo(files: Record<string, string> = {}): { dir: string; cleanup: () => void; git: (...args: string[]) => void } {
+  const t = tempDir();
+  const git = (...a: string[]) => { execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...a], { cwd: t.dir, stdio: 'ignore' }); };
+  git('init', '-q', '-b', 'main');
+  for (const [p, c] of Object.entries(files)) {
+    mkdirSync(dirname(join(t.dir, p)), { recursive: true });
+    writeFileSync(join(t.dir, p), c);
+  }
+  if (Object.keys(files).length) {
+    git('add', '-A');
+    git('commit', '-q', '-m', 'first');
+  }
+  return { ...t, git };
 }
