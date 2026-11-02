@@ -9,6 +9,9 @@ import { registerConnect } from './commands/connect.js';
 import { registerGraph } from './commands/graph.js';
 import { registerInit } from './commands/init.js';
 import { registerMap } from './commands/map.js';
+import { registerMemory } from './commands/memory.js';
+import { registerSessions } from './commands/sessions.js';
+import { registerWatch } from './commands/watch.js';
 
 const require = createRequire(import.meta.url);
 export const VERSION: string = (require('../package.json') as { version: string }).version;
@@ -39,6 +42,9 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
   registerMap(program, getCtx);
   registerGraph(program, getCtx);
   registerAgents(program, getCtx);
+  registerSessions(program, getCtx);
+  registerWatch(program, getCtx);
+  registerMemory(program, getCtx);
   return program;
 }
 

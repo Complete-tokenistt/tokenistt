@@ -12,6 +12,7 @@ interface NodeDetail {
   view: ViewNode;
   incoming: Relation[]; outgoing: Relation[]; incomingTotal: number; outgoingTotal: number;
   history: Array<{ commit: string; date: string; subject: string }>;
+  sessions: Array<{ agent: string; id: string; lastEventAt: string; touches: number; changed: boolean }>;
 }
 interface Overview {
   metadata: { generatedAt: string; repository: { name: string; branch: string | null; commit: string | null }; nodes: Record<string, number>; edges: Record<string, number> } | null;
@@ -356,6 +357,21 @@ async function select(id: string): Promise<void> {
   panel.append(actions, summary);
 
   panel.append(relationList('Used by', d.incoming, d.incomingTotal), relationList('Uses', d.outgoing, d.outgoingTotal));
+
+  if (d.sessions.length) {
+    const hs = document.createElement('h3');
+    hs.textContent = 'Agent sessions';
+    const ul = document.createElement('ul');
+    ul.className = 'history';
+    for (const session of d.sessions) {
+      const li = document.createElement('li');
+      const when = document.createElement('small');
+      when.textContent = `${session.lastEventAt.slice(0, 10)} ${session.id.slice(0, 8)} `;
+      li.append(when, document.createTextNode(`${session.agent} ${session.changed ? 'changed this' : 'read this'}`));
+      ul.append(li);
+    }
+    panel.append(hs, ul);
+  }
 
   if (d.history.length) {
     const hh = document.createElement('h3');

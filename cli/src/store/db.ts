@@ -37,6 +37,22 @@ export const MIGRATIONS: string[] = [
    CREATE INDEX agent_events_session ON agent_events (session_key, at);
    CREATE INDEX agent_events_path ON agent_events (path);
    CREATE TABLE agent_ingest (file TEXT PRIMARY KEY, offset INTEGER NOT NULL) STRICT;`,
+  `CREATE TABLE agent_usage (
+     session_key TEXT NOT NULL, request_id TEXT NOT NULL, model TEXT, at TEXT,
+     input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, cache_read_tokens INTEGER NOT NULL, cache_creation_tokens INTEGER NOT NULL,
+     PRIMARY KEY (session_key, request_id)
+   ) STRICT, WITHOUT ROWID;`,
+  `CREATE TABLE memories (
+     id TEXT PRIMARY KEY, project_id TEXT NOT NULL, category TEXT NOT NULL, content TEXT NOT NULL,
+     source_kind TEXT NOT NULL, source_ref TEXT NOT NULL, confidence REAL NOT NULL, relevance REAL NOT NULL, status TEXT NOT NULL,
+     dedupe_key TEXT, supersedes TEXT, superseded_by TEXT, stale_reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, review_at TEXT
+   ) STRICT;
+   CREATE INDEX memories_current ON memories (status, category);
+   CREATE INDEX memories_dedupe ON memories (dedupe_key);
+   CREATE TABLE memory_nodes (memory_id TEXT NOT NULL, node_id TEXT NOT NULL, PRIMARY KEY (memory_id, node_id)) STRICT, WITHOUT ROWID;
+   CREATE INDEX memory_nodes_node ON memory_nodes (node_id);
+   CREATE TABLE memory_sessions (memory_id TEXT NOT NULL, session_key TEXT NOT NULL, PRIMARY KEY (memory_id, session_key)) STRICT, WITHOUT ROWID;
+   CREATE VIRTUAL TABLE memory_fts USING fts5(id UNINDEXED, category UNINDEXED, content);`,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
