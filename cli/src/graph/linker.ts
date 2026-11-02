@@ -132,7 +132,7 @@ class Linker {
           : (spec.startsWith(pattern.slice(0, star)) && spec.endsWith(pattern.slice(star + 1)) ? spec.slice(star, spec.length - (pattern.length - star - 1)) : undefined);
         if (matched === undefined) continue;
         for (const t of targets) {
-          const hit = this.firstExisting(posix.join(baseDir, t.replace('*', matched)));
+          const hit = this.firstExisting(posix.join(baseDir, t.replace(/\*/g, matched)));
           if (hit) return hit;
         }
       }
