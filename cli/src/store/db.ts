@@ -13,6 +13,19 @@ export type Database = DatabaseSync;
 
 export const MIGRATIONS: string[] = [
   `CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;`,
+  `CREATE TABLE file_extracts (path TEXT PRIMARY KEY, sha TEXT NOT NULL, extractor INTEGER NOT NULL, extract TEXT NOT NULL) STRICT;
+   CREATE TABLE graph_nodes (
+     id TEXT PRIMARY KEY, type TEXT NOT NULL, name TEXT NOT NULL, path TEXT, language TEXT, parent TEXT,
+     start_line INTEGER, end_line INTEGER, metadata TEXT
+   ) STRICT;
+   CREATE INDEX graph_nodes_type ON graph_nodes (type);
+   CREATE INDEX graph_nodes_path ON graph_nodes (path);
+   CREATE TABLE graph_edges (
+     source TEXT NOT NULL, target TEXT NOT NULL, type TEXT NOT NULL, confidence REAL NOT NULL, resolution TEXT NOT NULL, line INTEGER,
+     PRIMARY KEY (source, target, type)
+   ) STRICT, WITHOUT ROWID;
+   CREATE INDEX graph_edges_target ON graph_edges (target, type);
+   CREATE VIRTUAL TABLE graph_fts USING fts5(id UNINDEXED, name, path, tokenize = "unicode61 tokenchars '_'");`,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
