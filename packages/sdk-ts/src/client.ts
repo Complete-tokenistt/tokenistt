@@ -205,13 +205,14 @@ export class Tokenistt extends Emitter<ClientEvents> {
   /** Record usage for a billable response and fire cost/budget events. */
   recordUsage(
     usage: UsageLike | undefined,
-    meta: { model: string; user?: string; costCenter?: string; requestId?: string },
+    meta: { model: string; user?: string; costCenter?: string; requestId?: string; gatewayCostUsd?: number },
   ): void {
     if (!usage) return;
     this.tracker.record(meta.model, usage, {
       user: meta.user ?? this.user,
       costCenter: meta.costCenter ?? this.costCenter,
       requestId: meta.requestId,
+      gatewayCostUsd: meta.gatewayCostUsd,
     });
   }
 

@@ -63,3 +63,15 @@ def jsonable(o: Any) -> Any:
     if isinstance(o, (list, tuple, set)):
         return [jsonable(v) for v in o]
     return o
+
+
+def gateway_cost(headers: Any) -> Optional[float]:
+    """Cost the gateway priced a response at (`x-tokenistt-cost`); None when absent or not a plain number."""
+    raw = headers.get("x-tokenistt-cost")
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 0 and value == value and value != float("inf") else None

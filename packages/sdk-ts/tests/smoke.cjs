@@ -1,6 +1,6 @@
 /* eslint-disable */
 // Runtime smoke test for the built SDK. Run: node tests/smoke.cjs
-const { Tokenistt, BudgetExceededError } = require('../dist/cjs');
+const { Tokenistt, BudgetExceededError, AuthenticationError } = require('../dist/cjs');
 
 function jsonResponse(body, init = {}) {
   return new Response(JSON.stringify(body), {
@@ -89,6 +89,38 @@ async function main() {
   } catch (e) {
     console.log('4. blocked as expected:', e.name, '| cumulative =', strict.getCumulativeCost().toFixed(6));
   }
+
+  // --- 5. regressions found by the gateway e2e ---
+  // 5a. a 401 stays a typed AuthenticationError (it used to be re-wrapped as APIConnectionError)
+  const authed = new Tokenistt({
+    apiKey: 'bad',
+    maxRetries: 0,
+    fetch: async () => new Response(JSON.stringify({ error: { message: 'no such key' } }), { status: 401, headers: { 'content-type': 'application/json' } }),
+  });
+  try {
+    await authed.chat.completions.create({ model: 'm', messages: [{ role: 'user', content: 'x' }] });
+    throw new Error('should have thrown');
+  } catch (e) {
+    if (!(e instanceof AuthenticationError)) { console.error('  ERROR: expected AuthenticationError, got', e && e.name); process.exit(1); }
+  }
+  // 5b. several SSE events in one network read are all delivered
+  const chunk = (content) => `data: ${JSON.stringify({ id: 'c', object: 'chat.completion.chunk', created: 1, model: 'm', choices: [{ index: 0, delta: { content }, finish_reason: null }] })}\n\n`;
+  const sse = new Tokenistt({ apiKey: 'x', fetch: async () => new Response(chunk('a') + chunk('b') + chunk('c') + 'data: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } }) });
+  const st = await sse.chat.completions.create({ model: 'm', stream: true, messages: [{ role: 'user', content: 'x' }] });
+  let text = '';
+  for await (const ch of st) text += ch.choices?.[0]?.delta?.content ?? '';
+  if (text !== 'abc') { console.error('  ERROR: stream lost events, got', JSON.stringify(text)); process.exit(1); }
+  // 5c. the gateway-reported cost beats the client's price table (a model it does not list would cost $0)
+  const priced = new Tokenistt({
+    apiKey: 'x',
+    fetch: async () => jsonResponse(
+      { id: 'p', object: 'chat.completion', created: 1, model: 'mock:echo', choices: [{ index: 0, message: { role: 'assistant', content: 'x' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } },
+      { headers: { 'x-tokenistt-cost': '0.000123' } },
+    ),
+  });
+  await priced.chat.completions.create({ model: 'mock:echo', messages: [{ role: 'user', content: 'x' }] });
+  if (priced.getCumulativeCost() !== 0.000123) { console.error('  ERROR: expected gateway cost, got', priced.getCumulativeCost()); process.exit(1); }
+  console.log('5. 401 typed, SSE batch intact, gateway cost used');
 
   console.log('\nALL OK');
 }
