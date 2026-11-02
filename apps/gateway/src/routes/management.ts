@@ -253,6 +253,46 @@ managementRouter.post('/routing-rules/simulate', ...endpoint('spend:read', async
 }));
 
 // Price catalog joined with what this org actually observed in the last 30 days.
+const repositoryRow = async (publicId: string, org: string) => {
+  const repo = (await pool().query(`SELECT id::text, public_id::text AS id_public, name, branch, commit_sha, graph_stats, graph_modules, last_synced_at FROM code_repositories WHERE public_id = $1 AND organization_id = $2`, [publicId, org])).rows[0];
+  if (!repo) throw new HttpError(404, 'No such repository.');
+  return repo;
+};
+
+managementRouter.get('/repositories', ...endpoint('spend:read', async (_req, org) => {
+  return (await pool().query(
+    `SELECT r.public_id::text AS id, r.name, r.branch, r.commit_sha, r.graph_stats, r.last_synced_at,
+            (SELECT count(*)::int FROM agent_sessions s WHERE s.repository_id = r.id) AS sessions,
+            (SELECT count(*)::int FROM repository_memories m WHERE m.repository_id = r.id AND m.status IN ('active', 'stale')) AS memories
+       FROM code_repositories r WHERE r.organization_id = $1 ORDER BY r.last_synced_at DESC`, [org])).rows;
+}));
+
+managementRouter.get('/repositories/:id/graph', ...endpoint('spend:read', async (req, org) => {
+  const r = await repositoryRow(String(req.params.id), org);
+  return { id: r.id_public, name: r.name, commit: r.commit_sha, stats: r.graph_stats, modules: r.graph_modules ?? [], last_synced_at: r.last_synced_at };
+}));
+
+managementRouter.get('/repositories/:id/memories', ...endpoint('spend:read', async (req, org) => {
+  const r = await repositoryRow(String(req.params.id), org);
+  const category = typeof req.query.category === 'string' ? req.query.category : null;
+  return (await pool().query(
+    `SELECT memory_key AS key, category, content, source_kind, source_ref, status, updated_at FROM repository_memories
+      WHERE organization_id = $1 AND repository_id = $2 AND status IN ('active', 'stale') AND ($3::text IS NULL OR category = $3)
+      ORDER BY category, updated_at DESC LIMIT 500`, [org, r.id, category])).rows;
+}));
+
+managementRouter.get('/agent-sessions', ...endpoint('spend:read', async (req, org) => {
+  const agent = typeof req.query.agent === 'string' ? req.query.agent : null;
+  const repository = typeof req.query.repository === 'string' ? req.query.repository : null;
+  const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+  return (await pool().query(
+    `SELECT s.agent, s.session_id, s.branch, s.state, s.started_at, s.ended_at, s.last_event_at, s.models, s.tokens, s.cost_usd::float AS cost_usd, s.cost_source, s.counts, s.changed_files,
+            r.public_id::text AS repository_id, r.name AS repository
+       FROM agent_sessions s JOIN code_repositories r ON r.id = s.repository_id
+      WHERE s.organization_id = $1 AND ($2::text IS NULL OR s.agent = $2) AND ($3::uuid IS NULL OR r.public_id = $3)
+      ORDER BY s.last_event_at DESC LIMIT $4`, [org, agent, repository, limit])).rows;
+}));
+
 managementRouter.get('/models', ...endpoint('spend:read', async (_req, org) => {
   const obs = (await pool().query(
     `SELECT provider, model, count(*)::int AS requests,

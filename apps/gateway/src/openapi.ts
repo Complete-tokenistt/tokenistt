@@ -35,6 +35,10 @@ export const ROUTES: RouteDoc[] = [
   { method: 'post', path: '/v1/webhooks/connectors/{id}', tag: 'Connectors', auth: 'signature', summary: 'Inbound connector webhook; authenticated by HMAC signature (or GitLab token).' },
 
   // ── Management ─────────────────────────────────────────────────────────────
+  { method: 'get', path: '/v1/admin/repositories', tag: 'Developer intelligence', auth: ADMIN, permission: 'spend:read', summary: 'Repositories synced from the CLI, with graph stats and counts.' },
+  { method: 'get', path: '/v1/admin/repositories/{id}/graph', tag: 'Developer intelligence', auth: ADMIN, permission: 'spend:read', summary: 'Module-level graph summary for a repository. Contains no source code.' },
+  { method: 'get', path: '/v1/admin/repositories/{id}/memories', tag: 'Developer intelligence', auth: ADMIN, permission: 'spend:read', summary: 'Current project memory for a repository, with the source of each entry.', query: ['category'] },
+  { method: 'get', path: '/v1/admin/agent-sessions', tag: 'Developer intelligence', auth: ADMIN, permission: 'spend:read', summary: 'Coding agent sessions. Null tokens or cost mean unknown, not zero. Costs are estimates and do not count toward budgets.', query: ['agent', 'repository', 'limit'] },
   { method: 'get', path: '/v1/admin/whoami', tag: 'Platform', auth: ADMIN, permission: 'spend:read', summary: 'The authenticated principal (actor, role) and the organization it operates on.' },
   { method: 'get', path: '/v1/admin/usage/summary', tag: 'Analytics', auth: ADMIN, permission: 'spend:read', summary: 'Requests, tokens, cached tokens, cost, errors and latency percentiles over a period, optionally grouped (provider, model, user, customer, endpoint, project, feature, environment, lead, session, day).', query: ['group_by', 'since', 'until', 'provider', 'model', 'project', 'user', 'limit'] },
   { method: 'get', path: '/v1/admin/budgets', tag: 'Budgets', auth: ADMIN, permission: 'spend:read', summary: 'List budgets.' },
