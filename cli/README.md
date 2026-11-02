@@ -76,6 +76,12 @@ C# base classes and interfaces share one syntax, so the `I` prefix convention de
 
 Macros are not expanded, so macro-heavy C and C++ report syntax errors and yield partial symbols: 245 of nlohmann/json's 619 C++ files did when we tried it. Those files are counted in `--stats`.
 
+### Exploring it
+
+`tokenistt graph --open` runs a viewer that starts from your top-level folders. Double-click an area to open it; connections roll up to whatever is on screen, so a large repository stays readable and only what you open is drawn. Click anything for its details, and use **Show what depends on this** to see the impact of changing it. Dashed lines are inferred from names; solid lines are stated in the code.
+
+The viewer needs no network. It listens only on `127.0.0.1`, requires the random token in the URL it prints, and can't change anything.
+
 ## Credentials
 
 The gateway has three kinds of credential. Use whichever matches what you need to do:
@@ -120,6 +126,7 @@ endpoint). Dashboard tokens expire; `tokenistt auth status` shows when, and `doc
 |---|---|
 | `tokenistt init` | Set up this repository: `.tokenistt/` and the local database. Safe to re-run; needs no network |
 | `tokenistt map` | Build the codebase knowledge graph in `.tokenistt/graph`. `--full`, `--incremental`, `--watch`, `--stats`, `--export json [--out dir]`, `--import file`. Needs no network |
+| `tokenistt graph` | Summary of the graph. `--open` starts the interactive viewer in your browser (`--no-browser`, `--port`) |
 | `tokenistt login` | Authenticate and store credentials (see above) |
 | `tokenistt logout` | Remove stored credentials (environment variables are untouched and reported) |
 | `tokenistt auth status` | Which credentials are in effect, masked, with source and expiry. Local, no network |

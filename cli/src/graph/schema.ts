@@ -9,7 +9,9 @@ export const EXTRACTOR_VERSION = 2;
 export type NodeType =
   | 'repository' | 'directory' | 'file' | 'function' | 'method' | 'class' | 'interface' | 'type' | 'variable'
   | 'component' | 'endpoint' | 'table' | 'column' | 'module' | 'package' | 'service' | 'env_var' | 'test'
-  | 'session' | 'change' | 'decision' | 'issue' | 'documentation';
+  | 'session' | 'change' | 'decision' | 'issue' | 'documentation'
+  /** Display only: collects things with no place on disk. Never stored or exported. */
+  | 'group';
 
 export type EdgeType =
   | 'CONTAINS' | 'IMPORTS' | 'EXPORTS' | 'CALLS' | 'EXTENDS' | 'IMPLEMENTS' | 'USES' | 'DEPENDS_ON' | 'CONNECTS_TO'

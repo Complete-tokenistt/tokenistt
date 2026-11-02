@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codebase graph</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="bar">
+    <h1 id="repo">Codebase graph</h1>
+    <div class="search">
+      <input id="search" type="search" placeholder="Find a file, symbol, route or table" autocomplete="off" spellcheck="false" aria-label="Find a file, symbol, route or table" aria-controls="results">
+      <ul id="results" class="results" role="listbox" hidden></ul>
+    </div>
+    <p id="stats" class="stats"></p>
+  </header>
+
+  <main class="stage">
+    <nav class="rail" aria-label="Filters">
+      <h2>Show</h2>
+      <ul id="types" class="filters"></ul>
+      <h2>Connections</h2>
+      <ul id="edges" class="filters"></ul>
+      <p class="key">
+        <span class="line solid" aria-hidden="true"></span> stated in the code<br>
+        <span class="line dashed" aria-hidden="true"></span> inferred from names
+      </p>
+      <h2>Recently changed</h2>
+      <ul id="recent" class="plain"></ul>
+    </nav>
+
+    <section class="canvas-wrap" aria-label="Graph">
+      <div id="graph" class="graph" tabindex="0"></div>
+      <canvas id="minimap" class="minimap" width="200" height="130" aria-label="Minimap. Click to move the view."></canvas>
+      <div class="tools">
+        <button id="fit" type="button">Fit</button>
+        <button id="collapse" type="button">Collapse all</button>
+      </div>
+      <p id="hint" class="hint">Double-click an area to open it. Click anything to see what it connects to.</p>
+    </section>
+
+    <aside id="detail" class="detail" aria-label="Details" hidden></aside>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
