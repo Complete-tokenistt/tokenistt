@@ -93,12 +93,18 @@ describe('approval workflow + immutable audit log', { skip: !hasDb && 'DATABASE_
   it('decisions are written to policy_audit_log and cannot be updated or deleted', async () => {
     logDecision({ organizationId: orgId, kind: 'routing', requestId: 'req-x', decision: 'route', metadata: { apiKey: 'sk-secret' } });
     logAdminAction({ organizationId: orgId, actor: 'admin@example.com', action: 'budget.update', after: { password: 'hunter2', cap: 5 } });
-    await wait(300); // fire-and-forget writes
 
+    // fire-and-forget writes: poll rather than sleep a fixed time, which is too short on a loaded CI runner
     const pool = getPool();
-    const rows = await pool.query(
+    const fetchRows = () => pool.query(
       `SELECT id, metadata FROM policy_audit_log WHERE organization_id = $1 ORDER BY id`, [orgId.toString()]
     );
+    let rows = await fetchRows();
+    const adminRows = () => pool.query(`SELECT after FROM audit_log WHERE organization_id = $1`, [orgId.toString()]);
+    for (let i = 0; i < 50 && (rows.rows.length < 3 || (await adminRows()).rows.length < 1); i++) {
+      await wait(100);
+      rows = await fetchRows();
+    }
     assert.ok(rows.rows.length >= 3, 'policy decisions recorded');
     const routed = rows.rows.find(r => r.metadata.apiKey !== undefined);
     assert.equal(routed.metadata.apiKey, '[REDACTED]');

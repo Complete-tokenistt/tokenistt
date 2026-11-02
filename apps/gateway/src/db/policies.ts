@@ -115,12 +115,20 @@ export interface PolicyResult {
   code?: string;
   approvalId?: string;
   modifiedRequest?: OpenAIChatCompletionRequest;
+  /** Name of the policy that decided the outcome (set for block / approval / force_model / allow). */
+  matchedPolicy?: string;
+}
+
+export interface CheckPoliciesOptions {
+  /** Evaluate only: write no audit rows and create no approval requests (used by `policies/test`). */
+  dryRun?: boolean;
 }
 
 export async function checkPolicies(
   auth: AuthContext,
   request: OpenAIChatCompletionRequest,
-  requestId?: string
+  requestId?: string,
+  opts: CheckPoliciesOptions = {}
 ): Promise<PolicyResult> {
   if (!process.env.DATABASE_URL) {
     return { allowed: true }; // Open mode
@@ -139,6 +147,7 @@ export async function checkPolicies(
 
     let modifiedRequest = { ...request };
     let wasModified = false;
+    let forcedBy: string | undefined;
 
     // Estimate pre-flight input cost
     const inputTokens = estimateRequestTokens(request.messages);
@@ -208,7 +217,7 @@ export async function checkPolicies(
       console.log(`[Policy Match] Applied policy: "${name}"`);
 
       const audit = (decision: string, reason?: string, extra?: Record<string, unknown>) =>
-        logDecision({
+        opts.dryRun ? undefined : logDecision({
           organizationId: auth.organizationId,
           kind: 'policy',
           subjectId: policy.public_id,
@@ -220,13 +229,13 @@ export async function checkPolicies(
 
       if (actions.effect === 'allow') {
         audit('allow');
-        return { allowed: true, modifiedRequest: wasModified ? modifiedRequest : undefined };
+        return { allowed: true, modifiedRequest: wasModified ? modifiedRequest : undefined, matchedPolicy: name };
       }
 
       if (actions.effect === 'block' || actions.effect === 'deny') {
         const reason = actions.message || `Request blocked by policy: "${name}"`;
         audit('block', reason);
-        return { allowed: false, reason, code: 'policy_violation' };
+        return { allowed: false, reason, code: 'policy_violation', matchedPolicy: name };
       }
 
       if (actions.effect === 'require_approval') {
@@ -240,21 +249,23 @@ export async function checkPolicies(
         if (existing?.status === 'denied') {
           const reason = `Approval ${existing.public_id} was denied by ${existing.decided_by ?? 'an administrator'}.`;
           audit('block', reason, { approvalId: existing.public_id });
-          return { allowed: false, reason, code: 'approval_denied', approvalId: existing.public_id };
+          return { allowed: false, reason, code: 'approval_denied', approvalId: existing.public_id, matchedPolicy: name };
         }
 
         const reason = actions.message || `Request requires administrative approval under policy: "${name}"`;
+        if (opts.dryRun && !existing) return { allowed: false, reason, code: 'approval_required', matchedPolicy: name };
         const approval = existing ?? (await createApproval({
           auth, policyId: policy.id, fingerprint, model: request.model, reason,
         }));
         audit('require_approval', reason, { approvalId: approval.public_id });
-        return { allowed: false, reason, code: 'approval_required', approvalId: approval.public_id };
+        return { allowed: false, reason, code: 'approval_required', approvalId: approval.public_id, matchedPolicy: name };
       }
 
       if (actions.effect === 'force_model' && actions.model) {
         modifiedRequest.model = actions.model;
         wasModified = true;
-        logDecision({
+        forcedBy = name;
+        if (!opts.dryRun) logDecision({
           organizationId: auth.organizationId, kind: 'policy', subjectId: policy.public_id, requestId,
           decision: 'force_model', reason: `${request.model} -> ${actions.model}`,
           metadata: { policy: name },
@@ -265,7 +276,8 @@ export async function checkPolicies(
 
     return {
       allowed: true,
-      modifiedRequest: wasModified ? modifiedRequest : undefined
+      modifiedRequest: wasModified ? modifiedRequest : undefined,
+      matchedPolicy: forcedBy,
     };
 
   } catch (err: any) {

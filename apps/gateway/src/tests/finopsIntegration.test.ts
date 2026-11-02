@@ -169,9 +169,11 @@ describe('Phase 5 — End-to-End FinOps Integration & Lifecycle Pipeline', () =>
     const mockAuth: AuthContext = {
       actor: 'dev@tokenistt.ai',
       costCenter: 'dev',
-      organizationId: BigInt(1),
+      // Ids that no real row has: the queued transaction is replayed by drainQueue() in later tests, and
+      // org/key 1 on a fresh database belong to whichever test file created rows first (it would inherit this row).
+      organizationId: BigInt(900_000_001),
       workspaceId: null,
-      virtualKeyId: BigInt(1),
+      virtualKeyId: BigInt(900_000_001),
       virtualKeyPublicId: 'tktt_live_failopen',
       budgetCapUsd: null,
       budgetUsedUsd: 0,
