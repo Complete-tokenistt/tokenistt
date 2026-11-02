@@ -37,6 +37,11 @@ export const MIGRATIONS: string[] = [
    CREATE INDEX agent_events_session ON agent_events (session_key, at);
    CREATE INDEX agent_events_path ON agent_events (path);
    CREATE TABLE agent_ingest (file TEXT PRIMARY KEY, offset INTEGER NOT NULL) STRICT;`,
+  `CREATE TABLE agent_usage (
+     session_key TEXT NOT NULL, request_id TEXT NOT NULL, model TEXT, at TEXT,
+     input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, cache_read_tokens INTEGER NOT NULL, cache_creation_tokens INTEGER NOT NULL,
+     PRIMARY KEY (session_key, request_id)
+   ) STRICT, WITHOUT ROWID;`,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

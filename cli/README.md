@@ -90,6 +90,8 @@ The viewer needs no network. It listens only on `127.0.0.1`, requires the random
 
 **What isn't:** prompts, file contents, tool output and error text. Set `privacy.commands` to `none` or `redacted` to change what's kept of commands. `privacy.capturePrompts` opts in to storing prompts. Events stay in `.tokenistt/sessions`, which is ignored by git.
 
+**Tokens and cost:** tokens come from Claude Code's transcript, which has an undocumented format, so they may become unknown after an agent update. Codex and Antigravity don't report tokens, so theirs show as unknown. A cost appears only if the catalog has a price for every token type used, and it's an estimate, tokens times catalog prices. It isn't your bill, and on a subscription it isn't spend at all. There are no built-in prices. A session with no price shows as unknown, never $0.
+
 Hooks never block the agent: they do one small file append, and always exit successfully even if something goes wrong.
 
 ## Credentials
@@ -138,6 +140,8 @@ endpoint). Dashboard tokens expire; `tokenistt auth status` shows when, and `doc
 | `tokenistt map` | Build the codebase knowledge graph in `.tokenistt/graph`. `--full`, `--incremental`, `--watch`, `--stats`, `--export json [--out dir]`, `--import file`. Needs no network |
 | `tokenistt graph` | Summary of the graph. `--open` starts the interactive viewer in your browser (`--no-browser`, `--port`) |
 | `tokenistt agents` | Which coding agents are installed and connected. `connect <agent>`, `disconnect <agent>`, `capabilities` |
+| `tokenistt sessions` | Recent agent sessions. `history`, `inspect <id>`, `compare <id1> <id2>`, `--agent` |
+| `tokenistt watch` | Live view of agent sessions. `--agent`, `--project <path>`. Prints events as text or NDJSON when piped |
 | `tokenistt login` | Authenticate and store credentials (see above) |
 | `tokenistt logout` | Remove stored credentials (environment variables are untouched and reported) |
 | `tokenistt auth status` | Which credentials are in effect, masked, with source and expiry. Local, no network |
