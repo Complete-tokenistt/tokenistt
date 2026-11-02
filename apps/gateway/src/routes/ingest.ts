@@ -15,6 +15,7 @@
  */
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import rateLimit from 'express-rate-limit';
 import { getPool } from '../db/pool.js';
 import { hashToken } from '../services/keyManager.js';
 import { checkSlidingWindowRateLimit } from '../services/redisRateLimiter.js';
@@ -25,6 +26,15 @@ import { upsertHourlyRollup } from '../services/hourlyRollup.js';
 import type { AuthContext } from '../db/auth.js';
 
 export const ingestRouter = Router();
+
+// Pre-auth throttle per client IP, ahead of the key lookup (the per-key Redis limit below needs a valid key).
+const ipLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 600,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: { message: 'Too many requests; slow down.', type: 'rate_limit_error' } },
+});
 
 export const INGEST_SCHEMA_VERSION = 1;
 const MAX_BATCH = 500;
@@ -67,7 +77,7 @@ type Result = { event_id: string | null; status: 'accepted' | 'duplicate' | 'rej
 const authFail = (res: Response, message: string) =>
   res.status(401).json({ error: { message, type: 'authentication_error' } });
 
-ingestRouter.post('/ingest/events', async (req: Request, res: Response) => {
+ingestRouter.post('/ingest/events', ipLimiter, async (req: Request, res: Response) => {
   if (!process.env.DATABASE_URL) {
     return void res.status(503).json({ error: { message: 'Database not configured' } });
   }

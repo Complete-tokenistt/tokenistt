@@ -105,6 +105,24 @@ describe('GET /v1/logs', { skip: !hasDb && 'DATABASE_URL not set' }, () => {
     assert.equal(b.data[0].cost_usd, '0.500000');
   });
 
+  it('orders by numeric id, not by the id::text output column (9 < 10 < 11)', async () => {
+    const pool = getPool();
+    const k = generateVirtualKey('org', 'c');
+    const keyId = (await pool.query(
+      `INSERT INTO virtual_keys (organization_id, name, key_prefix, key_hash) VALUES ($1,'c',$2,$3) RETURNING id::text`,
+      [orgId, k.keyPrefix, k.keyHash])).rows[0].id;
+    // ids that sort differently as text ("999999999999" > "1000000000000") than as numbers
+    for (const id of ['999999999999', '1000000000000', '1000000000001']) {
+      await pool.query(
+        `INSERT INTO transactions (id, organization_id, virtual_key_id, provider, model, cost_center, cost_usd) OVERRIDING SYSTEM VALUE VALUES ($1,$2,$3,'openai','gpt-4o','CC',0.01)`,
+        [id, orgId, keyId]);
+    }
+    const page1: any = await (await get('?limit=2', k.rawToken)).json();
+    assert.deepEqual(page1.data.map((r: any) => r.id), ['1000000000001', '1000000000000']);
+    const page2: any = await (await get(`?limit=2&before=${page1.next_before}`, k.rawToken)).json();
+    assert.deepEqual(page2.data.map((r: any) => r.id), ['999999999999']);
+  });
+
   it('revoked keys lose access', async () => {
     await getPool().query(`UPDATE virtual_keys SET status = 'revoked' WHERE organization_id = $1 AND name = 'b'`, [orgId]);
     assert.equal((await get('', tokenB)).status, 401);

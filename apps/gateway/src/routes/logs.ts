@@ -42,7 +42,7 @@ logsRouter.get('/logs', async (req: Request, res: Response) => {
               status, error_code, duration_ms, created_at
          FROM transactions
         WHERE virtual_key_id = $1 AND ($2::bigint IS NULL OR id < $2::bigint) AND ($4::text IS NULL OR status = $4)
-        ORDER BY id DESC LIMIT $3`,
+        ORDER BY transactions.id DESC LIMIT $3`,
       [key.id, before, limit, status]
     );
     res.json({ data: rows, next_before: rows.length === limit ? rows[rows.length - 1].id : null });

@@ -333,12 +333,12 @@ managementRouter.get('/audit', ...endpoint('audit:read', async (req, org) => {
   if (kind === 'all' || kind === 'actions') {
     out.actions = (await pool().query(
       `SELECT public_id::text AS id, actor, action, entity_type, entity_id, before, after, ip, created_at
-         FROM audit_log WHERE organization_id = $1 ORDER BY id DESC LIMIT $2`, [org, limit])).rows;
+         FROM audit_log WHERE organization_id = $1 ORDER BY audit_log.id DESC LIMIT $2`, [org, limit])).rows;
   }
   if (kind === 'all' || kind === 'decisions') {
     out.decisions = (await pool().query(
       `SELECT id::text, kind, subject_id, request_id, decision, reason, metadata, created_at
-         FROM policy_audit_log WHERE organization_id = $1 ORDER BY id DESC LIMIT $2`, [org, limit])).rows;
+         FROM policy_audit_log WHERE organization_id = $1 ORDER BY policy_audit_log.id DESC LIMIT $2`, [org, limit])).rows;
   }
   return out;
 }));
@@ -360,7 +360,7 @@ for (const [path, decision] of [['approve', 'approved'], ['deny', 'denied']] as 
 // ── Workspaces, teams, projects ──────────────────────────────────────────────
 
 managementRouter.get('/workspaces', ...endpoint('spend:read', async (_req, org) =>
-  (await pool().query(`SELECT id::text, public_id::text AS public_id, name, cost_center, budget_cap_usd::text, created_at FROM workspaces WHERE organization_id = $1 ORDER BY id`, [org])).rows));
+  (await pool().query(`SELECT id::text, public_id::text AS public_id, name, cost_center, budget_cap_usd::text, created_at FROM workspaces WHERE organization_id = $1 ORDER BY workspaces.id`, [org])).rows));
 
 managementRouter.post('/workspaces', ...endpoint('keys:write', async (req, org) => {
   const b = req.body ?? {};
@@ -374,7 +374,7 @@ managementRouter.post('/workspaces', ...endpoint('keys:write', async (req, org) 
 }));
 
 managementRouter.get('/teams', ...endpoint('spend:read', async (_req, org) =>
-  (await pool().query(`SELECT id::text, public_id::text AS public_id, name, slug, cost_center, created_at FROM teams WHERE organization_id = $1 ORDER BY id`, [org])).rows));
+  (await pool().query(`SELECT id::text, public_id::text AS public_id, name, slug, cost_center, created_at FROM teams WHERE organization_id = $1 ORDER BY teams.id`, [org])).rows));
 
 managementRouter.post('/teams', ...endpoint('keys:write', async (req, org) => {
   const b = req.body ?? {};
@@ -388,7 +388,7 @@ managementRouter.post('/teams', ...endpoint('keys:write', async (req, org) => {
 }));
 
 managementRouter.get('/projects', ...endpoint('spend:read', async (_req, org) =>
-  (await pool().query(`SELECT id::text, public_id::text AS public_id, team_id::text, name, slug, environment, created_at FROM projects WHERE organization_id = $1 ORDER BY id`, [org])).rows));
+  (await pool().query(`SELECT id::text, public_id::text AS public_id, team_id::text, name, slug, environment, created_at FROM projects WHERE organization_id = $1 ORDER BY projects.id`, [org])).rows));
 
 managementRouter.post('/projects', ...endpoint('keys:write', async (req, org) => {
   const b = req.body ?? {};
@@ -596,7 +596,7 @@ managementRouter.get('/requests', ...endpoint('spend:read', async (req, org) => 
         AND ($4::text IS NULL OR status = $4)
         AND ($5::text IS NULL OR actor = $5)
         AND ($6::timestamptz IS NULL OR created_at >= $6::timestamptz)
-      ORDER BY id DESC LIMIT $3`, [org, cursor, limit, req.query.status ? String(req.query.status) : null,
+      ORDER BY transactions.id DESC LIMIT $3`, [org, cursor, limit, req.query.status ? String(req.query.status) : null,
         req.query.actor ? String(req.query.actor) : null, req.query.since ? String(req.query.since) : null]);
   return { data: rows, next_before: rows.length === limit ? rows[rows.length - 1].id : null };
 }));
