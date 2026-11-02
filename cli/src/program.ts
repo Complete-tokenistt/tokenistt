@@ -40,6 +40,11 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
 
   const getCtx = (cmd: Command): Context => createContext(cmd.optsWithGlobals() as GlobalOptions, VERSION, env, deps.fetch);
 
+  program.action(async (_o: unknown, cmd: Command) => {
+    const { runDashboard } = await import('./commands/dashboard.js');
+    await runDashboard(getCtx(cmd), () => program.outputHelp());
+  });
+
   registerAuth(program, getCtx);
   registerConnect(program, getCtx);
   registerInit(program, getCtx);

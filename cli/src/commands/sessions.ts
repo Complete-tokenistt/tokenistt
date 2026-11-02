@@ -4,17 +4,12 @@ import { UsageError } from '../core/errors.js';
 import { compareSessions, findSession, listSessions, readPrices, recentEvents, refresh, summarize, type CostResult, type SessionSummary, type Tokens } from '../agents/sessions.js';
 import { openDatabase } from '../store/db.js';
 import { requireProject } from '../store/project.js';
+import { formatDuration } from '../tui/format.js';
 import type { Context } from '../context.js';
 
 type GetCtx = (cmd: Command) => Context;
 
-export function formatDuration(ms: number): string {
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ${s % 60}s`;
-  return `${Math.floor(m / 60)}h ${m % 60}m`;
-}
+export { formatDuration };
 
 /** Null means the agent did not report it, which must not read as zero. */
 export const formatTokens = (t: Tokens | null): string => (t ? t.total.toLocaleString('en-US') : 'unknown');

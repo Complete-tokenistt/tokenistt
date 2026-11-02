@@ -209,6 +209,7 @@ endpoint). Dashboard tokens expire; `tokenistt auth status` shows when, and `doc
 | `tokenistt search <query>` | Find related code, memories and sessions |
 | `tokenistt analyze` | Circular imports, coupling, boundaries, entry points, isolated files, possible duplicates. `--trace "GET /users"` follows a route to its tables |
 | `tokenistt embeddings` | Optional: build vectors for semantic search |
+| `tokenistt` | On a terminal, the live dashboard: overview, agents, sessions, codebase, graph, memory, costs, policies, settings. Elsewhere, a plain status |
 | `tokenistt login` | Authenticate and store credentials (see above) |
 | `tokenistt logout` | Remove stored credentials (environment variables are untouched and reported) |
 | `tokenistt auth status` | Which credentials are in effect, masked, with source and expiry. Local, no network |
