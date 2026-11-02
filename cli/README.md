@@ -84,9 +84,9 @@ The viewer needs no network. It listens only on `127.0.0.1`, requires the random
 
 ## Coding agents
 
-`tokenistt agents connect claude-code` adds hooks to the agent's own settings file, so sessions are recorded as they happen. By default that's `.claude/settings.local.json` in this repository; `--user` uses your user-level settings instead. It shows the change and asks first, keeps everything else in the file, saves a backup, and refuses to touch a file it can't parse. `agents disconnect` removes only Tokenistt's entries.
+`tokenistt agents connect <agent>` adds hooks to the agent's own settings file, so sessions are recorded as they happen. It works with `claude-code`, `codex` and `antigravity`, and each can report different things: see [what each agent exposes](../docs/cli/AGENTS.md). Claude Code has been run live; Codex and Antigravity are written from their documentation and are not yet checked against the real agents. Project scope is the default, and `--user` uses your user-level settings instead. It shows the change and asks first, keeps everything else in the file, saves a backup, and refuses to touch a file it can't parse. `agents disconnect` removes only Tokenistt's entries.
 
-**What's recorded:** session start and end, which files were read or changed, tool names, whether things failed, and the program and subcommand of each command (`npm test`, not its arguments).
+**What's recorded:** session start and end, which files were read or changed, tool names, whether things failed, and the program of each command, plus the subcommand for well-known tools (`npm test`, `git push`, but never arguments).
 
 **What isn't:** prompts, file contents, tool output and error text. Set `privacy.commands` to `none` or `redacted` to change what's kept of commands. `privacy.capturePrompts` opts in to storing prompts. Events stay in `.tokenistt/sessions`, which is ignored by git.
 

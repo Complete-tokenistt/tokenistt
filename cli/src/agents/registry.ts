@@ -1,9 +1,11 @@
 /** The agents Tokenistt knows about. Adding one means writing an adapter and listing it here. */
 import { UsageError } from '../core/errors.js';
 import type { AgentAdapter } from './adapter.js';
+import { antigravity } from './adapters/antigravity.js';
 import { claudeCode } from './adapters/claude-code.js';
+import { codex } from './adapters/codex.js';
 
-export const ADAPTERS: AgentAdapter[] = [claudeCode];
+export const ADAPTERS: AgentAdapter[] = [claudeCode, codex, antigravity];
 
 export function adapterFor(id: string): AgentAdapter {
   const found = ADAPTERS.find((a) => a.id === id || a.id.split('-')[0] === id);
