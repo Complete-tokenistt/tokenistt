@@ -140,13 +140,15 @@ class _ClientCommon(EventEmitter):
         user: Optional[str],
         cost_center: Optional[str],
         request_id: Optional[str],
+        gateway_cost_usd: Optional[float] = None,
     ) -> Optional[UsageEvent]:
         if usage is None:
             return None
         if hasattr(usage, "model_dump"):
             usage = usage.model_dump()
         return self._cost_tracker.record(
-            model, usage, user=user, cost_center=cost_center, request_id=request_id
+            model, usage, user=user, cost_center=cost_center, request_id=request_id,
+            gateway_cost_usd=gateway_cost_usd,
         )
 
     def get_cumulative_cost(self) -> float:

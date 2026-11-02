@@ -78,6 +78,7 @@ export class Completions extends APIResource {
       user: options?.user ?? this.client.user,
       costCenter: options?.costCenter ?? this.client.costCenter,
       requestId,
+      gatewayCostUsd: gatewayCost(res),
     });
     return json;
   }
@@ -90,4 +91,12 @@ export class Chat extends APIResource {
     super(client);
     this.completions = new Completions(client);
   }
+}
+
+/** Cost the gateway priced this response at (`x-tokenistt-cost`); undefined when absent or not a plain number. */
+function gatewayCost(res: Response): number | undefined {
+  const raw = res.headers.get('x-tokenistt-cost');
+  if (raw === null) return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
 }

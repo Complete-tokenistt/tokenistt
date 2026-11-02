@@ -12,7 +12,7 @@ You need two things:
 
 ## 1. Get a key
 
-Dashboard → **Settings → API keys** → create one. The token is shown once. Or from the command line:
+Dashboard → **API keys** → create one. The token is shown once. Or from the command line:
 
 ```bash
 curl -s -X POST http://localhost:3001/api/gateway/keys \

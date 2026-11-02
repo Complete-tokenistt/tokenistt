@@ -16,7 +16,7 @@ approvals, cost-aware routing and an audit trail. **Self-hosted. Open source (Ap
 ![Postgres](https://img.shields.io/badge/Postgres-16-4169E1?logo=postgresql&logoColor=white)
 ![Docker](https://img.shields.io/badge/docker%20compose-ready-2496ED?logo=docker&logoColor=white)
 
-[Quick start](#-quick-start) · [SDKs](#-sdks) · [Editors & agents](#-editors--ai-agents) · [Features](#-what-it-does) · [Architecture](#-architecture) · [Known gaps](#-known-gaps)
+[Quick start](#-quick-start) · **[User guide](docs/GUIDE.md)** · [SDKs](#-sdks) · [Editors & agents](#-editors--ai-agents) · [Features](#-what-it-does) · [Architecture](#-architecture) · [Known gaps](#-known-gaps)
 
 </div>
 
@@ -52,6 +52,9 @@ Open the dashboard → **Get started**: it creates an API key, sends a real requ
 > auth/HTTPS proxy in front before exposing it beyond localhost.
 
 Ports are configurable with `GATEWAY_PORT`, `DASHBOARD_PORT`, `POSTGRES_PORT`, `REDIS_PORT` if something local already uses them.
+
+**Next:** the **[User guide](docs/GUIDE.md)** walks through real traffic, budgets, policies and approvals, routing, provider keys,
+attribution, MCP, hardening for non-local use, and troubleshooting.
 
 ---
 
@@ -178,10 +181,10 @@ models:
 | **Cline** (VS Code) | API Provider → *OpenAI Compatible* → Base URL `http://localhost:3000/v1`, your key |
 | **Continue** (VS Code / JetBrains) | the YAML above |
 | **Cursor** | override the OpenAI base URL — Cursor calls from its own servers, so the gateway must be reachable over **public HTTPS** |
-| **Claude Desktop / Cursor / Cline (MCP)** | ask your assistant about live spend, budgets and prices — see [`apps/mcp-server`](apps/mcp-server/README.md) |
+| **Claude Desktop / Cursor / Cline / Claude Code (MCP)** | ask your assistant about live spend, budgets and prices. A separate process your client launches (build once, add to its MCP config); needs the stack running — see [User guide §10](docs/GUIDE.md#10-agents-and-editors-mcp) and [`apps/mcp-server`](apps/mcp-server/README.md) |
 
 Attribute spend to teams, repos and tickets with `x-tokenistt-team`, `-project`, `-repo`, `-ticket`, `-feature`, `-customer` headers.
-Step-by-step guide: **[docs/CONNECT.md](docs/CONNECT.md)**.
+Step-by-step guide: **[docs/CONNECT.md](docs/CONNECT.md)** · everything else: **[docs/GUIDE.md](docs/GUIDE.md)**.
 
 ### VS Code extension — usage inside the editor
 

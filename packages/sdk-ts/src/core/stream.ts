@@ -49,11 +49,18 @@ export class Stream<T>
     const decoder = new TextDecoder();
     const self = this;
     let buffer = '';
+    const pending: string[] = []; // complete events from a read that carried more than one
 
     return {
       async next(): Promise<IteratorResult<T>> {
         try {
           while (true) {
+            while (pending.length) {
+              const ev = pending.shift() as string;
+              if (ev === '[DONE]') return { done: true, value: undefined };
+              const parsed = self.parse(ev);
+              if (parsed != null) return { done: false, value: parsed };
+            }
             const { done, value } = await reader.read();
             if (done) {
               const rem = buffer.trim();
@@ -67,11 +74,7 @@ export class Stream<T>
             buffer += decoder.decode(value, { stream: true });
             const { events, remainder } = splitSSE(buffer);
             buffer = remainder;
-            for (const ev of events) {
-              if (ev === '[DONE]') return { done: true, value: undefined };
-              const parsed = self.parse(ev);
-              if (parsed != null) return { done: false, value: parsed };
-            }
+            pending.push(...events);
           }
         } catch (err) {
           self.emitEvent('error', err);
