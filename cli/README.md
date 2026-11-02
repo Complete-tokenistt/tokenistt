@@ -30,6 +30,36 @@ tokenistt connect          # discovers your organization, workspaces and project
 tokenistt connection status
 ```
 
+## Codebase graph
+
+`tokenistt map` turns the repository into nodes (files, functions, classes, tables, env vars, packages, services, tests, docs) and relationships (`IMPORTS`, `CALLS`, `EXTENDS`, `TESTS`, `READS_FROM`, ...). Re-running only re-parses files whose content changed.
+
+**What it reads:** files from `git ls-files`, so `.gitignore` is respected. Secrets (`.env*`, keys, credential files), dependencies, build output, binaries and files over 1 MB are never read, even when committed. Add your own patterns under `index.exclude` in `.tokenistt/config.json`.
+
+**What it stores:** structure only, never source text. Environment variables are recorded by name, never by value.
+
+**How far to trust edges:** nothing here uses a type checker. Every edge has a `resolution` and `confidence`: an `IMPORTS` edge to a resolved path is exact, while a `CALLS` edge is matched by name. Calls that can't be resolved are counted in `--stats` and left out, never guessed. Dynamic dispatch and calls on instances held in variables are the usual reasons.
+
+| Language | Parser | Extracted | Status |
+|---|---|---|---|
+| TypeScript, TSX, JavaScript | tree-sitter | symbols, imports, re-exports, calls, heritage, env vars | tested |
+| Python | tree-sitter | symbols, imports, calls, heritage, env vars | tested |
+| Java | tree-sitter | symbols, imports, same-package names, calls, heritage, env vars | tested on fixtures |
+| Go | tree-sitter | symbols, module imports, same-package names, receiver methods, calls, env vars | tested on fixtures |
+| Rust | tree-sitter | symbols, `use` and `mod`, impl methods, traits, calls, env vars | tested on fixtures |
+| PHP | tree-sitter | symbols, namespaces (PSR-4 by path), `require`, calls, heritage, env vars | tested on fixtures |
+| C# | tree-sitter | symbols, namespaces, calls, heritage, env vars | tested on fixtures |
+| C, C++ | tree-sitter | symbols, `#include`, calls, heritage, env vars. Macros are not expanded | tested on fixtures |
+| SQL (PostgreSQL DDL) | tokenizer, not a full parser | tables, views, columns, foreign keys, `ALTER TABLE` | tested |
+| YAML | `yaml` library | docker-compose services, dependencies, env var names | tested |
+| JSON | `JSON.parse` | `package.json` and `composer.json` dependencies, `tsconfig` path aliases | tested |
+| Manifests | line scan | `go.mod`, `Cargo.toml`, `pom.xml`, `pyproject.toml`, `.csproj` dependencies | tested on fixtures |
+| Markdown | link scan | relative links to files | tested |
+
+C# base classes and interfaces share one syntax, so the `I` prefix convention decides between `EXTENDS` and `IMPLEMENTS`. Files in other languages still appear as file nodes.
+
+Macros are not expanded, so macro-heavy C and C++ report syntax errors and yield partial symbols: 245 of nlohmann/json's 619 C++ files did when we tried it. Those files are counted in `--stats`.
+
 ## Credentials
 
 The gateway has three kinds of credential. Use whichever matches what you need to do:
@@ -73,6 +103,7 @@ endpoint). Dashboard tokens expire; `tokenistt auth status` shows when, and `doc
 | Command | What it does |
 |---|---|
 | `tokenistt init` | Set up this repository: `.tokenistt/` and the local database. Safe to re-run; needs no network |
+| `tokenistt map` | Build the codebase knowledge graph in `.tokenistt/graph`. `--full`, `--incremental`, `--watch`, `--stats`, `--export json [--out dir]`, `--import file`. Needs no network |
 | `tokenistt login` | Authenticate and store credentials (see above) |
 | `tokenistt logout` | Remove stored credentials (environment variables are untouched and reported) |
 | `tokenistt auth status` | Which credentials are in effect, masked, with source and expiry. Local, no network |

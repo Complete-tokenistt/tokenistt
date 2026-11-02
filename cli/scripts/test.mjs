@@ -8,6 +8,6 @@ if (major < 22 || (major === 22 && minor < 13)) {
   process.exit(0);
 }
 const files = process.argv.slice(2);
-const args = ['--import', 'tsx', '--test', '--test-force-exit', '--test-timeout=60000', ...(files.length ? files : ['tests/**/*.test.ts'])];
+const args = ['--import', 'tsx', '--test', '--test-timeout=60000', ...(files.length ? files : ['tests/**/*.test.ts'])];
 const r = spawnSync(process.execPath, args, { stdio: 'inherit' });
 process.exit(r.status ?? 1);

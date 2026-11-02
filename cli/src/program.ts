@@ -6,6 +6,7 @@ import { createContext, type Context, type GlobalOptions } from './context.js';
 import { registerAuth } from './commands/auth.js';
 import { registerConnect } from './commands/connect.js';
 import { registerInit } from './commands/init.js';
+import { registerMap } from './commands/map.js';
 
 const require = createRequire(import.meta.url);
 export const VERSION: string = (require('../package.json') as { version: string }).version;
@@ -33,6 +34,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
   registerAuth(program, getCtx);
   registerConnect(program, getCtx);
   registerInit(program, getCtx);
+  registerMap(program, getCtx);
   return program;
 }
 
