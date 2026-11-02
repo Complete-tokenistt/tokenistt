@@ -91,9 +91,13 @@ export interface ImportRef {
   line: number;
   /** Names bound by this import: `*` is a namespace, `default` the default export. */
   bindings: Array<{ imported: string; local: string }>;
-  /** Python's dotted form, resolved differently from a path. */
-  style: 'path' | 'python';
+  /** How `source` is resolved to files. See Linker.resolveImport. */
+  style: 'path' | 'python' | 'dotted' | 'go' | 'rust' | 'phpns' | 'namespace' | 'include';
   typeOnly?: boolean;
+  /** Brings every name from the source into scope, e.g. Java's `import a.b.*`. */
+  wildcard?: boolean;
+  /** `#include <x>`: searched on the system path, not in the repository. */
+  system?: boolean;
 }
 
 export interface ReExport {
@@ -143,11 +147,11 @@ export interface AlteredTable {
 }
 
 export interface ManifestInfo {
-  /** Workspace or package name. */
+  /** Workspace, package or Go module name. */
   name?: string;
   entry?: string;
   dependencies: Array<{ name: string; dev: boolean }>;
-  ecosystem: 'npm' | 'python' | 'go' | 'rust' | 'java' | 'php' | 'dotnet';
+  ecosystem: 'npm' | 'python' | 'go' | 'rust' | 'java' | 'php' | 'dotnet' | 'cmake';
 }
 
 export interface ComposeService {
@@ -178,6 +182,8 @@ export interface FileExtract {
   imports: ImportRef[];
   reExports: ReExport[];
   defaultExport?: string;
+  /** Declared namespace or package (Java, C#, PHP). */
+  namespace?: string;
   calls: CallRef[];
   heritage: HeritageRef[];
   env: EnvRef[];

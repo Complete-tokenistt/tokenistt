@@ -44,12 +44,21 @@ tokenistt connection status
 |---|---|---|---|
 | TypeScript, TSX, JavaScript | tree-sitter | symbols, imports, re-exports, calls, heritage, env vars | tested |
 | Python | tree-sitter | symbols, imports, calls, heritage, env vars | tested |
+| Java | tree-sitter | symbols, imports, same-package names, calls, heritage, env vars | tested on fixtures |
+| Go | tree-sitter | symbols, module imports, same-package names, receiver methods, calls, env vars | tested on fixtures |
+| Rust | tree-sitter | symbols, `use` and `mod`, impl methods, traits, calls, env vars | tested on fixtures |
+| PHP | tree-sitter | symbols, namespaces (PSR-4 by path), `require`, calls, heritage, env vars | tested on fixtures |
+| C# | tree-sitter | symbols, namespaces, calls, heritage, env vars | tested on fixtures |
+| C, C++ | tree-sitter | symbols, `#include`, calls, heritage, env vars. Macros are not expanded | tested on fixtures |
 | SQL (PostgreSQL DDL) | tokenizer, not a full parser | tables, views, columns, foreign keys, `ALTER TABLE` | tested |
 | YAML | `yaml` library | docker-compose services, dependencies, env var names | tested |
-| JSON | `JSON.parse` | `package.json` dependencies, `tsconfig` path aliases | tested |
+| JSON | `JSON.parse` | `package.json` and `composer.json` dependencies, `tsconfig` path aliases | tested |
+| Manifests | line scan | `go.mod`, `Cargo.toml`, `pom.xml`, `pyproject.toml`, `.csproj` dependencies | tested on fixtures |
 | Markdown | link scan | relative links to files | tested |
 
-Other languages are planned and listed here once their tests pass. Files in other languages still appear as file nodes.
+C# base classes and interfaces share one syntax, so the `I` prefix convention decides between `EXTENDS` and `IMPLEMENTS`. Files in other languages still appear as file nodes.
+
+Macros are not expanded, so macro-heavy C and C++ report syntax errors and yield partial symbols: 245 of nlohmann/json's 619 C++ files did when we tried it. Those files are counted in `--stats`.
 
 ## Credentials
 

@@ -9,6 +9,11 @@ import {
   type EdgeType, type FileExtract, type GraphEdge, type GraphNode, type ImportRef, type Resolution, type SymbolDef,
 } from './schema.js';
 
+/** Languages where a bare name inside a method means the method on the same class first. */
+const IMPLICIT_THIS = new Set(['java', 'csharp', 'cpp', 'c']);
+/** Languages where everything in a directory shares one package, with no import needed. */
+const DIRECTORY_SCOPED = new Set(['java', 'go', 'php']);
+
 export const isTestPath = (p: string): boolean =>
   /(^|\/)(tests?|__tests__|spec)\//.test(p) || /\.(test|spec)\.[a-z]+$/.test(p) || /(^|\/)test_[^/]+\.py$/.test(p) || /_test\.(py|go)$/.test(p);
 
@@ -43,8 +48,15 @@ class Linker {
   private readonly byPath = new Map<string, FileExtract>();
   private readonly workspaces = new Map<string, Workspace>();
   private readonly tsconfigs = new Map<string, FileExtract>();
-  /** Per file: local name -> where it was imported from. */
-  private readonly bindings = new Map<string, Map<string, { file: string; imported: string }>>();
+  /** Per file: local name -> where it was imported from. A Go package spans several files. */
+  private readonly bindings = new Map<string, Map<string, { files: string[]; imported: string }>>();
+  /** Per file: other files whose top-level names are visible without an import binding. */
+  private readonly openScopes = new Map<string, Set<string>>();
+  private readonly bySuffix = new Map<string, string[]>();
+  private readonly byDir = new Map<string, string[]>();
+  private readonly byNamespace = new Map<string, string[]>();
+  private readonly goModules: Array<{ name: string; dir: string }> = [];
+  private readonly crateRoots = new Set<string>();
   readonly stats: LinkStats = { callsResolved: 0, callsUnresolved: 0, importsResolved: 0, importsExternal: 0, importsUnresolved: 0 };
 
   constructor(private readonly extracts: FileExtract[], private readonly repoName: string) {
@@ -52,6 +64,13 @@ class Linker {
       this.byPath.set(x.path, x);
       if (x.manifest?.name) this.workspaces.set(x.manifest.name, { dir: posix.dirname(x.path), entry: x.manifest.entry });
       if (x.tsconfig) this.tsconfigs.set(posix.dirname(x.path), x);
+      if (x.manifest?.ecosystem === 'go' && x.manifest.name) this.goModules.push({ name: x.manifest.name, dir: posix.dirname(x.path) });
+      if (x.manifest?.ecosystem === 'rust') this.crateRoots.add(posix.dirname(x.path));
+      const base = posix.basename(x.path);
+      this.bySuffix.set(base, [...(this.bySuffix.get(base) ?? []), x.path]);
+      const dir = posix.dirname(x.path);
+      this.byDir.set(dir, [...(this.byDir.get(dir) ?? []), x.path]);
+      if (x.namespace) this.byNamespace.set(x.namespace, [...(this.byNamespace.get(x.namespace) ?? []), x.path]);
     }
   }
 
@@ -149,8 +168,124 @@ class Linker {
     return undefined;
   }
 
-  private resolveImport(from: string, imp: ImportRef): { file?: string; external?: string } {
+  /** A file whose path ends in the given segments, dropping leading segments until one matches (PSR-4, Java roots). */
+  private bySegments(segments: string[], ext: string, minKept: number): string | undefined {
+    for (let drop = 0; segments.length - drop >= minKept; drop++) {
+      const suffix = `${segments.slice(drop).join('/')}${ext}`;
+      const base = posix.basename(suffix);
+      const hits = (this.bySuffix.get(base) ?? []).filter((p) => p === suffix || p.endsWith(`/${suffix}`));
+      // An ambiguous match would be a guess.
+      if (hits.length === 1) return hits[0];
+      if (hits.length > 1) return undefined;
+    }
+    return undefined;
+  }
+
+  private filesInDirWithSuffix(segments: string[], language: string): string[] {
+    const suffix = segments.join('/');
+    const out: string[] = [];
+    for (const [dir, files] of this.byDir) {
+      if (dir === suffix || dir.endsWith(`/${suffix}`)) out.push(...files.filter((f) => this.byPath.get(f)?.language === language));
+    }
+    return out;
+  }
+
+  private resolveGo(spec: string): { files?: string[]; external?: string } {
+    for (const m of this.goModules) {
+      if (spec === m.name || spec.startsWith(`${m.name}/`)) {
+        const dir = posix.normalize(posix.join(m.dir, spec.slice(m.name.length + 1)));
+        const files = (this.byDir.get(dir) ?? []).filter((f) => f.endsWith('.go') && !f.endsWith('_test.go'));
+        if (files.length) return { files };
+      }
+    }
+    const parts = spec.split('/');
+    return { external: (parts[0] ?? '').includes('.') ? parts.slice(0, 3).join('/') : parts[0] };
+  }
+
+  /** Module directory for a Rust file: a.rs owns a/, while mod.rs, lib.rs and main.rs own their own directory. */
+  private rustModuleDir(file: string): string {
+    const base = posix.basename(file, '.rs');
+    const dir = posix.dirname(file);
+    return base === 'mod' || base === 'lib' || base === 'main' ? dir : posix.join(dir, base);
+  }
+
+  /** The directory holding the crate root: usually src/, but [[bin]] and [lib] may point anywhere. */
+  private rustCrateSrc(from: string): string {
+    let dir = posix.dirname(from);
+    for (;;) {
+      if (this.byPath.has(posix.join(dir, 'lib.rs')) || this.byPath.has(posix.join(dir, 'main.rs'))) return dir;
+      if (this.crateRoots.has(dir)) return posix.join(dir, 'src');
+      if (dir === '.' || dir === '') return 'src';
+      dir = posix.dirname(dir);
+    }
+  }
+
+  private rustModuleFile(base: string): string | undefined {
+    return [`${base}.rs`, posix.join(base, 'mod.rs')].map((c) => posix.normalize(c)).find((c) => this.byPath.has(c));
+  }
+
+  private resolveRust(from: string, spec: string): { file?: string; external?: string; imported?: string } {
+    const parts = spec.split('::');
+    let base: string;
+    let rest: string[];
+    const head = parts[0];
+    if (head === 'crate') { base = this.rustCrateSrc(from); rest = parts.slice(1); }
+    else if (head === 'self') { base = this.rustModuleDir(from); rest = parts.slice(1); }
+    else if (head === 'super') {
+      base = this.rustModuleDir(from);
+      rest = parts;
+      while (rest[0] === 'super') { base = posix.dirname(base); rest = rest.slice(1); }
+    } else {
+      // Bare paths may name a module declared in this crate; anything else is an external crate.
+      base = this.rustCrateSrc(from);
+      rest = parts;
+      const local = rest.length ? this.rustModuleFile(posix.join(base, rest[0] ?? '')) : undefined;
+      if (!local) return { external: head };
+    }
+    const whole = this.rustModuleFile(posix.join(base, ...rest));
+    if (whole) return { file: whole };
+    const parent = rest.length > 1 ? this.rustModuleFile(posix.join(base, ...rest.slice(0, -1))) : undefined;
+    if (parent) return { file: parent, imported: rest[rest.length - 1] };
+    // `use crate::Foo` names an item in the crate root.
+    if (rest.length === 1) {
+      const root = [posix.join(base, 'lib.rs'), posix.join(base, 'main.rs'), posix.join(base, 'mod.rs')].find((c) => this.byPath.has(c));
+      if (root) return { file: root, imported: rest[0] };
+    }
+    return {};
+  }
+
+  private resolveImport(from: string, imp: ImportRef): { file?: string; files?: string[]; external?: string; imported?: string } {
     if (imp.style === 'python') return this.resolvePython(from, imp.source);
+    if (imp.style === 'go') return this.resolveGo(imp.source);
+    if (imp.style === 'rust') return this.resolveRust(from, imp.source);
+    if (imp.style === 'dotted') {
+      const segments = imp.source.split('.');
+      if (imp.wildcard) {
+        const files = this.filesInDirWithSuffix(segments, 'java');
+        return files.length ? { files } : { external: segments.slice(0, 2).join('.') };
+      }
+      const hit = this.bySegments(segments, '.java', 2);
+      return hit ? { file: hit } : { external: segments.slice(0, 2).join('.') };
+    }
+    if (imp.style === 'phpns') {
+      const segments = imp.source.split('\\');
+      const hit = this.bySegments(segments, '.php', 1);
+      return hit ? { file: hit } : { external: segments[0] };
+    }
+    if (imp.style === 'namespace') {
+      const files = this.byNamespace.get(imp.source);
+      return files ? { files } : { external: imp.source.split('.')[0] };
+    }
+    if (imp.style === 'include') {
+      if (imp.system) return { external: imp.source };
+      const relative = posix.normalize(posix.join(posix.dirname(from), imp.source));
+      if (this.byPath.has(relative)) return { file: relative };
+      const segments = imp.source.split('/').filter((p) => p !== '.' && p !== '..');
+      const last = segments[segments.length - 1] ?? '';
+      const stem = last.includes('.') ? last.slice(last.lastIndexOf('.')) : '';
+      const hit = this.bySegments([...segments.slice(0, -1), last.slice(0, last.length - stem.length)], stem, 1);
+      return hit ? { file: hit } : {};
+    }
     const spec = imp.source;
     if (spec.startsWith('.')) return { file: this.firstExisting(posix.join(posix.dirname(from), spec)) };
     if (spec.startsWith('/')) return {};
@@ -210,12 +345,33 @@ class Linker {
       const named = re.names.find((n) => n.exported === name);
       if (named) {
         const local = target === file ? this.bindings.get(file)?.get(named.imported) : undefined;
-        if (local) return this.exportedSymbol(local.file, local.imported, seen);
+        if (local) return this.fromFiles(local.files, local.imported, seen);
         const found = this.exportedSymbol(target, named.imported, seen);
         if (found) return found;
       }
     }
     return undefined;
+  }
+
+  private fromFiles(files: string[], name: string, seen = new Set<string>()): { x: FileExtract; s: SymbolDef } | undefined {
+    for (const f of files) {
+      const found = this.exportedSymbol(f, name, seen);
+      if (found) return found;
+    }
+    return undefined;
+  }
+
+  /** A top-level name visible through an open scope, as long as exactly one file provides it. */
+  private inOpenScope(x: FileExtract, name: string): { x: FileExtract; s: SymbolDef } | undefined {
+    let found: { x: FileExtract; s: SymbolDef } | undefined;
+    for (const f of this.openScopes.get(x.path) ?? []) {
+      const other = this.byPath.get(f);
+      const s = other?.symbols.find((d) => !d.parent && d.name === name);
+      if (!other || !s) continue;
+      if (found) return undefined;
+      found = { x: other, s };
+    }
+    return found;
   }
 
   /** The target of a bare or dotted name used in `x`, with how sure we are. */
@@ -230,23 +386,37 @@ class Linker {
       const b = bindings?.get(object);
       if (b) {
         if (b.imported === '*') {
-          const found = this.exportedSymbol(b.file, name);
+          const found = this.fromFiles(b.files, name);
           return found ? { id: this.symbolNodeId(found.x, found.s), resolution: 'import', confidence: 0.85 } : undefined;
         }
-        const owner = this.exportedSymbol(b.file, b.imported);
+        const owner = this.fromFiles(b.files, b.imported);
         const m = owner?.x.symbols.find((s) => s.qualified === `${owner.s.qualified}.${name}`);
         return owner && m ? { id: this.symbolNodeId(owner.x, m), resolution: 'import', confidence: 0.8 } : undefined;
       }
       const owner = x.symbols.find((s) => !s.parent && s.name === object);
       const m = owner ? x.symbols.find((s) => s.qualified === `${owner.qualified}.${name}`) : undefined;
-      return m ? { id: this.symbolNodeId(x, m), resolution: 'local', confidence: 0.8 } : undefined;
+      if (m) return { id: this.symbolNodeId(x, m), resolution: 'local', confidence: 0.8 };
+      const scoped = this.inOpenScope(x, object);
+      const sm = scoped?.x.symbols.find((s) => s.qualified === `${scoped.s.qualified}.${name}`);
+      return scoped && sm ? { id: this.symbolNodeId(scoped.x, sm), resolution: 'import', confidence: 0.75 } : undefined;
+    }
+    if (x.language && IMPLICIT_THIS.has(x.language) && fromQualified) {
+      const cls = fromQualified.split('.').slice(0, -1).join('.');
+      const m = cls ? x.symbols.find((s) => s.qualified === `${cls}.${name}`) : undefined;
+      if (m) return { id: this.symbolNodeId(x, m), resolution: 'local', confidence: 0.85 };
     }
     const local = x.symbols.find((s) => s.name === name && !s.parent) ?? x.symbols.find((s) => s.name === name);
     if (local) return { id: this.symbolNodeId(x, local), resolution: 'local', confidence: local.parent ? 0.6 : 0.95 };
     const b = bindings?.get(name);
     if (b) {
-      const found = this.exportedSymbol(b.file, b.imported);
+      const found = this.fromFiles(b.files, b.imported);
       if (found) return { id: this.symbolNodeId(found.x, found.s), resolution: 'import', confidence: 0.9 };
+    }
+    const scoped = this.inOpenScope(x, name);
+    if (scoped) {
+      // Namespaces and includes bring in whole files, so this is the first real evidence of a dependency.
+      if (scoped.x.path !== x.path) this.edge(fileId(x.path), fileId(scoped.x.path), 'IMPORTS', 'import', 0.75);
+      return { id: this.symbolNodeId(scoped.x, scoped.s), resolution: 'import', confidence: 0.75 };
     }
     return undefined;
   }
@@ -288,17 +458,39 @@ class Linker {
 
   private imports(x: FileExtract): void {
     const file = fileId(x.path);
-    const bindings = new Map<string, { file: string; imported: string }>();
+    const bindings = new Map<string, { files: string[]; imported: string }>();
     this.bindings.set(x.path, bindings);
+    const scope = new Set<string>();
+    this.openScopes.set(x.path, scope);
+    if (x.language && DIRECTORY_SCOPED.has(x.language)) {
+      for (const f of this.byDir.get(posix.dirname(x.path)) ?? []) if (f !== x.path && this.byPath.get(f)?.language === x.language) scope.add(f);
+    }
+    if (x.namespace) for (const f of this.byNamespace.get(x.namespace) ?? []) if (f !== x.path) scope.add(f);
     const test = isTestPath(x.path);
-    if (test) this.node({ id: testId(x.path), type: 'test', name: posix.basename(x.path), path: x.path, parent: file });
+    if (test) {
+      this.node({ id: testId(x.path), type: 'test', name: posix.basename(x.path), path: x.path, parent: file });
+      // Go tests sit beside the code and need no import to reach it.
+      const subject = x.path.replace(/_test\.go$/, '.go');
+      if (subject !== x.path && this.byPath.has(subject)) this.edge(testId(x.path), fileId(subject), 'TESTS', 'exact', 0.9);
+    }
     for (const imp of x.imports) {
-      const { file: target, external } = this.resolveImport(x.path, imp);
-      if (target) {
+      const resolved = this.resolveImport(x.path, imp);
+      const { external } = resolved;
+      const targets = resolved.files ?? (resolved.file ? [resolved.file] : []);
+      if (targets.length) {
         this.stats.importsResolved++;
-        this.edge(file, fileId(target), 'IMPORTS', 'resolved', 1, imp.line);
-        if (test && !isTestPath(target)) this.edge(testId(x.path), fileId(target), 'TESTS', 'import', 0.8, imp.line);
-        for (const b of imp.bindings) bindings.set(b.local, { file: target, imported: b.imported });
+        // A namespace import names a scope, not a dependency on every file in it; see resolveName.
+        const opens = imp.wildcard || imp.style === 'namespace' || imp.style === 'include';
+        if (imp.style !== 'namespace') {
+          for (const target of targets) {
+            this.edge(file, fileId(target), 'IMPORTS', 'resolved', 1, imp.line);
+            if (test && !isTestPath(target)) this.edge(testId(x.path), fileId(target), 'TESTS', 'import', 0.8, imp.line);
+          }
+        }
+        if (opens) for (const target of targets) if (target !== x.path) scope.add(target);
+        // In Rust, using a whole module binds it as a namespace; an item keeps its own name.
+        const wholeModule = imp.style === 'rust' && resolved.imported === undefined;
+        for (const b of imp.bindings) bindings.set(b.local, { files: targets, imported: wholeModule ? '*' : b.imported });
       } else if (external) {
         this.stats.importsExternal++;
         const id = packageId(external);
