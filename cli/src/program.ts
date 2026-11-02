@@ -7,6 +7,7 @@ import { registerAgents } from './commands/agents.js';
 import { registerAuth } from './commands/auth.js';
 import { registerConnect } from './commands/connect.js';
 import { registerGraph } from './commands/graph.js';
+import { registerImpact } from './commands/impact.js';
 import { registerInit } from './commands/init.js';
 import { registerMap } from './commands/map.js';
 import { registerContext } from './commands/context.js';
@@ -49,6 +50,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
   registerMemory(program, getCtx);
   registerContext(program, getCtx);
   registerMcp(program, getCtx);
+  registerImpact(program, getCtx);
   return program;
 }
 
