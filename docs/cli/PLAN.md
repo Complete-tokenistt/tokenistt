@@ -51,3 +51,9 @@ Deliberate deviations from the brief (reasons):
 
 ## Honest limits to document
 No browser login, no keychain, no Mistral adapter, connectors/live providers fixture-tested only, currency conversion not implemented (USD), SDK-only mode records but cannot enforce.
+
+## Changes since approval
+- **Location:** the package lives in a root-level `cli/` folder (workspace `cli`), not `apps/cli`, with its usage guide at `cli/README.md`.
+- **Node:** `engines` is `>=20` (not 22). Cloud-mode commands run on Node 20; only the local SQLite store (a later PR) needs Node 22.13+, and it will fail with a clear message on older versions. Commander is pinned to 14 for that reason (15 requires Node 22).
+- **Shipped so far:** gateway endpoints (`/v1/ingest/events`, `/v1/admin/usage/summary`, `/whoami`, `/policies/test`), CLI foundation (login/logout/auth, connect/disconnect/connection status, doctor).
+- **Found and fixed on the way:** SDK error wrapping/SSE delivery/cost, and `ORDER BY id` resolving to the `id::text` output column in several gateway list queries (broke cursor pagination).

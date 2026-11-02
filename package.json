@@ -14,6 +14,7 @@
   },
   "workspaces": [
     "apps/*",
+    "cli",
     "packages/finops-middleware",
     "packages/db",
     "packages/sdk-ts",

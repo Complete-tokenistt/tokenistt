@@ -26,6 +26,8 @@ These were deliberately walked back after diligence found them overscoped relati
 
 The original Phase 1 scope (cost tracking, budgets, governance, routing, BYOK on a single Postgres, one gateway service) is **built and tested**, and the repo has since been restructured for an open-source release (`apps/` + `packages/`, Apache-2.0, `docker-compose.yml`, `scripts/setup.mjs`, CI, OpenAPI). The work now is making it real: correctness, unifying the older dashboard pages onto the management API, connector validation against live services, and docs.
 
+**New direction (decided 2026-11-02): developer intelligence in the CLI.** The `tokenistt` CLI (`cli/`) is growing into a local-first engine: codebase knowledge graph, coding-agent session observability, project memory, context generation and injection, change impact, session cost. See `docs/cli/INTELLIGENCE_PLAN.md`. External positioning does not change (§1): copy says "open-source AI cost visibility and governance" plus "developer intelligence", never "AI FinOps" and never "cloud" (there is no hosted service; the CLI talks to your own gateway). The stage note above still applies to the gateway and dashboard.
+
 **Built and working** (verified by the test suites + `npm run test:e2e -w apps/gateway`):
 - Auth with virtual keys (`tktt_live_…`), org/workspace/team/project resolution, RBAC (owner / admin / finance / developer / viewer), tenant isolation.
 - Policies (`allow`, `block`, `force_model`, `require_approval`) with an approval workflow; append-only `audit_log` and `policy_audit_log` (DB rejects UPDATE/DELETE).
@@ -40,7 +42,7 @@ The original Phase 1 scope (cost tracking, budgets, governance, routing, BYOK on
 **Known gaps — be honest about these, in code and in copy** (mirrors README "Known gaps"):
 - Connectors are tested against fixture servers, not the live services.
 - Older dashboard pages read Postgres directly and fall back to sample data when it's unavailable; only the newer pages (request history, alerts, audit, approvals, connectors) use the gateway management API. Unifying them is planned.
-- Not built: SSO (OIDC/SAML), Postgres row-level security, pluggable secrets managers, Redis-Streams event queue for multi-instance, request replay, per-provider latency SLO alerts, `@tokenistt/cli`, dual ESM/CJS SDK build.
+- Not built: SSO (OIDC/SAML), Postgres row-level security, pluggable secrets managers, Redis-Streams event queue for multi-instance, request replay, per-provider latency SLO alerts, dual ESM/CJS SDK build.
 - Groq / Together / Gemini models report `COST_UNAVAILABLE` ($0.00) until a price is added to the catalog. **Never invent prices.**
 - Single Postgres instance, no multi-region story.
 
@@ -48,7 +50,7 @@ The original Phase 1 scope (cost tracking, budgets, governance, routing, BYOK on
 
 | Excluded now | Status / reconsider when |
 |---|---|
-| Prompt Intelligence (embeddings, semantic clustering), Qdrant | A specific paying customer requests exactly this |
+| Prompt Intelligence (embeddings, semantic clustering), Qdrant | A specific paying customer requests exactly this. Separate from this: the CLI's optional *code* retrieval embeddings, which are off by default, stored in local SQLite, and need no new service |
 | ML-driven Recommendation Engine | Rules-based first, only with enough real usage data |
 | ROI / board-report automation, forecasting beyond what exists | Needs external data integrations that are only fixture-tested today |
 | New LLM providers | One at a time, only when a real user needs it (adapters are cheap now; *pricing data* is the real cost) |
@@ -84,6 +86,7 @@ The original Phase 1 scope (cost tracking, budgets, governance, routing, BYOK on
 apps/gateway/         ← proxy, management API (/v1/admin/*), policy/budget/routing engines, connectors
 apps/dashboard/       ← Next.js product frontend
 apps/mcp-server/      ← MCP tools for AI agents (spend, budget status, cost estimate, routing)
+cli/                  ← `tokenistt` CLI: gateway client and local developer intelligence engine (.tokenistt/)
 packages/db/          ← migrations (drizzle/*.sql), migration runner, schema.ts, demo seed
 packages/sdk-ts/      ← @tokenistt/sdk — OpenAI-compatible TypeScript client
 packages/sdk-python/  ← Python client
