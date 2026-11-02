@@ -184,7 +184,10 @@ describe('CLI endpoints: ingest, usage summary, policy dry-run', { skip: !hasDb 
 
     assert.equal((await admin('POST', '/policies/test', owner, {})).status, 400);
 
-    const audited = await getPool().query(`SELECT count(*)::int AS n FROM audit_log WHERE organization_id = $1 AND action = 'policy.test'`, [orgA]);
-    assert.ok(audited.rows[0].n >= 2);
+    // Audit writes are fire-and-forget by design, so the rows may land just after the response.
+    const auditedCount = async () => (await getPool().query(`SELECT count(*)::int AS n FROM audit_log WHERE organization_id = $1 AND action = 'policy.test'`, [orgA])).rows[0].n as number;
+    const deadline = Date.now() + 5000;
+    while ((await auditedCount()) < 2 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
+    assert.ok((await auditedCount()) >= 2, 'each dry run is audit-logged');
   });
 });
