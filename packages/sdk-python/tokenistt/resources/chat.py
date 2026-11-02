@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Union
 
 from ..core.base_client import AsyncBaseClient, BaseClient
+from ..core._utils import gateway_cost
 from ..core.stream import AsyncStream, Stream, build_chat_completion
 from ..types import (
     ChatCompletion,
@@ -72,6 +73,7 @@ class Completions:
             user=user or self._client.user,
             cost_center=cost_center or self._client.cost_center,
             request_id=response.headers.get("x-request-id"),
+            gateway_cost_usd=gateway_cost(response.headers),
         )
         return completion
 
@@ -140,6 +142,7 @@ class AsyncCompletions:
             user=user or self._client.user,
             cost_center=cost_center or self._client.cost_center,
             request_id=response.headers.get("x-request-id"),
+            gateway_cost_usd=gateway_cost(response.headers),
         )
         return completion
 

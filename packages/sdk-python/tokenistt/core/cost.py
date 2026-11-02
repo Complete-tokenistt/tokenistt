@@ -101,8 +101,10 @@ class CostTracker(EventEmitter):
         user: Optional[str] = None,
         cost_center: Optional[str] = None,
         request_id: Optional[str] = None,
+        gateway_cost_usd: Optional[float] = None,
     ) -> UsageEvent:
-        cost = compute_cost(model, usage, self._pricing)
+        # The gateway prices from its own catalog, so its number wins over this client's best-effort table.
+        cost = gateway_cost_usd if gateway_cost_usd is not None else compute_cost(model, usage, self._pricing)
         self.cumulative += cost
         event = UsageEvent(
             cost=cost,

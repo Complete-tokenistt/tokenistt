@@ -1,6 +1,7 @@
 import type { Tokenistt } from '../client';
 import { VERSION } from '../version';
 import {
+  APIError,
   APIConnectionError,
   APIConnectionTimeoutError,
   APIUserAbortError,
@@ -103,6 +104,8 @@ export async function httpRequest(client: Tokenistt, opts: RequestOptions): Prom
     } catch (err) {
       if (timer) clearTimeout(timer);
       if (err instanceof APIUserAbortError) throw err;
+      // A non-retryable HTTP error response (401, 400, …) was already turned into a typed APIError above.
+      if (err instanceof APIError) throw err;
 
       if (err instanceof APIConnectionTimeoutError) {
         lastErr = err;

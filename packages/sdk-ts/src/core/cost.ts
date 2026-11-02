@@ -147,9 +147,10 @@ export class CostTracker extends Emitter<CostTrackerEvents> {
   record(
     model: string,
     usage: UsageLike,
-    meta: { user?: string; costCenter?: string; requestId?: string },
+    meta: { user?: string; costCenter?: string; requestId?: string; gatewayCostUsd?: number },
   ): UsageEvent {
-    const cost = computeCost(model, usage, this.opts.pricing);
+    // The gateway prices from its own catalog, so its number wins over this client's best-effort table.
+    const cost = meta.gatewayCostUsd ?? computeCost(model, usage, this.opts.pricing);
     this.cumulative += cost;
 
     const ev: UsageEvent = {
