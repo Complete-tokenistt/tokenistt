@@ -82,6 +82,16 @@ Macros are not expanded, so macro-heavy C and C++ report syntax errors and yield
 
 The viewer needs no network. It listens only on `127.0.0.1`, requires the random token in the URL it prints, and can't change anything.
 
+## Coding agents
+
+`tokenistt agents connect claude-code` adds hooks to the agent's own settings file, so sessions are recorded as they happen. By default that's `.claude/settings.local.json` in this repository; `--user` uses your user-level settings instead. It shows the change and asks first, keeps everything else in the file, saves a backup, and refuses to touch a file it can't parse. `agents disconnect` removes only Tokenistt's entries.
+
+**What's recorded:** session start and end, which files were read or changed, tool names, whether things failed, and the program and subcommand of each command (`npm test`, not its arguments).
+
+**What isn't:** prompts, file contents, tool output and error text. Set `privacy.commands` to `none` or `redacted` to change what's kept of commands. `privacy.capturePrompts` opts in to storing prompts. Events stay in `.tokenistt/sessions`, which is ignored by git.
+
+Hooks never block the agent: they do one small file append, and always exit successfully even if something goes wrong.
+
 ## Credentials
 
 The gateway has three kinds of credential. Use whichever matches what you need to do:
@@ -127,6 +137,7 @@ endpoint). Dashboard tokens expire; `tokenistt auth status` shows when, and `doc
 | `tokenistt init` | Set up this repository: `.tokenistt/` and the local database. Safe to re-run; needs no network |
 | `tokenistt map` | Build the codebase knowledge graph in `.tokenistt/graph`. `--full`, `--incremental`, `--watch`, `--stats`, `--export json [--out dir]`, `--import file`. Needs no network |
 | `tokenistt graph` | Summary of the graph. `--open` starts the interactive viewer in your browser (`--no-browser`, `--port`) |
+| `tokenistt agents` | Which coding agents are installed and connected. `connect <agent>`, `disconnect <agent>`, `capabilities` |
 | `tokenistt login` | Authenticate and store credentials (see above) |
 | `tokenistt logout` | Remove stored credentials (environment variables are untouched and reported) |
 | `tokenistt auth status` | Which credentials are in effect, masked, with source and expiry. Local, no network |

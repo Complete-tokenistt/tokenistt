@@ -26,6 +26,17 @@ export const MIGRATIONS: string[] = [
    ) STRICT, WITHOUT ROWID;
    CREATE INDEX graph_edges_target ON graph_edges (target, type);
    CREATE VIRTUAL TABLE graph_fts USING fts5(id UNINDEXED, name, path, tokenize = "unicode61 tokenchars '_'");`,
+  `CREATE TABLE agent_sessions (
+     key TEXT PRIMARY KEY, agent TEXT NOT NULL, session_id TEXT NOT NULL, branch TEXT, started_at TEXT NOT NULL, ended_at TEXT,
+     last_event_at TEXT NOT NULL, status TEXT NOT NULL, end_reason TEXT, model TEXT, task TEXT, transcript TEXT
+   ) STRICT;
+   CREATE INDEX agent_sessions_recent ON agent_sessions (last_event_at DESC);
+   CREATE TABLE agent_events (
+     id TEXT PRIMARY KEY, session_key TEXT NOT NULL, type TEXT NOT NULL, at TEXT NOT NULL, tool TEXT, path TEXT, command TEXT, ok INTEGER, reason TEXT, model TEXT
+   ) STRICT;
+   CREATE INDEX agent_events_session ON agent_events (session_key, at);
+   CREATE INDEX agent_events_path ON agent_events (path);
+   CREATE TABLE agent_ingest (file TEXT PRIMARY KEY, offset INTEGER NOT NULL) STRICT;`,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

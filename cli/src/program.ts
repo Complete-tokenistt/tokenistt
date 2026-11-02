@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { CliError, ExitCode } from './core/errors.js';
 import { Output, shouldUseColor } from './core/output.js';
 import { createContext, type Context, type GlobalOptions } from './context.js';
+import { registerAgents } from './commands/agents.js';
 import { registerAuth } from './commands/auth.js';
 import { registerConnect } from './commands/connect.js';
 import { registerGraph } from './commands/graph.js';
@@ -37,6 +38,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
   registerInit(program, getCtx);
   registerMap(program, getCtx);
   registerGraph(program, getCtx);
+  registerAgents(program, getCtx);
   return program;
 }
 
