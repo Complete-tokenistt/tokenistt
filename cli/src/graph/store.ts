@@ -11,7 +11,7 @@ export interface GraphMetadata {
   repository: RepositoryRef;
   generatedAt: string;
   durationMs: number;
-  mode: 'full' | 'incremental';
+  mode: 'full' | 'incremental' | 'imported';
   files: { total: number; parsed: number; reused: number; skipped: number; parseErrors: number };
   nodes: Record<string, number>;
   edges: Record<string, number>;
@@ -51,6 +51,11 @@ export function saveGraph(db: Database, extracts: FileExtract[], nodes: GraphNod
     const insertEdge = db.prepare('INSERT INTO graph_edges (source, target, type, confidence, resolution, line) VALUES (?, ?, ?, ?, ?, ?)');
     for (const e of edges) insertEdge.run(e.source, e.target, e.type, e.confidence, e.resolution, e.line ?? null);
   });
+}
+
+/** Replaces the graph with an imported one. The per-file cache is dropped because it described a different tree. */
+export function saveImportedGraph(db: Database, doc: GraphDocument): void {
+  saveGraph(db, [], doc.nodes, doc.edges);
 }
 
 interface NodeRow {
