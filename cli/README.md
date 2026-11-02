@@ -133,6 +133,14 @@ The context is a snapshot, so run `inject` again to refresh it. It includes text
 
 `tokenistt mcp` gives any MCP-capable agent `project_context`, `graph_search`, `graph_node`, `impact`, `memory_search`, `memory_add` and `sessions_recent`, with no network. For Claude Code: `claude mcp add tokenistt -- node /path/to/cli/bin/tokenistt.js mcp`. `memory_add` is how an agent can record a decision, and entries it adds are labelled as coming from an agent. This is separate from `apps/mcp-server`, which reads spend and budgets from a running stack.
 
+## Change impact
+
+`tokenistt impact src/auth/session.ts` follows the graph backwards from a file or symbol to list what depends on it, which API routes reach it, the tables involved, the tests to run, the modules affected and any related decisions. `--staged` does the same for what you're about to commit.
+
+`tokenistt changes` lists what changed, with dependents, tests and how often each file has changed lately, and flags what may deserve a closer look. Use `--since HEAD~5` or `--compare main` for other ranges.
+
+**This shows connections, not outcomes.** It lists what's linked to a change, not what will break, and inferred links are marked. Dynamic dispatch and anything the graph can't see won't appear, so a short list isn't proof that a change is safe. An agent session appears next to a file if it edited that path, which doesn't mean it made this exact change.
+
 ## Credentials
 
 The gateway has three kinds of credential. Use whichever matches what you need to do:
@@ -184,6 +192,8 @@ endpoint). Dashboard tokens expire; `tokenistt auth status` shows when, and `doc
 | `tokenistt memory` | What Tokenistt remembers about this project. `update`, `show`, `search`, `add`, `edit`, `forget`, `export`, `stats` |
 | `tokenistt context` | What an agent should know for a task. `--task`, `--max-tokens`, `--format`, `preview`, `inject` |
 | `tokenistt mcp` | Serve the graph, memory and sessions as local MCP tools over stdio |
+| `tokenistt impact <file or symbol>` | What a change could affect: dependents, API routes, tables, tests, modules, decisions. `--staged`, `--depth` |
+| `tokenistt changes` | What changed, and what deserves a closer look. `--since <rev>`, `--compare <ref>` |
 | `tokenistt login` | Authenticate and store credentials (see above) |
 | `tokenistt logout` | Remove stored credentials (environment variables are untouched and reported) |
 | `tokenistt auth status` | Which credentials are in effect, masked, with source and expiry. Local, no network |
