@@ -5,6 +5,8 @@
   "description": "Shadow AI detection — scans Brex/Ramp/Navan expenses for unsanctioned AI subscriptions and flags personal-account usage.",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.json && node --test dist/scanner.test.js",
     "worker": "tsc -p tsconfig.json && node dist/index.js",
     "scan": "tsc -p tsconfig.json && node dist/cli.js"
   },
