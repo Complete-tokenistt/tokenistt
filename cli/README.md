@@ -5,7 +5,7 @@ database the dashboard uses, so numbers you see in the terminal are the numbers 
 
 > **Status: early.** This release covers authentication, connection management and diagnostics.
 > Usage/cost reports, attribution, providers, policies, `init` and offline sync are planned and listed under
-> [Roadmap](#roadmap). Nothing below documents a command that does not exist yet.
+> [Roadmap](#roadmap). 
 
 ## Install
 
@@ -223,6 +223,11 @@ endpoint). Dashboard tokens expire; `tokenistt auth status` shows when, and `doc
 | `tokenistt embeddings` | Optional: build vectors for semantic search |
 | `tokenistt` | On a terminal, the live dashboard: overview, agents, sessions, codebase, graph, memory, costs, policies, settings. Elsewhere, a plain status |
 | `tokenistt sync` | Send summaries to your gateway. Off until `--enable`. `--dry-run`, `--ledger` |
+| `tokenistt usage`, `tokenistt cost` | From your gateway's ledger, `--by` model, user, customer, project, feature and more. `--days`, `--since`, `--csv` |
+| `tokenistt models` | The catalog. `--refresh` saves prices here for session cost estimates |
+| `tokenistt providers` | Provider keys, write-only. `add` (key on stdin), `remove` |
+| `tokenistt policy` | Policies. `test` is a dry run that exits 5 if a request would be stopped. `apply <file>` creates from YAML |
+| `tokenistt optimize` | Rules-based suggestions from real usage, with evidence and trade-offs. It never changes anything |
 | `tokenistt login` | Authenticate and store credentials (see above) |
 | `tokenistt logout` | Remove stored credentials (environment variables are untouched and reported) |
 | `tokenistt auth status` | Which credentials are in effect, masked, with source and expiry. Local, no network |
