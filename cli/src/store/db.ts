@@ -53,6 +53,7 @@ export const MIGRATIONS: string[] = [
    CREATE INDEX memory_nodes_node ON memory_nodes (node_id);
    CREATE TABLE memory_sessions (memory_id TEXT NOT NULL, session_key TEXT NOT NULL, PRIMARY KEY (memory_id, session_key)) STRICT, WITHOUT ROWID;
    CREATE VIRTUAL TABLE memory_fts USING fts5(id UNINDEXED, category UNINDEXED, content);`,
+  `CREATE TABLE embeddings (node_id TEXT NOT NULL, model TEXT NOT NULL, hash TEXT NOT NULL, vector BLOB NOT NULL, PRIMARY KEY (node_id, model)) STRICT, WITHOUT ROWID;`,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

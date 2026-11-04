@@ -13,6 +13,7 @@ import { registerMap } from './commands/map.js';
 import { registerContext } from './commands/context.js';
 import { registerMcp } from './commands/mcp.js';
 import { registerMemory } from './commands/memory.js';
+import { registerSearch } from './commands/search.js';
 import { registerSessions } from './commands/sessions.js';
 import { registerWatch } from './commands/watch.js';
 
@@ -51,6 +52,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
   registerContext(program, getCtx);
   registerMcp(program, getCtx);
   registerImpact(program, getCtx);
+  registerSearch(program, getCtx);
   return program;
 }
 
