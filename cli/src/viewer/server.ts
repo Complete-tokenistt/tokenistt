@@ -36,6 +36,8 @@ export interface ViewerOptions {
   port?: number;
   token?: string;
   assetsDir?: string;
+  /** Agent sessions that touched a file. */
+  sessionsForPath?: (path: string) => unknown[];
 }
 
 export interface ViewerHandle {
@@ -131,7 +133,7 @@ export async function startViewer(opts: ViewerOptions): Promise<ViewerHandle> {
         if (!node) return json(res, 404, { error: 'No such node.' });
         // Only paths the graph already knows reach git.
         const file = node.path && index.nodes.has(`file:${node.path}`) ? node.path : undefined;
-        return json(res, 200, { node, view: index.view(id), ...index.relations(id), history: file ? await fileHistory(root, file) : [] });
+        return json(res, 200, { node, view: index.view(id), ...index.relations(id), history: file ? await fileHistory(root, file) : [], sessions: file ? opts.sessionsForPath?.(file) ?? [] : [] });
       }
       default:
         return json(res, 404, { error: 'Not found.' });

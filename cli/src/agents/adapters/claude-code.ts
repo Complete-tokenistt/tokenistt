@@ -59,6 +59,8 @@ function normalizeClaude(input: Record<string, unknown>, ctx: NormalizeContext):
   const cwd = str(input.cwd);
   const toolUse = str(input.tool_use_id);
   const second = Math.floor(ctx.now.getTime() / 1000);
+  // On every event: hooks connected mid-session never see SessionStart, and a long turn may not reach Stop for a while.
+  const transcript = str(input.transcript_path);
   const base = (type: AgentEvent['type'], key: string | undefined): AgentEvent => ({
     v: EVENT_SCHEMA_VERSION,
     // Hook input has no timestamp; the second keeps a double delivery together but separates real repeats.
@@ -68,6 +70,7 @@ function normalizeClaude(input: Record<string, unknown>, ctx: NormalizeContext):
     type,
     at: ctx.now.toISOString(),
     ...(ctx.branch ? { branch: ctx.branch } : {}),
+    ...(transcript ? { transcript } : {}),
   });
 
   switch (hook) {
@@ -79,24 +82,16 @@ function normalizeClaude(input: Record<string, unknown>, ctx: NormalizeContext):
       e.reason = source;
       const model = str(input.model);
       if (model) e.model = model;
-      const transcript = str(input.transcript_path);
-      if (transcript) e.transcript = transcript;
       return [e];
     }
     case 'UserPromptSubmit': {
       const e = base('TASK_STARTED', undefined);
       const prompt = str(input.prompt);
       if (ctx.privacy.capturePrompts && prompt) e.task = prompt.slice(0, 500);
-      const transcript = str(input.transcript_path);
-      if (transcript) e.transcript = transcript;
       return [e];
     }
-    case 'Stop': {
-      const e = base('TASK_COMPLETED', undefined);
-      const transcript = str(input.transcript_path);
-      if (transcript) e.transcript = transcript;
-      return [e];
-    }
+    case 'Stop':
+      return [base('TASK_COMPLETED', undefined)];
     case 'StopFailure': {
       const e = base('ERROR_OCCURRED', undefined);
       e.ok = false;
@@ -106,8 +101,6 @@ function normalizeClaude(input: Record<string, unknown>, ctx: NormalizeContext):
       const e = base('SESSION_ENDED', undefined);
       const reason = str(input.reason);
       if (reason) e.reason = reason.slice(0, 40);
-      const transcript = str(input.transcript_path);
-      if (transcript) e.transcript = transcript;
       return [e];
     }
     case 'PostToolUse':

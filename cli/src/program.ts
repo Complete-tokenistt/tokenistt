@@ -7,8 +7,15 @@ import { registerAgents } from './commands/agents.js';
 import { registerAuth } from './commands/auth.js';
 import { registerConnect } from './commands/connect.js';
 import { registerGraph } from './commands/graph.js';
+import { registerImpact } from './commands/impact.js';
 import { registerInit } from './commands/init.js';
 import { registerMap } from './commands/map.js';
+import { registerContext } from './commands/context.js';
+import { registerMcp } from './commands/mcp.js';
+import { registerMemory } from './commands/memory.js';
+import { registerSearch } from './commands/search.js';
+import { registerSessions } from './commands/sessions.js';
+import { registerWatch } from './commands/watch.js';
 
 const require = createRequire(import.meta.url);
 export const VERSION: string = (require('../package.json') as { version: string }).version;
@@ -33,12 +40,24 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
 
   const getCtx = (cmd: Command): Context => createContext(cmd.optsWithGlobals() as GlobalOptions, VERSION, env, deps.fetch);
 
+  program.action(async (_o: unknown, cmd: Command) => {
+    const { runDashboard } = await import('./commands/dashboard.js');
+    await runDashboard(getCtx(cmd), () => program.outputHelp());
+  });
+
   registerAuth(program, getCtx);
   registerConnect(program, getCtx);
   registerInit(program, getCtx);
   registerMap(program, getCtx);
   registerGraph(program, getCtx);
   registerAgents(program, getCtx);
+  registerSessions(program, getCtx);
+  registerWatch(program, getCtx);
+  registerMemory(program, getCtx);
+  registerContext(program, getCtx);
+  registerMcp(program, getCtx);
+  registerImpact(program, getCtx);
+  registerSearch(program, getCtx);
   return program;
 }
 

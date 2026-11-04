@@ -1,0 +1,69 @@
+/**
+ * Bare `tokenistt`. On a terminal it opens the dashboard after real startup checks; anywhere else it prints a plain
+ * status and exits, so scripts and CI never get stuck in an interface.
+ */
+import { homedir } from 'node:os';
+import { motionAllowed, Progress } from '../core/progress.js';
+import { repoInfo } from '../project/git.js';
+import { openDatabase } from '../store/db.js';
+import { readProjectConfig, projectDir } from '../store/project.js';
+import type { Context } from '../context.js';
+
+const ENTER = '\x1b[?1049h';
+const LEAVE = '\x1b[?1049l\x1b[?25h';
+
+export async function runDashboard(ctx: Context, showHelp: () => void): Promise<void> {
+  const repo = repoInfo(process.cwd());
+  const config = repo ? readProjectConfig(repo.root) : undefined;
+  if (!repo || !config) {
+    showHelp();
+    ctx.out.info('');
+    ctx.out.info(repo ? 'This repository is not set up yet. Run `tokenistt init`.' : 'Run this inside a Git repository to see its dashboard.');
+    return;
+  }
+  const project = { repo, dir: projectDir(repo.root), config };
+  const home = ctx.env.TOKENISTT_HOME ?? homedir();
+  const { gatherLocal, plainStatus, probeGateway } = await import('../tui/data.js');
+  const interactive = !!process.stdin.isTTY && !!process.stdout.isTTY && !ctx.out.json;
+  const motion = motionAllowed(ctx.env, process.stdout.isTTY);
+  const progress = new Progress({ silent: ctx.out.json || ctx.out.quiet || !interactive, motion, color: ctx.out.color });
+
+  const db = openDatabase(repo.root);
+  try {
+    progress.start('Reading agent sessions and project memory');
+    const local = gatherLocal(project, db, home);
+    progress.succeed(`${local.sessions.length} sessions, ${local.memory.active} memories`);
+    progress.start('Checking gateway');
+    const gateway = await probeGateway(ctx.config);
+    progress.succeed(gateway.state);
+    progress.stop();
+    const data = { ...local, gateway };
+
+    if (!interactive) {
+      ctx.out.result(data, () => ctx.out.line(plainStatus(data)));
+      return;
+    }
+
+    const [{ render }, { createElement }, { App }] = await Promise.all([import('ink'), import('react'), import('../tui/App.js')]);
+    const restore = (): void => { process.stdout.write(LEAVE); };
+    process.stdout.write(ENTER);
+    process.once('exit', restore);
+    let last = gateway;
+    let ticks = 0;
+    const reload = async () => {
+      // The gateway is checked less often than local data, since it is a network call.
+      if (++ticks % 15 === 0) last = await probeGateway(ctx.config);
+      return { ...gatherLocal(project, db, home), gateway: last };
+    };
+    const app = render(createElement(App, { data, motion, reload }), { exitOnCtrlC: true });
+    try {
+      await app.waitUntilExit();
+    } finally {
+      process.removeListener('exit', restore);
+      restore();
+    }
+  } finally {
+    progress.stop();
+    db.close();
+  }
+}

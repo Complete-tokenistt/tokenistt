@@ -22,6 +22,8 @@ export function repoPath(root: string, cwd: string | undefined, path: unknown): 
 
 const ENV_ASSIGN = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const SUBCOMMAND = /^[a-z][a-z0-9:_-]*$/;
+/** Tools whose second word names an action. For anything else it could be a password or a path, so it is not kept. */
+const SUBCOMMAND_TOOLS = new Set(['npm', 'pnpm', 'yarn', 'bun', 'git', 'gh', 'docker', 'kubectl', 'helm', 'terraform', 'cargo', 'go', 'dotnet', 'pip', 'pip3', 'uv', 'poetry', 'make', 'mvn', 'gradle', 'composer', 'bundle', 'rails', 'tokenistt']);
 
 /** Words of a command, ignoring leading VAR=value and prefixes like sudo. */
 function commandWords(command: string): string[] {
@@ -32,11 +34,28 @@ function commandWords(command: string): string[] {
   return words.slice(i);
 }
 
+/**
+ * Agents chain commands, as in `cd app && npm test`, so the first word is rarely the point. This finds the first
+ * step that does something. Text is split without parsing quotes, which is fine: only program names come out.
+ */
+const NAVIGATION = new Set(['cd', 'pushd', 'popd', 'export', 'set', 'source', '.', 'true', ':']);
+
+function mainStep(command: string): string[] {
+  let first: string[] | undefined;
+  for (const step of command.split(/&&|\|\||;|\||\r?\n/)) {
+    const words = commandWords(step);
+    if (!words[0]) continue;
+    first ??= words;
+    if (!NAVIGATION.has(words[0])) return words;
+  }
+  return first ?? [];
+}
+
 /** `npm test --watch` becomes `npm test`. Arguments can hold secrets, so by default they are not recorded. */
 export function commandName(command: string): string {
-  const [program = '', second] = commandWords(command);
+  const [program = '', second] = mainStep(command);
   const base = program.split(/[\\/]/).pop() ?? program;
-  return second && SUBCOMMAND.test(second) ? `${base} ${second}` : base;
+  return second && SUBCOMMAND_TOOLS.has(base) && SUBCOMMAND.test(second) ? `${base} ${second}` : base;
 }
 
 export function redactCommand(command: string): string {

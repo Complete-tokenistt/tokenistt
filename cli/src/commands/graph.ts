@@ -58,7 +58,9 @@ export function registerGraph(program: Command, getCtx: GetCtx): void {
         const port = o.port === undefined ? undefined : Number(o.port);
         if (port !== undefined && (!Number.isInteger(port) || port < 0 || port > 65535)) throw new UsageError(`Invalid port "${o.port}".`);
         const { startViewer } = await import('../viewer/server.js');
-        const viewer = await startViewer({ index, metadata, root: project.repo.root, port });
+        const { refresh, sessionsForPath } = await import('../agents/sessions.js');
+        refresh(project.repo.root, db);
+        const viewer = await startViewer({ index, metadata, root: project.repo.root, port, sessionsForPath: (path) => sessionsForPath(db, path) });
         ctx.out.result({ url: viewer.url, port: viewer.port }, () => {
           ctx.out.success(`Viewer running at ${viewer.url}`);
           ctx.out.info('Only this machine can reach it. Press Ctrl+C to stop.');

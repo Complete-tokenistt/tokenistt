@@ -84,13 +84,74 @@ The viewer needs no network. It listens only on `127.0.0.1`, requires the random
 
 ## Coding agents
 
-`tokenistt agents connect claude-code` adds hooks to the agent's own settings file, so sessions are recorded as they happen. By default that's `.claude/settings.local.json` in this repository; `--user` uses your user-level settings instead. It shows the change and asks first, keeps everything else in the file, saves a backup, and refuses to touch a file it can't parse. `agents disconnect` removes only Tokenistt's entries.
+`tokenistt agents connect <agent>` adds hooks to the agent's own settings file, so sessions are recorded as they happen. It works with `claude-code`, `codex` and `antigravity`, and each can report different things: see [what each agent exposes](../docs/cli/AGENTS.md). Claude Code has been run live; Codex and Antigravity are written from their documentation and are not yet checked against the real agents. Project scope is the default, and `--user` uses your user-level settings instead. It shows the change and asks first, keeps everything else in the file, saves a backup, and refuses to touch a file it can't parse. `agents disconnect` removes only Tokenistt's entries.
 
-**What's recorded:** session start and end, which files were read or changed, tool names, whether things failed, and the program and subcommand of each command (`npm test`, not its arguments).
+**What's recorded:** session start and end, which files were read or changed, tool names, whether things failed, and the program of each command, plus the subcommand for well-known tools (`npm test`, `git push`, but never arguments).
 
 **What isn't:** prompts, file contents, tool output and error text. Set `privacy.commands` to `none` or `redacted` to change what's kept of commands. `privacy.capturePrompts` opts in to storing prompts. Events stay in `.tokenistt/sessions`, which is ignored by git.
 
+**Tokens and cost:** tokens come from Claude Code's transcript, which has an undocumented format, so they may become unknown after an agent update. Codex and Antigravity don't report tokens, so theirs show as unknown. A cost appears only if the catalog has a price for every token type used, and it's an estimate, tokens times catalog prices. It isn't your bill, and on a subscription it isn't spend at all. There are no built-in prices. A session with no price shows as unknown, never $0.
+
 Hooks never block the agent: they do one small file append, and always exit successfully even if something goes wrong.
+
+## Project memory
+
+`tokenistt memory update` builds memory from things it can point at, so you can always see where an entry came from:
+
+| Source | Becomes |
+|---|---|
+| Finished agent sessions | session summaries, implementation progress, debugging history (tests failed, then passed), known issues (tests still failing at the end) |
+| Decision records (`docs/adr/*.md`, `decisions/*.md`) and `Decision:` commit trailers | architectural decisions |
+| Commits | recent changes |
+| The graph | architecture, module context, important dependencies |
+| README, manifests, `CONTRIBUTING` and agent instruction files | project overview, tech stack, a pointer to your conventions |
+| You, with `tokenistt memory add` | whatever you tell it, such as open tasks or failed approaches |
+
+There's no model in the loop, so **it won't infer a decision from your code**: decisions are only recorded where someone wrote one down. Routine commands never become memories.
+
+Nothing is overwritten. An updated fact supersedes the old version, which stays in the history (`memory show --id`). A memory goes stale when its subject has left the graph, when its review date passes, or when something contradicts it: a failing-tests issue goes stale once tests pass in a later session on that branch. Stale entries are still shown, labelled as stale.
+
+Memory stays in `.tokenistt/`, and anything credential-shaped is scrubbed before it's stored.
+
+## Context for agents
+
+`tokenistt context --task "Add rate limiting"` picks what matters for a task: files you're changing, code the task mentions, decisions, known issues, conventions, and what depends on the code. It fits an approximate token budget (`--max-tokens`, about four characters per token), says what it left out, and marks where each line came from.
+
+`tokenistt context inject` makes that available to connected agents:
+
+| Agent | How it arrives | What it writes |
+|---|---|---|
+| Claude Code, Codex | handed over by the hook when a session starts | `.tokenistt/context/<agent>.md` only |
+| Antigravity | a rule file | `.agents/rules/tokenistt.md`, its own file |
+| Any, with `--merge` | a marked block in `CLAUDE.md` or `AGENTS.md` | after a preview and your yes |
+
+**It never overwrites a file you wrote.** `--merge` only touches the block between its markers, and `--remove` takes it out again. `context preview` shows what an agent would receive, and `--dry-run` shows the change.
+
+The context is a snapshot, so run `inject` again to refresh it. It includes text from your repository, such as your README, and is labelled for the agent as data rather than instructions. That labelling reduces the risk from a repository you don't trust; it doesn't remove it.
+
+### MCP
+
+`tokenistt mcp` gives any MCP-capable agent `project_context`, `graph_search`, `graph_node`, `impact`, `memory_search`, `memory_add` and `sessions_recent`, with no network. For Claude Code: `claude mcp add tokenistt -- node /path/to/cli/bin/tokenistt.js mcp`. `memory_add` is how an agent can record a decision, and entries it adds are labelled as coming from an agent. This is separate from `apps/mcp-server`, which reads spend and budgets from a running stack.
+
+## Change impact
+
+`tokenistt impact src/auth/session.ts` follows the graph backwards from a file or symbol to list what depends on it, which API routes reach it, the tables involved, the tests to run, the modules affected and any related decisions. `--staged` does the same for what you're about to commit.
+
+`tokenistt changes` lists what changed, with dependents, tests and how often each file has changed lately, and flags what may deserve a closer look. Use `--since HEAD~5` or `--compare main` for other ranges.
+
+**This shows connections, not outcomes.** It lists what's linked to a change, not what will break, and inferred links are marked. Dynamic dispatch and anything the graph can't see won't appear, so a short list isn't proof that a change is safe. An agent session appears next to a file if it edited that path, which doesn't mean it made this exact change.
+
+## Search
+
+`tokenistt search` combines names in the graph, connected code, memory and session history, and shows which signals found each result. It needs no network.
+
+Semantic search is optional and off by default. To turn it on, create `intelligence.json` in your Tokenistt config folder, then run `tokenistt embeddings`:
+
+```json
+{ "embeddings": { "baseUrl": "http://localhost:11434/v1", "model": "nomic-embed-text" } }
+```
+
+Any OpenAI-compatible endpoint works, including a local Ollama. Only symbol names and file paths are sent, never source code. Those can still be sensitive, so check before using a remote endpoint. This setting is only read from your own config folder, so a cloned repository can't redirect it.
 
 ## Credentials
 
@@ -138,6 +199,17 @@ endpoint). Dashboard tokens expire; `tokenistt auth status` shows when, and `doc
 | `tokenistt map` | Build the codebase knowledge graph in `.tokenistt/graph`. `--full`, `--incremental`, `--watch`, `--stats`, `--export json [--out dir]`, `--import file`. Needs no network |
 | `tokenistt graph` | Summary of the graph. `--open` starts the interactive viewer in your browser (`--no-browser`, `--port`) |
 | `tokenistt agents` | Which coding agents are installed and connected. `connect <agent>`, `disconnect <agent>`, `capabilities` |
+| `tokenistt sessions` | Recent agent sessions. `history`, `inspect <id>`, `compare <id1> <id2>`, `--agent` |
+| `tokenistt watch` | Live view of agent sessions. `--agent`, `--project <path>`. Prints events as text or NDJSON when piped |
+| `tokenistt memory` | What Tokenistt remembers about this project. `update`, `show`, `search`, `add`, `edit`, `forget`, `export`, `stats` |
+| `tokenistt context` | What an agent should know for a task. `--task`, `--max-tokens`, `--format`, `preview`, `inject` |
+| `tokenistt mcp` | Serve the graph, memory and sessions as local MCP tools over stdio |
+| `tokenistt impact <file or symbol>` | What a change could affect: dependents, API routes, tables, tests, modules, decisions. `--staged`, `--depth` |
+| `tokenistt changes` | What changed, and what deserves a closer look. `--since <rev>`, `--compare <ref>` |
+| `tokenistt search <query>` | Find related code, memories and sessions |
+| `tokenistt analyze` | Circular imports, coupling, boundaries, entry points, isolated files, possible duplicates. `--trace "GET /users"` follows a route to its tables |
+| `tokenistt embeddings` | Optional: build vectors for semantic search |
+| `tokenistt` | On a terminal, the live dashboard: overview, agents, sessions, codebase, graph, memory, costs, policies, settings. Elsewhere, a plain status |
 | `tokenistt login` | Authenticate and store credentials (see above) |
 | `tokenistt logout` | Remove stored credentials (environment variables are untouched and reported) |
 | `tokenistt auth status` | Which credentials are in effect, masked, with source and expiry. Local, no network |
