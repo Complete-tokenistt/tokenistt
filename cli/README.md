@@ -153,6 +153,18 @@ Semantic search is optional and off by default. To turn it on, create `intellige
 
 Any OpenAI-compatible endpoint works, including a local Ollama. Only symbol names and file paths are sent, never source code. Those can still be sensitive, so check before using a remote endpoint. This setting is only read from your own config folder, so a cloned repository can't redirect it.
 
+## Sync
+
+Everything above works with no gateway. `tokenistt sync --enable` sends summaries to your own gateway for the dashboard, and `--dry-run` prints exactly what would go.
+
+**Sent:** repository name, branch and commit; graph counts and module names; session summaries with repo-relative changed files, tokens and estimated cost; memory entries with their sources. **Never sent:** source code, prompts, transcripts or absolute paths. The gateway rejects those fields outright.
+
+Memory content can include text from your repository, such as a README summary or a decision, and anyone in your organization with dashboard access can read it.
+
+If the gateway can't be reached, nothing is lost: the next run covers the gap.
+
+Agent usage is kept separate from spend and doesn't count toward budgets. For usage billed per token, `--ledger` also records it in the ledger. Don't use it for a subscription, where it would appear as spend that didn't happen. A session that ran through this gateway (`ANTHROPIC_BASE_URL` or `OPENAI_BASE_URL` pointing at it) is skipped, so it isn't counted twice.
+
 ## Credentials
 
 The gateway has three kinds of credential. Use whichever matches what you need to do:
@@ -210,6 +222,7 @@ endpoint). Dashboard tokens expire; `tokenistt auth status` shows when, and `doc
 | `tokenistt analyze` | Circular imports, coupling, boundaries, entry points, isolated files, possible duplicates. `--trace "GET /users"` follows a route to its tables |
 | `tokenistt embeddings` | Optional: build vectors for semantic search |
 | `tokenistt` | On a terminal, the live dashboard: overview, agents, sessions, codebase, graph, memory, costs, policies, settings. Elsewhere, a plain status |
+| `tokenistt sync` | Send summaries to your gateway. Off until `--enable`. `--dry-run`, `--ledger` |
 | `tokenistt login` | Authenticate and store credentials (see above) |
 | `tokenistt logout` | Remove stored credentials (environment variables are untouched and reported) |
 | `tokenistt auth status` | Which credentials are in effect, masked, with source and expiry. Local, no network |
