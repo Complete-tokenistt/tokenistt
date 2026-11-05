@@ -39,15 +39,16 @@ function applyEvent(db: Database, e: AgentEvent): boolean {
   const inserted = db.prepare(`INSERT OR IGNORE INTO agent_events (id, session_key, type, at, tool, path, command, ok, reason, model)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(e.id, key, e.type, e.at, e.tool ?? null, e.path ?? null, e.command ?? null, e.ok === undefined ? null : e.ok ? 1 : 0, e.reason ?? null, e.model ?? null);
   if (inserted.changes === 0) return false;
-  db.prepare(`INSERT INTO agent_sessions (key, agent, session_id, branch, started_at, last_event_at, status, model, task, transcript)
-    VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+  db.prepare(`INSERT INTO agent_sessions (key, agent, session_id, branch, started_at, last_event_at, status, model, task, transcript, proxy_host)
+    VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)
     ON CONFLICT (key) DO UPDATE SET
       last_event_at = max(last_event_at, excluded.last_event_at),
       started_at = min(started_at, excluded.started_at),
       branch = coalesce(excluded.branch, branch),
       model = coalesce(excluded.model, model),
       task = coalesce(excluded.task, task),
-      transcript = coalesce(excluded.transcript, transcript)`).run(key, e.agent, e.session, e.branch ?? null, e.at, e.at, e.model ?? null, e.task ?? null, e.transcript ?? null);
+      transcript = coalesce(excluded.transcript, transcript),
+      proxy_host = coalesce(excluded.proxy_host, proxy_host)`).run(key, e.agent, e.session, e.branch ?? null, e.at, e.at, e.model ?? null, e.task ?? null, e.transcript ?? null, e.proxyHost ?? null);
   if (e.type === 'SESSION_ENDED') {
     db.prepare(`UPDATE agent_sessions SET status = 'ended', ended_at = ?, end_reason = ? WHERE key = ?`).run(e.at, e.reason ?? null, key);
   } else if (e.type === 'SESSION_STARTED' || e.type === 'SESSION_RESUMED' || e.type === 'TASK_STARTED') {

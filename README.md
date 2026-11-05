@@ -197,6 +197,27 @@ npm run package -w apps/vscode-extension && code --install-extension apps/vscode
 
 Then run **Tokenistt: Set API Key**. (Not on the Marketplace yet — install the `.vsix`.)
 
+### CLI — gateway client and developer intelligence
+
+[`cli/`](cli/README.md) is the `tokenistt` command. It does two things:
+
+- **Talks to your gateway** — `usage`, `cost`, `models`, `providers`, `policy` (with a dry-run `test`), `optimize`, plus `login`, `connect` and `doctor`. Same data as the dashboard.
+- **Runs locally, with no gateway or network** — a codebase knowledge graph (`map`, `graph --open`), coding-agent session recording (`agents connect claude-code`), project memory, task context for agents (`context`, `context inject`), change impact (`impact`, `changes`), search, and a local MCP server (`mcp`). Everything is stored in `.tokenistt/` inside the repository.
+
+Optionally, `tokenistt sync --enable` sends summaries (never source code, prompts or absolute paths) to your own gateway; `--dry-run` shows exactly what would go.
+
+```bash
+npm install && npm run build -w cli        # not published to npm yet
+npm link -w cli                            # or: node cli/bin/tokenistt.js <command>
+
+cd your-repo
+tokenistt init && tokenistt map            # local graph, no network
+tokenistt context --task "Add rate limiting"
+tokenistt login && tokenistt usage --by model --days 7   # against your gateway
+```
+
+Needs Node.js 22.13+. To analyse any other project: install once with `npm link -w cli`, `cd` into that git repository and run `tokenistt init && tokenistt map && tokenistt analyze`. Step-by-step: **[Use it in any repository](cli/README.md#use-it-in-any-repository)**. Full command reference, privacy details and exit codes: **[cli/README.md](cli/README.md)**.
+
 ---
 
 ## ✨ What it does
@@ -259,6 +280,7 @@ apps/
   gateway/        Express proxy, policy/budget/routing engines, management API, connectors
   dashboard/      Next.js 15 + React 19 (talks to the gateway through a session-checked proxy)
   mcp-server/     MCP tools: spend, budgets, anomalies, price estimates, model comparison
+cli/              `tokenistt` CLI: gateway client + local codebase graph, agent sessions, memory, context
 packages/
   db/             Postgres schema, migration runner, demo seed
   sdk-ts/         @tokenistt/sdk — OpenAI-compatible TypeScript client
@@ -409,9 +431,10 @@ Stated plainly so nobody is surprised:
 - **Connectors are tested against fixture servers, not the live services** (no credentials were available). Field names follow each vendor's public API docs; expect small fixes on first real use.
 - **Some older dashboard pages** (Usage, Budgets, Governance, Providers, Team, Forecasting …) predate the management API and read Postgres directly. Pages for routing, model comparison, API keys, request history, alerts, audit, approvals and connectors use the gateway API.
 - **The VS Code extension is a `.vsix` build, not on the Marketplace**, and has been type-checked and unit-tested but not yet run by hand in an Extension Development Host. Only gateway traffic is counted.
+- **The CLI is not on npm yet** (build from the repo). Its Codex and Antigravity hooks are written from their docs and not yet checked against the real agents; non-TypeScript/Python language support is tested on fixtures only. Details in [cli/README.md](cli/README.md).
 - **SDKs are not on npm/PyPI until a release is tagged** (workflow included; needs `NPM_TOKEN` / `PYPI_API_TOKEN` secrets).
 - **Prices** for Groq, Together and Gemini are published list prices added to the catalog — verify them, they change. Models without a price report `COST_UNAVAILABLE`.
-- **Not built yet:** SSO (OIDC/SAML), Postgres row-level security, pluggable secrets managers, a Redis-Streams queue for multi-instance deployments, request replay, an `@tokenistt/cli`, and a dual ESM/CJS SDK build.
+- **Not built yet:** SSO (OIDC/SAML), Postgres row-level security, pluggable secrets managers, a Redis-Streams queue for multi-instance deployments, request replay, and a dual ESM/CJS SDK build.
 - Single Postgres instance; no multi-region story.
 
 ---

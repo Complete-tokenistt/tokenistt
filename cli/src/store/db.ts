@@ -54,6 +54,8 @@ export const MIGRATIONS: string[] = [
    CREATE TABLE memory_sessions (memory_id TEXT NOT NULL, session_key TEXT NOT NULL, PRIMARY KEY (memory_id, session_key)) STRICT, WITHOUT ROWID;
    CREATE VIRTUAL TABLE memory_fts USING fts5(id UNINDEXED, category UNINDEXED, content);`,
   `CREATE TABLE embeddings (node_id TEXT NOT NULL, model TEXT NOT NULL, hash TEXT NOT NULL, vector BLOB NOT NULL, PRIMARY KEY (node_id, model)) STRICT, WITHOUT ROWID;`,
+  `ALTER TABLE agent_sessions ADD COLUMN proxy_host TEXT;
+   CREATE TABLE agent_ledger_sent (session_key TEXT NOT NULL, request_id TEXT NOT NULL, PRIMARY KEY (session_key, request_id)) STRICT, WITHOUT ROWID;`,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
