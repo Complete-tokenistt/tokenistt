@@ -15,7 +15,8 @@ import { createHmac, randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import pg from 'pg';
 
 const [major, minor] = process.versions.node.split('.').map(Number);
@@ -33,6 +34,8 @@ const PORT = process.env.CLI_E2E_PORT || '3556';
 const BASE = `http://127.0.0.1:${PORT}`;
 const ADMIN_SECRET = 'cli-e2e-admin-secret-0123456789abcdef0123456789';
 const JWT_SECRET = 'cli-e2e-jwt-secret-0123456789abcdef0123456789abcdef';
+// Resolved from the CLI package so the child can run from any directory (init/sync need a separate git repo as cwd).
+const tsxLoader = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href;
 const tmp = mkdtempSync(join(tmpdir(), 'tokenistt-cli-e2e-'));
 
 const results = [];
@@ -66,7 +69,7 @@ const jwt = (orgId) => {
 
 /** Runs the real CLI. `env` is explicit so nothing leaks in from the developer's machine. */
 function cli(args, { cwd = cliRoot, stdin = '', config, env = {} } = {}) {
-  const r = spawnSync(process.execPath, ['--import', 'tsx', join(cliRoot, 'src', 'main.ts'), ...args], {
+  const r = spawnSync(process.execPath, ['--import', tsxLoader, join(cliRoot, 'src', 'main.ts'), ...args], {
     cwd, input: stdin, encoding: 'utf8', timeout: 90_000,
     env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, TOKENISTT_CONFIG_DIR: config, TOKENISTT_API_URL: BASE, NO_COLOR: '1', ...env },
   });
@@ -85,10 +88,11 @@ async function chat(token, body) {
 
 async function newOrg(label) {
   const sfx = randomUUID().slice(0, 8);
-  const id = (await pool.query(`INSERT INTO organizations (name, slug) VALUES ($1,$2) RETURNING id::text`, [`CLI E2E ${label} ${sfx}`, `cli-e2e-${label}-${sfx}`])).rows[0].id;
+  const slug = `cli-e2e-${label}-${sfx}`;
+  const id = (await pool.query(`INSERT INTO organizations (name, slug) VALUES ($1,$2) RETURNING id::text`, [`CLI E2E ${label} ${sfx}`, slug])).rows[0].id;
   orgIds.push(id);
   const ws = (await pool.query(`INSERT INTO workspaces (organization_id, name, cost_center) VALUES ($1,'E2E','CC-E2E') RETURNING id::text`, [id])).rows[0].id;
-  return { id, ws };
+  return { id, ws, slug };
 }
 
 async function main() {
@@ -117,7 +121,7 @@ async function main() {
   let r = cli(['login', '--token-stdin'], { stdin: `${jwt(a.id)}\n`, config: cfgA });
   check('login validates the token against the gateway', r.code === 0 && /Logged in/.test(r.out), r.err || r.out);
   r = cli(['auth', 'whoami', '--json'], { config: cfgA });
-  check('whoami reports the right organization', r.code === 0 && String(r.json?.organization?.id) === a.id, r.err || r.out);
+  check('whoami reports the right organization', r.code === 0 && r.json?.organization?.slug === a.slug, r.err || r.out);
   r = cli(['doctor', '--json'], { config: cfgA, env: { TOKENISTT_API_KEY: key } });
   check('doctor runs against the live gateway', r.code === 0 || r.code === 1, r.err || r.out); // ran to completion; warnings are fine
 
