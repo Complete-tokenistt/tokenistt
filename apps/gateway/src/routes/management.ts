@@ -306,13 +306,13 @@ managementRouter.get('/models', ...endpoint('spend:read', async (_req, org) => {
   for (const r of obs) {
     seen.add(`${r.provider}:${r.model}`);
     const price = resolvePricing(r.provider, r.model);
-    out.push({ ...r, input_per_1m: price?.input ?? null, output_per_1m: price?.output ?? null });
+    out.push({ ...r, input_per_1m: price?.input ?? null, output_per_1m: price?.output ?? null, cached_input_per_1m: price?.cachedInput ?? null, cache_write_per_1m: price?.cacheWrite ?? null });
   }
   for (const [provider, models] of Object.entries(getAvailableModels())) {
     for (const model of models) {
       if (seen.has(`${provider}:${model}`)) continue;
       const price = resolvePricing(provider, model);
-      if (price) out.push({ provider, model, requests: 0, avg_cost_usd: null, avg_latency_ms: null, error_rate: null, input_per_1m: price.input, output_per_1m: price.output });
+      if (price) out.push({ provider, model, requests: 0, avg_cost_usd: null, avg_latency_ms: null, error_rate: null, input_per_1m: price.input, output_per_1m: price.output, cached_input_per_1m: price.cachedInput ?? null, cache_write_per_1m: price.cacheWrite ?? null });
     }
   }
   return out;

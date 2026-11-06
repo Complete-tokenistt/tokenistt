@@ -58,6 +58,20 @@ function readPrivacy(root: string): NormalizeContext['privacy'] {
   }
 }
 
+/** Agents read these to route through a proxy. Only the host is kept, since a URL can hold credentials. */
+export function baseUrlHost(env: NodeJS.ProcessEnv): string | undefined {
+  for (const name of ['ANTHROPIC_BASE_URL', 'OPENAI_BASE_URL']) {
+    const v = env[name];
+    if (!v) continue;
+    try {
+      return new URL(v).host;
+    } catch {
+      /* not a URL */
+    }
+  }
+  return undefined;
+}
+
 export function handleHook(agent: string, stdin: string, now: Date = new Date()): number {
   const input = JSON.parse(stdin) as Record<string, unknown>;
   const adapter = adapterFor(agent);
@@ -68,8 +82,10 @@ export function handleHook(agent: string, stdin: string, now: Date = new Date())
   const branch = currentBranch(root);
   const events = adapter.normalizeEvent(input, { root, now, privacy: readPrivacy(root), ...(branch ? { branch } : {}) });
   let written = 0;
+  const proxyHost = baseUrlHost(process.env);
   for (const e of events) {
     if (!SAFE_SESSION.test(e.session)) continue;
+    if (proxyHost) e.proxyHost = proxyHost;
     const dir = join(root, '.tokenistt', 'sessions');
     mkdirSync(dir, { recursive: true });
     // One small append per event: concurrent sessions each have their own file.

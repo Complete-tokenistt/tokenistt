@@ -30,6 +30,8 @@ export interface AgentEvent {
   reason?: string;
   /** Local path the agent gave us for reading usage. Never synced. */
   transcript?: string;
+  /** Host of a custom model API base URL, to recognise usage already logged by a gateway. */
+  proxyHost?: string;
   /** Only with privacy.capturePrompts. */
   task?: string;
 }
