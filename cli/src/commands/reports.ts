@@ -6,7 +6,7 @@ import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import { CliError, UsageError } from '../core/errors.js';
 import { readStdin } from '../core/prompt.js';
-import { listSessions, readPrices, refresh, summarize, type PriceTable } from '../agents/sessions.js';
+import { listSessions, priceTableFromCatalog, readPrices, refresh, summarize, writePricesCache } from '../agents/sessions.js';
 import { findOptimizations, type ModelInfo, type UsageRow } from '../services/optimize.js';
 import { repoInfo } from '../project/git.js';
 import { openDatabase } from '../store/db.js';
@@ -99,14 +99,8 @@ export function registerReports(program: Command, getCtx: GetCtx): void {
     if (o.refresh) {
       const repo = repoInfo(process.cwd());
       if (!repo || !readProjectConfig(repo.root)) throw new UsageError('Saving prices needs a set-up repository.', 'Run `tokenistt init` first.');
-      const table: PriceTable = {};
-      for (const m of rows) {
-        if (m.input_per_1m === null || m.output_per_1m === null) continue;
-        table[m.model] = { input: m.input_per_1m, output: m.output_per_1m, ...(m.cached_input_per_1m != null ? { cachedInput: m.cached_input_per_1m } : {}), ...(m.cache_write_per_1m != null ? { cacheWrite: m.cache_write_per_1m } : {}) };
-      }
-      const dir = join(projectDir(repo.root), 'cache');
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, 'prices.json'), `${JSON.stringify(table, null, 2)}\n`);
+      const table = priceTableFromCatalog(rows);
+      writePricesCache(repo.root, table);
       ctx.out.result({ saved: Object.keys(table).length }, () => ctx.out.success(`Saved prices for ${Object.keys(table).length} models from your gateway.`));
       return;
     }

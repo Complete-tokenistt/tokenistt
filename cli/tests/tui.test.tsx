@@ -20,25 +20,7 @@ const cleanups: Array<() => void> = [];
 afterEach(() => { while (cleanups.length) cleanups.pop()?.(); });
 const tick = () => new Promise((r) => setTimeout(r, 100));
 
-const session = (over: Partial<SessionSummary> = {}): SessionSummary => ({
-  key: 'claude-code:abcdefgh', agent: 'claude-code', id: 'abcdefgh1234', branch: 'main', state: 'active', startedAt: 't', endedAt: null, lastEventAt: 't', durationMs: 754000, endReason: null, task: null, models: ['m1'],
-  tokens: { input: 1, output: 1, cacheRead: 0, cacheCreation: 0, total: 18420, requests: 1 }, cost: { costUsd: null, source: 'unknown' },
-  counts: { tasks: 1, filesRead: 0, filesCreated: 0, filesModified: 1, filesDeleted: 0, commands: 0, tools: 0, errors: 2, testsPassed: 1, testsFailed: 0, testsUnknown: 0 },
-  files: { read: [], created: [], modified: ['src/a.ts'], deleted: [] }, commands: [], ...over,
-});
-
-const data = (over: Partial<DashboardData> = {}): DashboardData => ({
-  project: { name: 'demo', id: 'repo_x', root: '/r', branch: 'main', commit: 'abc1234', subject: 'first', privacy: 'name', capturePrompts: false, syncEnabled: false },
-  graph: { schemaVersion: '1.0', extractorVersion: 1, repository: { id: 'r', name: 'demo', branch: 'main', commit: 'c' }, generatedAt: '2026-11-02', durationMs: 1, mode: 'full', files: { total: 7, parsed: 7, reused: 0, skipped: 0, parseErrors: 0 }, nodes: { file: 7, function: 3 }, edges: { CALLS: 5 }, links: {}, languages: { typescript: 7 } },
-  largest: [{ name: 'src', type: 'directory', nodes: 12 }], mostUsed: [{ name: 'query', type: 'function', dependents: 4, path: 'src/db.ts' }],
-  agents: [{ id: 'claude-code', name: 'Claude Code', installed: true, connected: true, state: 'active', verification: 'live' }, { id: 'codex', name: 'OpenAI Codex', installed: false, connected: false, state: 'not connected', verification: 'documented' }],
-  sessions: [session(), session({ key: 'k2', id: 'zzzz9999', tokens: null, state: 'ended' })],
-  costs: [{ agent: 'Claude Code', sessions: 2, tokens: null, costUsd: null }, { agent: 'OpenAI Codex', sessions: 0, tokens: null, costUsd: null }],
-  memory: { total: 3, active: 2, stale: 1, superseded: 0, retired: 0, byCategory: { ARCHITECTURAL_DECISIONS: 1 }, bySource: {}, lastUpdated: '2026-11-02' },
-  memories: [{ id: 'm', content: 'Use Postgres', status: 'active' } as never, { id: 'n', content: 'Old fact', status: 'stale' } as never],
-  gateway: { state: 'not configured', url: null },
-  ...over,
-});
+import { data, session, usage } from './tui-fixtures.js';
 
 const until = async (frame: () => string | undefined, re: RegExp): Promise<void> => { for (let i = 0; i < 60 && !re.test(frame() ?? ''); i++) await new Promise((r) => setTimeout(r, 50)); assert.match(frame() ?? '', re); };
 const type = async (stdin: { write: (s: string) => void }, text: string) => { for (const ch of text) { stdin.write(ch); await new Promise((r) => setTimeout(r, 5)); } await tick(); };
@@ -46,8 +28,10 @@ const KEY = { tab: '\t', shiftTab: '\x1b[Z', up: '\x1b[A', down: '\x1b[B', enter
 
 const finops: DashboardData['finops'] = {
   state: 'ok', days: 30, total: { requests: 120, tokens: 90000, costUsd: 12.3456, errors: 2, zeroCost: 3 },
-  byModel: [{ key: 'gpt-4o', requests: 100, tokens: 80000, costUsd: 11, errors: 0, p95Ms: 900 }, { key: 'claude-haiku', requests: 20, tokens: 10000, costUsd: 1.3456, errors: 2, p95Ms: null }],
-  byDay: [{ key: '2026-11-04', requests: 5, tokens: 1, costUsd: 1, errors: 0, p95Ms: null }, { key: '2026-11-05', requests: 5, tokens: 1, costUsd: 3, errors: 0, p95Ms: null }],
+  byModel: [{ key: 'gpt-4o', requests: 100, input: 50000, output: 20000, cached: 10000, tokens: 80000, costUsd: 11, errors: 0, zeroCost: 0, p95Ms: 900 }, { key: 'claude-haiku', requests: 20, input: 6000, output: 3000, cached: 1000, tokens: 10000, costUsd: 1.3456, errors: 2, zeroCost: 3, p95Ms: null }],
+  byDay: [{ key: '2026-11-04', requests: 5, input: 1, output: 1, cached: 0, tokens: 2, costUsd: 1, errors: 0, zeroCost: 0, p95Ms: null }, { key: '2026-11-05', requests: 5, input: 1, output: 1, cached: 0, tokens: 2, costUsd: 3, errors: 0, zeroCost: 0, p95Ms: null }],
+  byWeek: [{ key: '2026-11-02', requests: 10, input: 2, output: 2, cached: 0, tokens: 4, costUsd: 4, errors: 0, zeroCost: 0, p95Ms: null }],
+  sessions: [{ agent: 'claude-code', id: 'sess-aaaa', repository: 'demo', branch: 'main', state: 'ended', startedAt: '2026-11-05T10:00:00Z', models: ['m1'], tokens: 1234, costUsd: null }],
   budgets: [{ id: 'b', scope: 'team', name: 'Platform', capUsd: 500, period: 'monthly', mode: 'hard_cap', active: true }],
 };
 
@@ -128,11 +112,11 @@ describe('terminal application', () => {
     const d = data({ gateway: { state: 'connected', url: 'http://gw' }, finops });
     const { lastFrame, unmount } = render(<App data={d} motion={false} initialScreen="FinOps" />);
     const f = lastFrame() ?? '';
-    for (const t of ['$12.35', '120 requests', 'gpt-4o', 'claude-haiku', 'Platform', 'hard_cap', 'no catalog price']) assert.ok(f.includes(t), t);
+    for (const t of ['$12.35', '120 requests', 'Platform', 'hard_cap', 'no catalog price']) assert.ok(f.includes(t), t);
     unmount();
   });
   it('says why spend is missing instead of showing zero', () => {
-    const d = data({ gateway: { state: 'connected', url: 'http://gw' }, finops: { state: 'no credentials', detail: 'Run tokenistt login', days: 30, total: null, byModel: [], byDay: [], budgets: [] } });
+    const d = data({ gateway: { state: 'connected', url: 'http://gw' }, finops: { state: 'no credentials', detail: 'Run tokenistt login', days: 30, total: null, byModel: [], byDay: [], byWeek: [], sessions: [], budgets: [] } });
     const { lastFrame, unmount } = render(<App data={d} motion={false} initialScreen="FinOps" />);
     assert.match(lastFrame() ?? '', /No management credentials/);
     unmount();
@@ -291,8 +275,9 @@ describe('dashboard data', () => {
     assert.equal(d.agents.find((a) => a.id === 'codex')?.state, 'active');
     const c = d.costs.find((x) => x.agent === 'OpenAI Codex');
     assert.equal(c?.sessions, 1);
-    assert.equal(c?.tokens, null);
-    assert.equal(c?.costUsd, null);
+    assert.equal(c?.tokens, 0);
+    assert.equal(c?.unreportedSessions, 1, 'a session with no usage report is counted, not summed as zero');
+    assert.equal(c?.cost.costUsd, null);
   });
   it('probes the gateway with nothing but a health check, and never throws', async () => {
     const base = { apiUrl: 'http://127.0.0.1:9', fromEnv: [], hasFile: true };

@@ -1,22 +1,29 @@
 /** The terminal application: screens, a persistent prompt, a command palette and a streaming activity feed. It only
- * displays what it is given, so it can be tested with plain data and no terminal. */
+ * displays what it is given, so it can be tested with plain data and no terminal.
+ *
+ * The frame is always exactly the size of the terminal (one column spare), every row of it a fixed height, and all
+ * text is measured in cells. That keeps Ink on its full-redraw path, which cannot leave old frames behind. */
 import { Box, Text, useApp, useInput, useStdout, type Key } from 'ink';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { SCREENS, matching, parse, type Screen } from './commands.js';
 import type { DashboardData } from './data.js';
-import { agentsView, finopsView, graphView, helpView, homeSummary, memoryView, nanoView, type Line, type View } from './screens.js';
+import { cleanLine, truncateCells, wrapCells } from './format.js';
+import { HEADER_ROWS, PROMPT_ROWS, FOOTER_ROWS, hitTest, looksLikeMouseFragment, parseMouse, tabSpans, type Layout } from './mouse.js';
+import { FINOPS_TABS, agentsView, finopsView, graphView, helpView, homeSummary, memoryView, nanoView, type Line, type View } from './screens.js';
 import { ASCII, UNICODE, color, toneColor, type Glyphs, type Tone } from './theme.js';
 
 export { SCREENS };
 export type { Screen };
 
 const MAX_FEED = 400;
+const WHEEL_STEP = 3;
 interface FeedItem { id: number; text: string; tone: Tone }
 
 export interface AppProps {
   data: DashboardData;
   motion: boolean;
   initialScreen?: Screen;
+  initialFinopsTab?: number;
   /** Fetches fresh data; absent in tests that want a fixed screen. */
   reload?: () => Promise<DashboardData>;
   reloadMs?: number;
@@ -36,17 +43,17 @@ function Segs({ line }: { line: Line }): ReactNode {
 }
 
 /** Shows `height` lines of a view. Selection views keep the focused line centred; others scroll by `cursor`. */
-function windowed(view: View, cursor: number, height: number): { shown: Line[]; top: number } {
+function windowed(view: View, cursor: number, height: number): { shown: Line[]; top: number; max: number } {
   const n = view.lines.length;
   const max = Math.max(0, n - height);
   const top = view.focus !== undefined ? Math.min(max, Math.max(0, view.focus - Math.floor(height / 2))) : Math.min(max, Math.max(0, cursor));
-  return { shown: view.lines.slice(top, top + height), top };
+  return { shown: view.lines.slice(top, top + height), top, max };
 }
 
 function Panel({ title, width, height, children, focused, g }: { title?: string; width?: number | string; height: number; children: ReactNode; focused?: boolean; g: Glyphs }): ReactNode {
   return (
     <Box flexDirection="column" borderStyle={g.border === 'round' ? 'round' : 'classic'} borderColor={focused ? color.accent : color.dim} paddingX={1} width={width} height={height} overflow="hidden" flexShrink={0}>
-      {title ? <Text bold>{title}</Text> : null}
+      {title ? <Text bold wrap="truncate-end">{title}</Text> : null}
       {children}
     </Box>
   );
@@ -56,7 +63,7 @@ function Palette({ query, sel, g, width, max }: { query: string; sel: number; g:
   const items = matching(query).slice(0, max);
   return (
     <Box flexDirection="column" borderStyle={g.border === 'round' ? 'round' : 'classic'} borderColor={color.accent} paddingX={1} width={Math.min(64, width)}>
-      <Text><Text color={color.accent}>{g.prompt} </Text>{query}<Text inverse> </Text></Text>
+      <Text wrap="truncate-end"><Text color={color.accent}>{g.prompt} </Text>{query}<Text inverse> </Text></Text>
       {items.length ? items.map((c, i) => (
         <Text key={c.name} wrap="truncate-end" {...(i === sel ? { backgroundColor: color.accent, color: 'black' } : {})}>{`/${c.name}${c.arg ? ` ${c.arg}` : ''}`.padEnd(18)}<Text dimColor={i !== sel}>{c.hint}</Text></Text>
       )) : <Text dimColor>No matching command.</Text>}
@@ -64,11 +71,14 @@ function Palette({ query, sel, g, width, max }: { query: string; sel: number; g:
   );
 }
 
-export function App({ data, motion, initialScreen = 'Home', reload, reloadMs = 2000, search, unicode = true, exec }: AppProps): ReactNode {
+export function App({ data, motion, initialScreen = 'Home', initialFinopsTab = 0, reload, reloadMs = 2000, search, unicode = true, exec }: AppProps): ReactNode {
   const g = unicode ? UNICODE : ASCII;
   const [d, setD] = useState(data);
   const [screen, setScreen] = useState<Screen>(initialScreen);
-  const [cursor, setCursor] = useState(0);
+  const [finopsTab, setFinopsTab] = useState(initialFinopsTab);
+  const [cursor, setCursorState] = useState(0);
+  const cursorRef = useRef(0);
+  const setCursor = (v: number): void => { cursorRef.current = v; setCursorState(v); };
   const [input, setInputState] = useState('');
   const [pos, setPosState] = useState(0);
   // Keys can arrive faster than React renders, so the live text lives in refs and state only mirrors it for drawing.
@@ -85,6 +95,8 @@ export function App({ data, motion, initialScreen = 'Home', reload, reloadMs = 2
   const setHelpOpen = (v: boolean): void => { helpOpenRef.current = v; setHelpOpenState(v); };
   const [job, setJob] = useState<{ label: string; stop: () => void } | null>(null);
   const jobRef = useRef<{ label: string; stop: () => void } | null>(null);
+  const screenRef = useRef<Screen>(initialScreen);
+  const finopsTabRef = useRef(initialFinopsTab);
   const [frame, setFrame] = useState(0);
   const [feed, setFeed] = useState<FeedItem[]>(() => initialFeed(data));
   const queue = useRef<Array<{ text: string; tone: Tone }>>([]);
@@ -102,7 +114,8 @@ export function App({ data, motion, initialScreen = 'Home', reload, reloadMs = 2
 
   /** Lines appear one at a time, like output being written, when motion is allowed; at once otherwise. */
   const push = useCallback((lines: Array<{ text: string; tone?: Tone }>) => {
-    const items = lines.map((l) => ({ text: l.text, tone: l.tone ?? 'normal' }));
+    const items = lines.map((l) => ({ text: cleanLine(l.text), tone: l.tone ?? 'normal' })).filter((l) => l.text.length > 0);
+    if (!items.length) return;
     if (!motion) {
       setFeed((f) => [...f, ...items.map((i) => ({ ...i, id: nextId.current++ }))].slice(-MAX_FEED));
       return;
@@ -139,7 +152,8 @@ export function App({ data, motion, initialScreen = 'Home', reload, reloadMs = 2
     return () => clearInterval(timer);
   }, [reload, reloadMs, refresh]);
 
-  const go = useCallback((s: Screen) => { setScreen(s); setCursor(0); }, []);
+  const go = useCallback((s: Screen) => { screenRef.current = s; setScreen(s); setCursor(0); }, []);
+  const goFinops = (i: number): void => { const n = Math.max(0, Math.min(FINOPS_TABS.length - 1, i)); finopsTabRef.current = n; setFinopsTab(n); setCursor(0); };
 
   const run = useCallback((text: string) => {
     const a = parse(text);
@@ -148,7 +162,7 @@ export function App({ data, motion, initialScreen = 'Home', reload, reloadMs = 2
     switch (a.kind) {
       case 'screen': go(a.screen); break;
       case 'quit': exit(); break;
-      case 'clear': queue.current = []; setFeed([]); break;
+      case 'clear': queue.current = []; setFeed([]); setCursor(0); break;
       case 'help': setHelpOpen(true); setCursor(0); break;
       case 'terminal': push([{ text: `${a.command} needs a terminal of its own. Quit (Ctrl+C) and run: tokenistt ${a.line}`, tone: 'warn' }]); go('Home'); break;
       case 'suggest': push([{ text: `"${a.typed}" is not a command. Did you mean "${a.suggestion}"? It is in the prompt, press Enter to run it.`, tone: 'warn' }]); setInput(a.suggestion); setPos(a.suggestion.length); go('Home'); break;
@@ -178,9 +192,71 @@ export function App({ data, motion, initialScreen = 'Home', reload, reloadMs = 2
     }
   }, [push, g.prompt, go, exit, refresh, search]);
 
+  // What the renderer last drew, so a click or a scroll can be mapped onto it.
+  const layoutRef = useRef<Layout>({ columns: 80, rows: 24, bodyHeight: 10, leftWidth: 0, tabs: [] });
+  const viewRef = useRef<View | null>(null);
+  const windowRef = useRef({ top: 0, max: 0, feedMax: 0, viewH: 1 });
+  const promptRef = useRef({ start: 0 });
+
+  /** Positive moves down the screen (towards newer lines in the feed). Always stays within what exists. */
+  const scrollBy = (delta: number): void => {
+    const w = windowRef.current;
+    const v = viewRef.current;
+    if (v && v.focus !== undefined && !helpOpenRef.current) setCursor(Math.max(0, Math.min(Math.max(0, v.count - 1), cursorRef.current + delta)));
+    else if (v) setCursor(Math.max(0, Math.min(w.max, cursorRef.current + delta)));
+    else setCursor(Math.max(0, Math.min(w.feedMax, cursorRef.current - delta)));
+  };
+  const scrollTo = (where: 'start' | 'end'): void => {
+    const w = windowRef.current;
+    const v = viewRef.current;
+    if (v) setCursor(where === 'start' ? 0 : v.focus !== undefined ? Math.max(0, v.count - 1) : w.max);
+    else setCursor(where === 'start' ? w.feedMax : 0);
+  };
+
+  const onMouse = (events: ReturnType<typeof parseMouse>['events']): void => {
+    for (const e of events) {
+      if (e.kind === 'wheel') {
+        if (!paletteRef.current) scrollBy(e.direction === 'up' ? -WHEEL_STEP : WHEEL_STEP);
+        continue;
+      }
+      if (e.kind !== 'click') continue;
+      const t = hitTest(layoutRef.current, e.x, e.y);
+      if (t.kind === 'tab') {
+        setPalette(null); setHelpOpen(false);
+        go(t.name as Screen);
+      } else if (t.kind === 'prompt') {
+        // Clicking the prompt is how you start typing: close whatever is covering the screen and put the caret there.
+        setPalette(null); setHelpOpen(false);
+        const text = inputRef.current;
+        const col = t.column - 5 + promptRef.current.start;
+        setPos(Math.max(0, Math.min(text.length, col)));
+      } else if (t.kind === 'body' && !paletteRef.current) {
+        const v = viewRef.current;
+        if (!v) continue;
+        const line = windowRef.current.top + (t.row - 1);
+        if (v.tabs && line === 0) {
+          const spans = tabSpans(v.tabs.names);
+          const hit = spans.find((s) => t.column - 2 >= s.from && t.column - 2 <= s.to);
+          if (hit) goFinops(v.tabs.names.indexOf(hit.name));
+        } else if (v.itemAt && !helpOpenRef.current) {
+          const item = v.itemAt.get(line);
+          if (item !== undefined) setCursor(item);
+        }
+      }
+    }
+  };
+
   // Ink re-subscribes whenever the handler changes, and a key arriving in that gap is lost. A stable function avoids it.
   const handler = useRef<(ch: string, key: Key) => void>(() => undefined);
-  handler.current = (ch, key) => {
+  handler.current = (rawCh, key) => {
+    // Mouse reports arrive as input too. They are handled here and never typed into the prompt.
+    let ch = rawCh;
+    const mouse = parseMouse(rawCh);
+    if (mouse.events.length || looksLikeMouseFragment(mouse.rest)) {
+      onMouse(mouse.events);
+      if (!mouse.rest || looksLikeMouseFragment(mouse.rest)) return;
+      ch = mouse.rest;
+    }
     const input = inputRef.current;
     const pos = posRef.current;
     const palette = paletteRef.current;
@@ -201,14 +277,16 @@ export function App({ data, motion, initialScreen = 'Home', reload, reloadMs = 2
     if (key.ctrl && ch === 'c') { jobRef.current?.stop(); exit(); return; }
     if (helpOpenRef.current) {
       if (key.escape || key.return) { setHelpOpen(false); setCursor(0); }
-      else if (key.upArrow) setCursor((c) => Math.max(0, c - 1));
-      else if (key.downArrow) setCursor((c) => c + 1);
-      else if (key.pageUp) setCursor((c) => Math.max(0, c - 10));
-      else if (key.pageDown) setCursor((c) => c + 10);
+      else if (key.upArrow) scrollBy(-1);
+      else if (key.downArrow) scrollBy(1);
+      else if (key.pageUp) scrollBy(-(windowRef.current.viewH - 1));
+      else if (key.pageDown) scrollBy(windowRef.current.viewH - 1);
+      else if (key.home) scrollTo('start');
+      else if (key.end) scrollTo('end');
       return;
     }
     if (key.ctrl && ch === 'd' && !input) { exit(); return; }
-    if (key.ctrl && ch === 'l') { queue.current = []; setFeed([]); return; }
+    if (key.ctrl && ch === 'l') { queue.current = []; setFeed([]); setCursor(0); return; }
     if (key.ctrl && ch === 'u') { setInput(input.slice(pos)); setPos(0); return; }
     if (key.tab) {
       if (input.startsWith('/') && !key.shift) {
@@ -216,7 +294,7 @@ export function App({ data, motion, initialScreen = 'Home', reload, reloadMs = 2
         if (m) { const t = `/${m.name}${m.arg ? ' ' : ''}`; setInput(t); setPos(t.length); }
         return;
       }
-      const i = SCREENS.indexOf(screen);
+      const i = SCREENS.indexOf(screenRef.current);
       go(SCREENS[(i + (key.shift ? -1 : 1) + SCREENS.length) % SCREENS.length]!);
       return;
     }
@@ -226,10 +304,17 @@ export function App({ data, motion, initialScreen = 'Home', reload, reloadMs = 2
       setInput(''); setPos(0);
       return;
     }
-    if (key.upArrow) { setCursor((c) => Math.max(0, c - 1)); return; }
-    if (key.downArrow) { setCursor((c) => c + 1); return; }
-    if (key.pageUp) { setCursor((c) => Math.max(0, c - 10)); return; }
-    if (key.pageDown) { setCursor((c) => c + 10); return; }
+    const onFinops = screenRef.current === 'FinOps';
+    if (onFinops && !input && (ch === ']' || key.rightArrow)) { goFinops(finopsTabRef.current + 1); return; }
+    if (onFinops && !input && (ch === '[' || key.leftArrow)) { goFinops(finopsTabRef.current - 1); return; }
+    if (key.upArrow) { scrollBy(-1); return; }
+    if (key.downArrow) { scrollBy(1); return; }
+    if (key.pageUp) { scrollBy(-(windowRef.current.viewH - 1)); return; }
+    if (key.pageDown) { scrollBy(windowRef.current.viewH - 1); return; }
+    if (key.home && !input) { scrollTo('start'); return; }
+    if (key.end && !input) { scrollTo('end'); return; }
+    if (key.home) { setPos(0); return; }
+    if (key.end) { setPos(input.length); return; }
     if (key.leftArrow) { setPos(Math.max(0, pos - 1)); return; }
     if (key.rightArrow) { setPos(Math.min(input.length, pos + 1)); return; }
     if (key.backspace || key.delete) {
@@ -244,16 +329,19 @@ export function App({ data, motion, initialScreen = 'Home', reload, reloadMs = 2
   const stable = useCallback((ch: string, key: Key) => handler.current(ch, key), []);
   useInput(stable);
 
-  const { columns, rows } = size;
-  const wide = columns >= 100;
-  const bodyHeight = Math.max(5, rows - 1 - 2 - 3 - 1);
+  // One column is left spare, and the frame is exactly as tall as the terminal. Neither is wasted: both are what keep
+  // a terminal from wrapping or scrolling a frame, which is what leaves old frames behind.
+  const columns = Math.max(40, size.columns - 1);
+  const rows = Math.max(12, size.rows);
+  const wide = columns >= 90;
+  const bodyHeight = Math.max(5, rows - HEADER_ROWS - PROMPT_ROWS - FOOTER_ROWS);
   const innerH = Math.max(1, bodyHeight - 3);
-  const viewH = innerH + 1;
+  const viewH = Math.max(1, bodyHeight - 2);
+  const leftWidth = Math.min(54, Math.floor(columns * 0.42));
 
-  // Views clamp the cursor to what exists, so scrolling past the end is harmless.
   const view: View | null = useMemo(() => {
     if (helpOpen) return helpView();
-    const o = { selected: cursor, glyphs: g, width: columns - 4 };
+    const o = { selected: cursor, glyphs: g, width: columns - 4, finopsTab };
     switch (screen) {
       case 'Agents': return agentsView(d, o);
       case 'Memory': return memoryView(d, o);
@@ -262,67 +350,91 @@ export function App({ data, motion, initialScreen = 'Home', reload, reloadMs = 2
       case 'FinOps': return finopsView(d, o);
       default: return null;
     }
-  }, [screen, d, cursor, g, columns, helpOpen]);
-
-  useEffect(() => {
-    if (view && view.count > 0 && cursor > view.count - 1 && view.focus !== undefined) setCursor(view.count - 1);
-  }, [view, cursor]);
+  }, [screen, d, cursor, g, columns, helpOpen, finopsTab]);
+  viewRef.current = view;
 
   const spin = (busy || job) && motion ? g.spinner[frame] : null;
   const sug = input.startsWith('/') ? matching(input).slice(0, 5) : [];
 
+  // Feed rows are wrapped to the panel's real inner width, in cells.
+  const feedW = Math.max(10, (wide ? columns - leftWidth : columns) - 4);
+  const rowsOut = useMemo(() => feed.flatMap((f) => wrapCells(f.text, feedW).map((t, i) => ({ id: f.id * 100 + i, text: i ? `  ${t}` : t, tone: f.tone }))), [feed, feedW]);
+  const total = rowsOut.length;
+  const feedMax = Math.max(0, total - innerH);
+
+  // Scrolled back through the feed: new lines must not drag the view, so the offset grows with them.
+  const seen = useRef(total);
+  useEffect(() => {
+    if (total > seen.current && cursorRef.current > 0 && !viewRef.current) setCursor(Math.min(feedMax, cursorRef.current + (total - seen.current)));
+    seen.current = total;
+  }, [total, feedMax]);
+
   let body: ReactNode;
+  let scrollNote = '';
   if (view) {
-    const { shown } = windowed(view, cursor, viewH);
-    body = <Panel height={bodyHeight} focused g={g}>{shown.map((l, i) => <Segs key={i} line={l} />)}</Panel>;
+    const w = windowed(view, cursor, viewH);
+    windowRef.current = { top: w.top, max: w.max, feedMax, viewH };
+    body = <Panel height={bodyHeight} focused g={g}>{w.shown.map((l, i) => <Segs key={i} line={l} />)}</Panel>;
+    if (view.lines.length > viewH) scrollNote = `lines ${w.top + 1}-${Math.min(view.lines.length, w.top + viewH)} of ${view.lines.length}`;
   } else {
-    // Feed shows the newest lines; scrolling up (cursor) moves back through history.
-    const feedW = Math.max(10, (wide ? columns - Math.min(54, Math.floor(columns * 0.42)) : columns) - 4);
-    const rowsOut = feed.flatMap((f) => wrapText(f.text, feedW).map((t, i) => ({ id: f.id * 100 + i, text: i ? `  ${t}` : t, tone: f.tone })));
-    const total = rowsOut.length;
-    const back = Math.min(cursor, Math.max(0, total - innerH));
+    const back = Math.min(cursor, feedMax);
     const start = Math.max(0, total - innerH - back);
     const slice = rowsOut.slice(start, start + innerH);
+    windowRef.current = { top: 0, max: 0, feedMax, viewH };
     const summary = homeSummary(d, g);
+    const title = back ? `Activity   ${g.up}${back} older  (End: latest)` : 'Activity';
     const feedPanel = (
-      <Panel title={`Activity${back ? `  ${g.up}${back}` : ''}`} width={wide ? undefined : '100%'} height={wide ? bodyHeight : Math.max(5, bodyHeight - 0)} focused g={g}>
+      <Panel title={title} width={wide ? columns - leftWidth : columns} height={bodyHeight} focused g={g}>
         {slice.length ? slice.map((f) => <Text key={f.id} wrap="truncate-end" color={toneColor(f.tone)} dimColor={f.tone === 'dim'}>{f.text}</Text>) : <Text dimColor>Quiet so far. Activity from your agents shows up here.</Text>}
       </Panel>
     );
     body = wide ? (
-      <Box height={bodyHeight} flexShrink={0}>
-        <Panel title="Overview" width={Math.min(54, Math.floor(columns * 0.42))} height={bodyHeight} g={g}>{summary.slice(0, innerH).map((l, i) => <Segs key={i} line={l} />)}</Panel>
-        <Box flexGrow={1} flexDirection="column">{feedPanel}</Box>
+      <Box height={bodyHeight} width={columns} flexShrink={0}>
+        <Panel title="Overview" width={leftWidth} height={bodyHeight} g={g}>{summary.slice(0, innerH).map((l, i) => <Segs key={i} line={l} />)}</Panel>
+        {feedPanel}
       </Box>
     ) : feedPanel;
+    if (feedMax > 0) scrollNote = back ? `${back} older lines above` : 'scroll up for older';
   }
 
-  const before = input.slice(0, pos);
+  const tabs = tabSpans(SCREENS);
+  layoutRef.current = { columns, rows, bodyHeight, leftWidth: !view && wide ? leftWidth : 0, tabs };
+
+  // The prompt shows a window of the text that always contains the caret, so long input scrolls sideways, never wraps.
+  const textW = Math.max(4, columns - 2 - 2 - 2);
+  const start = pos > textW - 1 ? pos - (textW - 1) : 0;
+  promptRef.current = { start };
   const at = input[pos] ?? ' ';
-  const after = input.slice(pos + 1);
+  const before = input.slice(start, pos);
+  const after = input.slice(pos + 1, start + textW);
+  const placeholder = truncateCells('Ask about the codebase, or type / for commands', textW - 1);
+
+  const hint = job
+    ? `${g.spinner[frame]} running: ${job.label}   Esc to stop`
+    : helpOpen ? `Esc to close help   ${g.up}${g.down} scroll`
+      : sug.length ? sug.map((c) => `/${c.name}`).join('  ')
+        : `Tab ${g.sep} screen   Ctrl+K ${g.sep} palette   ${g.up}${g.down} wheel ${g.sep} scroll${scrollNote ? ` (${scrollNote})` : ''}   Ctrl+C ${g.sep} quit`;
 
   return (
-    <Box flexDirection="column" width={columns} height={Math.max(8, rows - 1)} overflow="hidden">
-      <Box flexShrink={0}>
-        <Text bold color={color.accent}>Tokenistt</Text>
-        <Text dimColor>{`  ${d.project.name}${d.project.branch ? ` on ${d.project.branch}` : ''}`}</Text>
+    <Box flexDirection="column" width={columns} height={rows} overflow="hidden">
+      <Box height={1} width={columns} flexShrink={0}>
+        <Text bold color={color.accent} wrap="truncate-end">Tokenistt</Text>
+        <Text dimColor wrap="truncate-end">{truncateCells(`  ${d.project.name}${d.project.branch ? ` on ${d.project.branch}` : ''}`, columns - 14)}</Text>
         {spin ? <Text color={color.accent}>{`  ${spin}`}</Text> : null}
       </Box>
-      <Box flexShrink={0}>
+      <Box height={1} width={columns} flexShrink={0}>
         <Text wrap="truncate-end">
           {SCREENS.map((s, i) => <Text key={s} bold={s === screen} color={s === screen ? color.accent : undefined} dimColor={s !== screen}>{`${i ? '  ' : ''}${s}`}</Text>)}
         </Text>
       </Box>
       {palette ? <Box height={bodyHeight} flexShrink={0} overflow="hidden"><Palette query={palette.query} sel={palette.sel} g={g} width={columns} max={Math.max(1, Math.min(8, bodyHeight - 3))} /></Box> : body}
-      <Box borderStyle={g.border === 'round' ? 'round' : 'classic'} borderColor={palette ? color.dim : color.accent} paddingX={1} flexShrink={0}>
+      <Box borderStyle={g.border === 'round' ? 'round' : 'classic'} borderColor={palette ? color.dim : color.accent} paddingX={1} height={PROMPT_ROWS} width={columns} flexShrink={0} overflow="hidden">
         <Text color={color.accent}>{g.prompt} </Text>
-        {input || !palette ? (
-          input ? <Text>{before}<Text inverse>{at}</Text>{after}</Text> : <Text><Text dimColor>Ask about the codebase, or type / for commands</Text></Text>
-        ) : null}
+        {input ? <Text wrap="truncate">{before}<Text inverse>{at}</Text>{after}</Text> : <Text wrap="truncate"><Text inverse> </Text><Text dimColor>{placeholder}</Text></Text>}
       </Box>
-      <Text dimColor wrap="truncate-end">
-        {job ? `${g.spinner[frame]} running: ${job.label}   Esc to stop` : helpOpen ? `Esc to close help   ${g.up}${g.down} scroll` : sug.length ? sug.map((c) => `/${c.name}`).join('  ') : `Tab ${g.sep} switch screen   Ctrl+K ${g.sep} palette   ${g.up}${g.down} ${g.sep} scroll   Ctrl+C ${g.sep} quit`}
-      </Text>
+      <Box height={FOOTER_ROWS} width={columns} flexShrink={0}>
+        <Text dimColor wrap="truncate-end">{hint}</Text>
+      </Box>
     </Box>
   );
 }
@@ -355,17 +467,7 @@ export function changes(a: DashboardData, b: DashboardData): Array<{ text: strin
   return out;
 }
 
-/** Breaks a line to fit a width, at spaces where it can, so output is read in full instead of cut with an ellipsis. */
+/** Breaks a line to fit a width in terminal cells, so output is read in full instead of cut with an ellipsis. */
 export function wrapText(text: string, width: number): string[] {
-  if (text.length <= width) return [text];
-  const out: string[] = [];
-  let rest = text;
-  while (rest.length > width) {
-    const cut = rest.lastIndexOf(' ', width);
-    const at = cut > width * 0.4 ? cut : width;
-    out.push(rest.slice(0, at).trimEnd());
-    rest = rest.slice(at).trimStart();
-  }
-  if (rest) out.push(rest);
-  return out;
+  return wrapCells(text, width);
 }

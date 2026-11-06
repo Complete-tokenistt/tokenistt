@@ -2,7 +2,7 @@
 import { ApiClient } from '../api/client.js';
 import { isConnected } from '../agents/connect.js';
 import { ADAPTERS } from '../agents/registry.js';
-import { listSessions, readPrices, refresh, summarize, type SessionSummary } from '../agents/sessions.js';
+import { listSessions, priceTableFromCatalog, priceUsage, pricesAgeMs, readPrices, refresh, sumCosts, summarize, writePricesCache, type CatalogModel, type CostResult, type PriceTable, type SessionSummary } from '../agents/sessions.js';
 import type { ResolvedConfig } from '../config/store.js';
 import { readMetadata, type GraphMetadata } from '../graph/store.js';
 import { GraphIndex } from '../graph/query.js';
@@ -22,8 +22,10 @@ export interface AgentRow {
 export interface CostRow {
   agent: string;
   sessions: number;
-  tokens: number | null;
-  costUsd: number | null;
+  /** Tokens from the sessions that reported them. A session that did not is counted in `unreportedSessions`, not as zero. */
+  tokens: number;
+  unreportedSessions: number;
+  cost: CostResult;
 }
 
 export interface GatewayStatus {
@@ -43,12 +45,31 @@ export interface DashboardData {
   memory: MemoryStats;
   memories: Memory[];
   gateway: GatewayStatus;
+  /** Agent usage recorded on this machine, rolled up by day, week, model and session. Tokens are from transcripts; cost is tokens times catalog prices. */
+  usage: LocalUsage;
   /** Gateway spend, when connected with management credentials. Absent means not fetched, never zero. */
   finops?: FinopsData;
 }
 
-export interface FinopsRow { key: string; requests: number; tokens: number; costUsd: number; errors: number; p95Ms: number | null }
+/** One line of a rollup. Tokens are always real counts; `cost` says what is and is not priced. */
+export interface UsageGroup {
+  key: string;
+  label: string;
+  requests: number;
+  sessions: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreation: number;
+  total: number;
+  cost: CostResult;
+}
+export interface LocalUsage { day: UsageGroup[]; week: UsageGroup[]; model: UsageGroup[]; session: UsageGroup[] }
+
+export interface FinopsRow { key: string; requests: number; input: number; output: number; cached: number; tokens: number; costUsd: number; errors: number; zeroCost: number; p95Ms: number | null }
 export interface FinopsBudget { id: string; scope: string; name: string | null; capUsd: number; period: string; mode: string; active: boolean }
+/** An agent session synced to the gateway, possibly from another machine. */
+export interface SyncedSession { agent: string; id: string; repository: string | null; branch: string | null; state: string; startedAt: string; models: string[]; tokens: number | null; costUsd: number | null }
 export interface FinopsData {
   state: 'ok' | 'no credentials' | 'error';
   detail?: string;
@@ -56,32 +77,72 @@ export interface FinopsData {
   total: { requests: number; tokens: number; costUsd: number; errors: number; zeroCost: number } | null;
   byModel: FinopsRow[];
   byDay: FinopsRow[];
+  /** The daily rows folded into ISO weeks (Monday, UTC). */
+  byWeek: FinopsRow[];
+  sessions: SyncedSession[];
   budgets: FinopsBudget[];
 }
 
 const num = (v: unknown): number => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const mapRow = (r: Record<string, unknown>): FinopsRow => ({
-  key: String(r.key ?? ''), requests: num(r.requests), tokens: num(r.total_tokens), costUsd: num(r.cost_usd), errors: num(r.errors), p95Ms: r.p95_latency_ms == null ? null : num(r.p95_latency_ms),
+  key: String(r.key ?? ''), requests: num(r.requests), input: num(r.input_tokens), output: num(r.output_tokens), cached: num(r.cached_tokens), tokens: num(r.total_tokens), costUsd: num(r.cost_usd),
+  errors: num(r.errors), zeroCost: num(r.zero_cost_requests), p95Ms: r.p95_latency_ms == null ? null : num(r.p95_latency_ms),
 });
 
-/** Real spend from the gateway management API (30 days). Never throws; failures come back as a state the screen explains. */
-export async function fetchFinops(cfg: ResolvedConfig, fetchImpl?: typeof fetch): Promise<FinopsData> {
-  const empty = { days: 30, total: null, byModel: [], byDay: [], budgets: [] };
-  const client = new ApiClient(cfg, { timeoutMs: 4000, maxAttempts: 1, ...(fetchImpl ? { fetch: fetchImpl } : {}) });
+/** The Monday (UTC) of the week a YYYY-MM-DD date falls in, as YYYY-MM-DD. */
+export function weekStart(day: string): string {
+  const d = new Date(`${day.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return day;
+  const back = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - back);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Daily rows into weekly ones. Sums are sums; the slowest day stands for the week's p95, never an average of percentiles. */
+export function foldWeeks(days: FinopsRow[]): FinopsRow[] {
+  const out = new Map<string, FinopsRow>();
+  for (const r of days) {
+    const key = weekStart(r.key);
+    const w = out.get(key) ?? { key, requests: 0, input: 0, output: 0, cached: 0, tokens: 0, costUsd: 0, errors: 0, zeroCost: 0, p95Ms: null };
+    w.requests += r.requests; w.input += r.input; w.output += r.output; w.cached += r.cached; w.tokens += r.tokens; w.costUsd += r.costUsd; w.errors += r.errors; w.zeroCost += r.zeroCost;
+    if (r.p95Ms !== null) w.p95Ms = Math.max(w.p95Ms ?? 0, r.p95Ms);
+    out.set(key, w);
+  }
+  return [...out.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+const DAY_MS = 86_400_000;
+
+/** Real spend from the gateway management API. Never throws; failures come back as a state the screen explains. */
+export async function fetchFinops(cfg: ResolvedConfig, fetchImpl?: typeof fetch, now = Date.now()): Promise<FinopsData> {
+  const empty = { days: 30, total: null, byModel: [], byDay: [], byWeek: [], sessions: [], budgets: [] };
+  const client = new ApiClient(cfg, { timeoutMs: 6000, maxAttempts: 1, ...(fetchImpl ? { fetch: fetchImpl } : {}) });
   if (!client.hasManagementCredentials) return { state: 'no credentials', detail: 'Run tokenistt login with a dashboard token.', ...empty };
+  const since = new Date(now - 90 * DAY_MS).toISOString();
+  type Rows = { rows: Array<Record<string, unknown>> };
   try {
-    const [all, models, days, budgets] = await Promise.all([
-      client.get<{ rows: Array<Record<string, unknown>> }>('management', '/v1/admin/usage/summary'),
-      client.get<{ rows: Array<Record<string, unknown>> }>('management', '/v1/admin/usage/summary', { query: { group_by: 'model', limit: 8 } }),
-      client.get<{ rows: Array<Record<string, unknown>> }>('management', '/v1/admin/usage/summary', { query: { group_by: 'day', limit: 14 } }),
+    const [all, models, days, budgets, sessions] = await Promise.all([
+      client.get<Rows>('management', '/v1/admin/usage/summary'),
+      client.get<Rows>('management', '/v1/admin/usage/summary', { query: { group_by: 'model', limit: 40 } }),
+      client.get<Rows>('management', '/v1/admin/usage/summary', { query: { group_by: 'day', limit: 120, since } }),
       client.get<Array<Record<string, unknown>>>('management', '/v1/admin/budgets'),
+      client.get<Array<Record<string, unknown>>>('management', '/v1/admin/agent-sessions', { query: { limit: 60 } }).catch(() => [] as Array<Record<string, unknown>>),
     ]);
     const t = all.rows[0];
+    const byDay = days.rows.map(mapRow).sort((x, y) => x.key.localeCompare(y.key));
     return {
       state: 'ok', days: 30,
       total: t ? { requests: num(t.requests), tokens: num(t.total_tokens), costUsd: num(t.cost_usd), errors: num(t.errors), zeroCost: num(t.zero_cost_requests) } : null,
       byModel: models.rows.map(mapRow),
-      byDay: days.rows.map(mapRow).sort((a, b) => a.key.localeCompare(b.key)),
+      byDay,
+      byWeek: foldWeeks(byDay),
+      sessions: (Array.isArray(sessions) ? sessions : []).map((r) => {
+        const tk = r.tokens as { total?: unknown } | null | undefined;
+        return {
+          agent: String(r.agent ?? ''), id: String(r.session_id ?? ''), repository: r.repository == null ? null : String(r.repository), branch: r.branch == null ? null : String(r.branch), state: String(r.state ?? ''),
+          startedAt: String(r.started_at ?? ''), models: Array.isArray(r.models) ? r.models.map(String) : [], tokens: tk && tk.total != null ? num(tk.total) : null, costUsd: r.cost_usd == null ? null : num(r.cost_usd),
+        };
+      }),
       budgets: (Array.isArray(budgets) ? budgets : []).map((b) => ({
         id: String(b.id), scope: String(b.scope_type), name: b.name == null ? null : String(b.name), capUsd: num(b.cap_usd), period: String(b.period), mode: String(b.enforcement_mode), active: b.is_active !== false,
       })),
@@ -89,6 +150,73 @@ export async function fetchFinops(cfg: ResolvedConfig, fetchImpl?: typeof fetch)
   } catch (err) {
     return { state: 'error', detail: err instanceof Error ? err.message : String(err), ...empty };
   }
+}
+
+/** Saves the gateway's prices here when there are none yet or they are a day old, so session costs can be estimated. Never throws. */
+export async function refreshPricesIfStale(cfg: ResolvedConfig, root: string, fetchImpl?: typeof fetch, maxAgeMs = DAY_MS): Promise<number | null> {
+  const age = pricesAgeMs(root);
+  if (age !== null && age < maxAgeMs) return null;
+  const client = new ApiClient(cfg, { timeoutMs: 6000, maxAttempts: 1, ...(fetchImpl ? { fetch: fetchImpl } : {}) });
+  if (!client.hasManagementCredentials) return null;
+  try {
+    const table = priceTableFromCatalog(await client.get<CatalogModel[]>('management', '/v1/admin/models'));
+    if (Object.keys(table).length === 0) return 0;
+    writePricesCache(root, table);
+    return Object.keys(table).length;
+  } catch {
+    return null;
+  }
+}
+
+interface UsageRecord {
+  session_key: string;
+  agent: string;
+  session_id: string;
+  model: string | null;
+  at: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+}
+
+/** The week a timestamp falls in, by its UTC date. */
+export const dayOf = (iso: string): string => iso.slice(0, 10);
+
+/**
+ * Rolls local agent usage up by day, week, model and session. Each usage record has its own time and model, so a long
+ * session lands on the days it actually ran. A group is priced from its own records; one with an unpriced model says so.
+ */
+export function rollupUsage(db: Database, prices: PriceTable | undefined): LocalUsage {
+  const rows = db.prepare(
+    `SELECT u.session_key, s.agent, s.session_id, u.model, COALESCE(u.at, s.last_event_at) AS at,
+            u.input_tokens, u.output_tokens, u.cache_read_tokens, u.cache_creation_tokens
+       FROM agent_usage u JOIN agent_sessions s ON s.key = u.session_key
+      ORDER BY at`).all() as unknown as UsageRecord[];
+  const build = (keyOf: (r: UsageRecord) => string, labelOf: (key: string, r: UsageRecord) => string): UsageGroup[] => {
+    const groups = new Map<string, { label: string; rows: UsageRecord[]; sessions: Set<string> }>();
+    for (const r of rows) {
+      const key = keyOf(r);
+      const g = groups.get(key) ?? { label: labelOf(key, r), rows: [], sessions: new Set<string>() };
+      g.rows.push(r);
+      g.sessions.add(r.session_key);
+      groups.set(key, g);
+    }
+    return [...groups.entries()].map(([key, g]) => ({
+      key, label: g.label, requests: g.rows.length, sessions: g.sessions.size,
+      input: g.rows.reduce((t, r) => t + r.input_tokens, 0), output: g.rows.reduce((t, r) => t + r.output_tokens, 0),
+      cacheRead: g.rows.reduce((t, r) => t + r.cache_read_tokens, 0), cacheCreation: g.rows.reduce((t, r) => t + r.cache_creation_tokens, 0),
+      total: g.rows.reduce((t, r) => t + r.input_tokens + r.output_tokens + r.cache_read_tokens + r.cache_creation_tokens, 0),
+      cost: priceUsage(g.rows, prices),
+    }));
+  };
+  const newestFirst = (a: UsageGroup, b: UsageGroup): number => b.key.localeCompare(a.key);
+  return {
+    day: build((r) => dayOf(r.at), (k) => k).sort(newestFirst),
+    week: build((r) => weekStart(dayOf(r.at)), (k) => k).sort(newestFirst),
+    model: build((r) => r.model ?? 'unknown model', (k) => k).sort((a, b) => b.total - a.total),
+    session: build((r) => r.session_key, (_k, r) => `${r.agent} ${r.session_id.slice(0, 8)}`).sort((a, b) => b.total - a.total),
+  };
 }
 
 export function gatherLocal(project: Project, db: Database, home: string): Omit<DashboardData, 'gateway'> {
@@ -110,11 +238,12 @@ export function gatherLocal(project: Project, db: Database, home: string): Omit<
   const costs: CostRow[] = ADAPTERS.map((a) => {
     const mine = sessions.filter((s) => s.agent === a.id);
     const known = mine.filter((s) => s.tokens);
-    // A total is only a number if every session in it is: one unknown makes the sum unknown, not smaller.
+    // What is known is shown as known, and what is not is counted beside it, instead of one unknown hiding the rest.
     return {
       agent: a.displayName, sessions: mine.length,
-      tokens: mine.length && known.length === mine.length ? known.reduce((t, s) => t + (s.tokens?.total ?? 0), 0) : null,
-      costUsd: mine.length && mine.every((s) => s.cost.costUsd !== null) ? mine.reduce((t, s) => t + (s.cost.costUsd ?? 0), 0) : null,
+      tokens: known.reduce((t, s) => t + (s.tokens?.total ?? 0), 0),
+      unreportedSessions: mine.length - known.length,
+      cost: sumCosts(mine.map((s) => s.cost)),
     };
   });
 
@@ -129,6 +258,7 @@ export function gatherLocal(project: Project, db: Database, home: string): Omit<
     agents,
     sessions,
     costs,
+    usage: rollupUsage(db, prices),
     memory: memoryStats(db),
     memories: listMemories(db, { limit: 40 }),
   };

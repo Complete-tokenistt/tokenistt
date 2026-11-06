@@ -20,12 +20,13 @@ export const COMMANDS: CommandSpec[] = [
 ];
 
 /** Every real CLI command. A test keeps this in step with the program, so typing one at the prompt runs it. */
-export const CLI_COMMANDS = ['login', 'logout', 'auth', 'connect', 'disconnect', 'connection', 'doctor', 'init', 'map', 'graph', 'agents', 'sessions', 'watch', 'memory', 'context', 'mcp', 'impact', 'changes', 'search', 'embeddings', 'analyze'];
+export const CLI_COMMANDS = ['login', 'logout', 'auth', 'connect', 'disconnect', 'connection', 'doctor', 'init', 'map', 'graph', 'agents', 'sessions', 'watch', 'memory', 'context', 'mcp', 'impact', 'changes', 'search', 'embeddings', 'analyze', 'sync', 'usage', 'cost', 'models', 'providers', 'policy', 'optimize'];
 export const CLI_HELP: Array<[string, string]> = [
   ['init', 'set up this repository (creates .tokenistt/)'], ['map', 'build the codebase knowledge graph'], ['graph --open', 'explore the graph in your browser'],
   ['search <text>', 'find symbols and files'], ['impact <target>', 'what a change could affect'], ['changes', 'what changed and what it touches'],
   ['analyze', 'structure checks: cycles, dead code, duplicates'], ['memory', 'what the project remembers'], ['context', 'generate context for a coding agent'],
   ['agents', 'connect Claude Code and others'], ['sessions', 'recorded agent sessions'], ['doctor', 'check install, credentials and gateway'],
+  ['usage', 'requests and tokens from your gateway'], ['cost', 'what it cost, by model and more'], ['models', 'gateway model catalog (--refresh saves prices)'], ['optimize', 'rules-based cost suggestions'], ['sync', 'send summaries to your gateway'],
   ['connect', 'link to your gateway'], ['auth', 'credentials'], ['login', 'sign in (needs its own terminal)'], ['watch', 'live sessions (needs its own terminal)'], ['mcp', 'MCP server (needs its own terminal)'],
 ];
 /** Need a real terminal of their own (prompts, or they never exit), so the app can't host them. */
@@ -84,6 +85,8 @@ function fromText(t: string): Action {
   if (words.length === 1 && /^(--?h(elp)?|help|\?)$/i.test(first)) return { kind: 'help' };
   const screen = COMMANDS.find((c) => c.screen && c.name === first.toLowerCase());
   if (words.length === 1 && screen?.screen) return { kind: 'screen', screen: screen.screen };
+  // Adding a provider key reads it from stdin, which the app cannot give a child safely.
+  if (first === 'providers' && words[1] === 'add') return { kind: 'terminal', command: 'providers add', line: words.join(' ') };
   if (CLI_COMMANDS.includes(first)) return NEEDS_TERMINAL.has(first) ? { kind: 'terminal', command: first, line: words.join(' ') } : { kind: 'cli', args: words };
   if (first.startsWith('-')) {
     const opt = first.split('=')[0]!;

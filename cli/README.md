@@ -66,20 +66,32 @@ prints a plain status instead, so scripts never get stuck.
 | Memory | What the project remembers; stale entries are marked `?` |
 | Graph | Node and relationship counts, largest areas, most depended-on symbols |
 | Nano | Placeholder. Not built yet; shows nothing measured |
-| FinOps | Gateway spend for 30 days, spend by model, budgets, and local agent estimates. Needs `tokenistt login` |
+| FinOps | Tabs for **Overview**, **Models**, **Daily**, **Weekly** and **Sessions**: tokens and cost from your gateway's ledger (needs `tokenistt login`), and, separately, coding-agent usage recorded on this machine. Weeks start on Monday (UTC). Switch tabs with `[` and `]`, the arrow keys on an empty prompt, or a click |
 
 | Key | Action |
 |---|---|
 | Type + Enter | Plain text searches the graph and memory; text starting with `/` runs a command (`/agents`, `/finops`, `/search`, `/refresh`, `/clear`, `/help`, `/quit`) |
 | `Tab` / `Shift+Tab` | Next / previous screen (completes a command while typing `/…`) |
 | `Ctrl+K` | Command palette |
-| Up / Down, PgUp / PgDn | Select or scroll |
+| Up / Down, PgUp / PgDn, mouse wheel | Select or scroll. `Home` / `End` go to the oldest / newest |
+| Click | A tab switches screen, the prompt starts typing at that spot, a list row selects it |
 | `Ctrl+L` | Clear the activity feed |
 | `Ctrl+C` | Quit |
 
-Windows: works in Windows Terminal and PowerShell. Consoles that can't draw box characters get plain ASCII
+The mouse is on while the app is open, so drag does not select text: hold `Shift` to select and copy. Turn the mouse off with `TOKENISTT_NO_MOUSE=1`.
+
+Windows: works in Windows Terminal, PowerShell and the VS Code terminal. Consoles that can't draw box characters get plain ASCII
 automatically; force it with `TOKENISTT_ASCII=1`. Costs shown for local agents are estimates (tokens times catalog
 prices), not your bill.
+
+### Costs
+
+A session's cost is its tokens times your model prices. There are no built-in prices. They come from:
+
+1. your gateway's catalog, saved to `.tokenistt/cache/prices.json` by `tokenistt models --refresh` (the app also refreshes it when it is older than a day and the gateway is connected); and
+2. your own `.tokenistt/prices.json`, which wins where both name a model. It is a map of model id to `{ "input": 3, "output": 15, "cachedInput": 0.3, "cacheWrite": 3.75 }` in USD per million tokens.
+
+A model is found by the id the vendor reports; a trailing date (`-20250929`) or a `provider/` prefix is dropped only to reach an id your table already has. Nothing is guessed. Where a model, or a cache price, is missing, that part is left out and said so: you see `~$4.20 known + 18,000 tokens unpriced` and which models need a price, never a total that hides the gap.
 
 ## Quick start
 
