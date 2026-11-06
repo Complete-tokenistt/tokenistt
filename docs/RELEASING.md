@@ -8,6 +8,7 @@ All pipelines live in `.github/workflows/`.
 | `release.yml` | push to `main` | Runs CI, then pushes `edge` and `sha-<commit>` images to GHCR |
 | `release.yml` | tag `vX.Y.Z` | Runs CI, pushes `X.Y.Z`, `X.Y` and `latest` images (amd64 + arm64), creates a GitHub Release with generated notes |
 | `publish-sdk.yml` | tag `sdk-vX.Y.Z` | Publishes `@tokenistt/sdk` to npm with provenance |
+| `publish-cli.yml` | tag `cli-vX.Y.Z` | Typechecks, builds and tests the CLI on Node 22, then publishes `tokenistt` to npm with provenance |
 | `codeql.yml` | PRs, `main`, weekly | Security scanning |
 | `cla.yml` | PRs | Contributor License Agreement check |
 
@@ -33,6 +34,13 @@ Use a suffix such as `v0.2.0-rc.1` for a pre-release; it is marked as such on Gi
 
 1. Bump `version` in `packages/sdk-ts/package.json` and merge it.
 2. `git tag sdk-v0.2.0 && git push origin sdk-v0.2.0` — the tag must equal the package version or the job fails.
+
+## Publish the CLI
+
+1. Bump `version` in `cli/package.json` and merge it.
+2. `git tag cli-v0.1.0 && git push origin cli-v0.1.0` — the tag must equal the package version or the job fails.
+
+The `tokenistt` package name must be available on npm (or owned by you) before the first publish.
 
 ## One-time setup
 
