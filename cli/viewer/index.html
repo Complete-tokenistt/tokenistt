@@ -3,41 +3,65 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
   <title>Codebase graph</title>
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <header class="bar">
-    <h1 id="repo">Codebase graph</h1>
+    <h1><span class="mark" aria-hidden="true"></span><span id="repo">Codebase graph</span></h1>
     <div class="search">
-      <input id="search" type="search" placeholder="Find a file, symbol, route or table" autocomplete="off" spellcheck="false" aria-label="Find a file, symbol, route or table" aria-controls="results">
+      <input id="search" type="search" placeholder="Find a file, symbol, route or table   ( / )" autocomplete="off" spellcheck="false" aria-label="Find a file, symbol, route or table" aria-controls="results">
       <ul id="results" class="results" role="listbox" hidden></ul>
     </div>
-    <p id="stats" class="stats"></p>
+    <p class="stats"><span id="stats"></span> <span id="stats-live" class="live"></span></p>
   </header>
 
   <main class="stage">
-    <nav class="rail" aria-label="Filters">
+    <nav class="rail" aria-label="View options">
+      <h2>Layout</h2>
+      <div class="seg" id="layouts" role="group" aria-label="Layout">
+        <button type="button" data-layout="force" aria-pressed="true" title="Things that depend on each other sit close together">Clusters</button>
+        <button type="button" data-layout="radial" aria-pressed="false" title="Folders nest in rings">Radial</button>
+        <button type="button" data-layout="layers" aria-pressed="false" title="One row per folder depth">Layers</button>
+      </div>
+
+      <h2>Areas</h2>
+      <ul id="areas" class="filters"></ul>
+
       <h2>Show</h2>
       <ul id="types" class="filters"></ul>
+
       <h2>Connections</h2>
       <ul id="edges" class="filters"></ul>
       <p class="key">
         <span class="line solid" aria-hidden="true"></span> stated in the code<br>
-        <span class="line dashed" aria-hidden="true"></span> inferred from names
+        <span class="line faint" aria-hidden="true"></span> inferred from names (paler)
       </p>
+
       <h2>Recently changed</h2>
       <ul id="recent" class="plain"></ul>
     </nav>
 
     <section class="canvas-wrap" aria-label="Graph">
+      <canvas id="hulls" class="hulls" aria-hidden="true"></canvas>
       <div id="graph" class="graph" tabindex="0"></div>
-      <canvas id="minimap" class="minimap" width="200" height="130" aria-label="Minimap. Click to move the view."></canvas>
-      <div class="tools">
-        <button id="fit" type="button">Fit</button>
-        <button id="collapse" type="button">Collapse all</button>
+      <div id="focusbar" class="focusbar" hidden>
+        <span id="focuslabel"></span>
+        <button id="unfocus" type="button">Back to map</button>
       </div>
-      <p id="hint" class="hint">Double-click an area to open it. Click anything to see what it connects to.</p>
+      <canvas id="minimap" class="minimap" width="220" height="150" aria-label="Minimap. Click or drag to move the view."></canvas>
+      <div class="tools" role="toolbar" aria-label="View">
+        <button id="fit" type="button" title="Fit everything on screen (F)">Fit</button>
+        <button id="zoomin" type="button" aria-label="Zoom in">+</button>
+        <button id="zoomout" type="button" aria-label="Zoom out">&minus;</button>
+        <button id="level" type="button" title="Open every visible folder one level">Open level</button>
+        <button id="collapse" type="button" title="Close all folders">Collapse all</button>
+      </div>
+      <div id="tip" class="tip" role="tooltip" hidden></div>
+      <p id="hint" class="hint">Double-click a ring to open it. Click anything to see what it connects to. Drag to pan, scroll to zoom.</p>
+      <p id="status" class="status" role="status" hidden></p>
     </section>
 
     <aside id="detail" class="detail" aria-label="Details" hidden></aside>

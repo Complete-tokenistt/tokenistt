@@ -17,7 +17,7 @@ Starting point: `cli/` has auth, connect and doctor, all uncommitted on `feat/cl
 **Engineering decisions**
 - **Runtime: Node >=22.13**, for `node:sqlite` (FTS5 checked on local Node 24; re-check on 22). Node 20 is past end of life. This changes the CLI's current `engines >=20`. Gateway stays on Node 20. Add a CI job for `cli` on Node 22; the existing Node 20 job skips CLI tests with a visible message.
 - **Everything lives in `cli/src`.** No new packages until a second consumer exists.
-- **Dependencies added:** `ink`@6, `react`@19, `web-tree-sitter`, `tree-sitter-wasms`, `@modelcontextprotocol/sdk` (already used by `apps/mcp-server`), `picomatch`, `cytoscape`, and `esbuild` (dev, bundles the viewer so it works offline).
+- **Dependencies added:** `ink`@6, `react`@19, `web-tree-sitter`, `tree-sitter-wasms`, `@modelcontextprotocol/sdk` (already used by `apps/mcp-server`), `picomatch`, and, for the graph viewer (dev, bundled so it works offline), `sigma`, `graphology`, `graphology-layout-forceatlas2` and `esbuild`.
 - **Dependencies deliberately skipped:** ora, picocolors, cli-table3, @clack. `core/output.ts` and `core/prompt.ts` already cover them, and each one is extra startup cost on hook paths.
 - **No `nodes.json`/`edges.json` on disk.** SQLite holds the graph, `graph.json` and `metadata.json` are written, and `--export` produces split files.
 - **SQL parsing:** the wasm package has no SQL grammar, so the indexer uses a small tokenizer-based DDL scanner. It is documented as a scanner, not an AST parser.
