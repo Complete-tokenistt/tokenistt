@@ -59,6 +59,10 @@ the one verified against the real agent; Codex and Antigravity hooks are written
 Bare `tokenistt` in a set-up repository, on a terminal, opens a persistent app. In pipes, CI or with `--json` it
 prints a plain status instead, so scripts never get stuck.
 
+![The Tokenistt app on its Home screen: project and agent status on the left, live activity on the right, and a prompt at the bottom](../docs/cli/images/tokenistt-app.png)
+
+The prompt at the bottom is always live. Type a question to search the graph and memory, a `/command` to move around, or any real command (`graph --open`, `map`, `doctor`, `usage`...) to run it in place and watch its output stream into Activity. `help` lists everything.
+
 | Screen | Shows |
 |---|---|
 | Home | Project and agent status, plus a live activity feed that narrates real changes (sessions starting, errors, new memories, gateway up or down) |
