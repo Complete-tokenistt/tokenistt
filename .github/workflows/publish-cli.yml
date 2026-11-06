@@ -1,0 +1,38 @@
+name: Publish CLI
+
+# Push a tag like `cli-v0.1.0` to publish the `tokenistt` CLI to npm.
+# Requires the NPM_TOKEN repository secret (an npm automation token with publish rights on `tokenistt`).
+on:
+  push:
+    tags: ['cli-v*.*.*']
+
+permissions:
+  contents: read
+  id-token: write # npm provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22 # node:sqlite needs 22.13+
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - name: Check tag matches package version
+        run: |
+          tag="${GITHUB_REF_NAME#cli-v}"
+          pkg="$(node -p "require('./cli/package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::Tag cli-v$tag does not match cli/package.json version $pkg"
+            exit 1
+          fi
+      - run: npm ci
+      - run: npm run typecheck -w cli
+      - run: npm run build -w cli
+      - run: npm test -w cli
+      - run: npm publish -w cli --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
