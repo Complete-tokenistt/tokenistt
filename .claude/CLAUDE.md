@@ -1,7 +1,7 @@
 # CLAUDE.md — Tokenistt Project Constitution
 ### Read this first, every session. Accumulated context and guardrails — deviating from it should be a deliberate decision, not a default.
 
-_Last synced to the code: 2026-11-01 (branch `feat/oss-wip`). If the code and this file disagree, check the code, then fix this file._
+_Last synced to the code: 2026-11-06 (branch `main`). If the code and this file disagree, check the code, then fix this file._
 
 ---
 
@@ -27,6 +27,8 @@ These were deliberately walked back after diligence found them overscoped relati
 The original Phase 1 scope (cost tracking, budgets, governance, routing, BYOK on a single Postgres, one gateway service) is **built and tested**, and the repo has since been restructured for an open-source release (`apps/` + `packages/`, Apache-2.0, `docker-compose.yml`, `scripts/setup.mjs`, CI, OpenAPI). The work now is making it real: correctness, unifying the older dashboard pages onto the management API, connector validation against live services, and docs.
 
 **New direction (decided 2026-11-02): developer intelligence in the CLI.** The `tokenistt` CLI (`cli/`) is growing into a local-first engine: codebase knowledge graph, coding-agent session observability, project memory, context generation and injection, change impact, session cost. See `docs/cli/INTELLIGENCE_PLAN.md`. External positioning does not change (§1): copy says "open-source AI cost visibility and governance" plus "developer intelligence", never "AI FinOps" and never "cloud" (there is no hosted service; the CLI talks to your own gateway). The stage note above still applies to the gateway and dashboard.
+
+**CLI status (2026-11-06):** built and merged: gateway client (`login`, `auth`, `connect`, `doctor`, `usage`, `cost`, `models`, `providers`, `policy`, `optimize`) and the local engine (`init`, `map`, `analyze`, `search`, `impact`, `changes`, `memory`, `sessions`/agent hooks for Claude Code, Codex and Antigravity, `context`, `mcp`, `dashboard`, `sync` with an opt-in ledger). Needs Node 22.13+ (`node:sqlite`); not published to npm yet (tag-driven `publish-cli.yml`, tag `cli-vX.Y.Z`, needs `NPM_TOKEN`). Codex/Antigravity hooks are written from docs, not checked against the real agents. `sync` sends repository summaries only when turned on per repo; `--ledger` counts agent usage toward budgets and is for API-billed usage only.
 
 **Built and working** (verified by the test suites + `npm run test:e2e -w apps/gateway`):
 - Auth with virtual keys (`tktt_live_…`), org/workspace/team/project resolution, RBAC (owner / admin / finance / developer / viewer), tenant isolation.
@@ -69,12 +71,12 @@ The original Phase 1 scope (cost tracking, budgets, governance, routing, BYOK on
 | Layer | Choice | Notes |
 |---|---|---|
 | Gateway/proxy | Node.js 20+ + TypeScript, Express 5 | Streaming passthrough; `apps/gateway` (ESM, `tsx` for dev/test, `tsc` build) |
-| Database | PostgreSQL 16, single instance | SQL migrations in `packages/db/drizzle/*.sql` (currently 0000–0011), run via `npm run migrate`. Don't hand-`ALTER TABLE` |
+| Database | PostgreSQL 16, single instance | SQL migrations in `packages/db/drizzle/*.sql` (currently 0000–0013), run via `npm run migrate`. Don't hand-`ALTER TABLE` |
 | Cache / limits | Redis 7 | Rate limiting, key cache, budget reservation; optional at runtime |
 | Dashboard | Next.js 15 + React 19 | Talks to the gateway through a session-checked proxy (`app/api/gateway/[...path]`) |
 | Auth | Virtual API keys per workspace (customers); JWT sessions (dashboard) | `AUTH_MODE=open` (default locally, no login) or `jwt`. `JWT_SECRET` must match in dashboard and gateway |
 | Secrets | `MASTER_KEY` / `ENCRYPTION_KEY`, AES-256-GCM | BYOK keys and connector credentials, write-only |
-| Tests / CI | `node:test` via `tsx`, GitHub Actions | CI runs migrate → typecheck → build → test → e2e against real Postgres + Redis |
+| Tests / CI | `node:test` via `tsx`, GitHub Actions | CI runs migrate → typecheck → build → test → e2e against real Postgres + Redis; separate `cli` (Node 22, Ubuntu + Windows) and `cli-e2e` (real CLI against a real gateway, mock provider) jobs |
 | Deployment | Docker Compose (`docker-compose.yml`, `infra/docker`), self-hosted | `node scripts/setup.mjs` generates `.env` with fresh secrets and never overwrites one |
 | Alerts | Slack webhook + SMTP email + generic webhook | No notification platform |
 
@@ -154,10 +156,10 @@ Auth → workspace/team/project resolution → Policy check (incl. approval hold
 
 ## 8. Where to find more detail
 
-Accurate, current: `README.md` (what works / known gaps / config / API usage), `/v1/openapi.json` (the real API reference), `apps/gateway/src/tests/` and `apps/gateway/scripts/e2e.mjs` (behaviour as verified), `packages/db/drizzle/*.sql` (actual schema), `.github/workflows/ci.yml`.
+Accurate, current: `README.md` (what works / known gaps / config / API usage), `/v1/openapi.json` (the real API reference), `apps/gateway/src/tests/` and `apps/gateway/scripts/e2e.mjs` and `cli/scripts/e2e-gateway.mjs` (behaviour as verified), `packages/db/drizzle/*.sql` (actual schema), `.github/workflows/ci.yml`.
 
 **Partly stale — written for the pre-OSS Phase 1 design; verify against the code before relying on them:** `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/API.md`, `docs/ROADMAP.md`, `CONTRIBUTING.md` (they use old table names such as `events`, `workspaces`+`api_keys`, `model_prices`, and still say "two providers" and "no Redis"). Updating them is outstanding work; don't "fix" code to match them.
 
-Dev loop: `npm run dev:deps && npm run migrate` → `npm run typecheck && npm run build` → `npm test` → `npm run test:e2e -w apps/gateway`. CI runs the same steps on Node 20.
+Dev loop: `npm run dev:deps && npm run migrate` → `npm run typecheck && npm run build` → `npm test` → `npm run test:e2e -w apps/gateway`. CI runs the same steps on Node 20. CLI: `npm run typecheck -w cli && npm test -w cli` and `npm run test:e2e -w cli` (Node 22.13+, needs the migrated Postgres + Redis).
 
 If something asked of you conflicts with this file, treat this file as the source of truth for scope and positioning, and flag the conflict rather than silently resolving it in favor of the new instruction.
