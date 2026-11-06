@@ -35,6 +35,30 @@ class In extends EventEmitter {
 
 const settle = (ms = 140): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+/** Waits until the screen has stopped changing, so a slow machine is waited for rather than raced. */
+async function quiet(term: { screen(): string[]; flush(): Promise<void> }, still = 250, max = 15_000): Promise<void> {
+  const start = Date.now();
+  let last = '';
+  let since = Date.now();
+  while (Date.now() - start < max) {
+    await term.flush();
+    const now = term.screen().join('\n');
+    if (now !== last) { last = now; since = Date.now(); }
+    else if (Date.now() - since >= still) return;
+    await settle(25);
+  }
+}
+
+/** Waits for something to appear on the screen. */
+async function waitFor(term: { screen(): string[]; flush(): Promise<void> }, re: RegExp, max = 15_000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < max) {
+    await term.flush();
+    if (re.test(term.screen().join('\n'))) return;
+    await settle(25);
+  }
+}
+
 async function boot(cols: number, rows: number, props: Partial<Parameters<typeof App>[0]> = {}): Promise<{ term: Emulator; stdin: In; stdout: Out; stop: () => void }> {
   const t = new Terminal({ cols, rows, allowProposedApi: true, scrollback: 500, convertEol: true });
   const stdout = new Out(cols, rows, t);
@@ -47,8 +71,8 @@ async function boot(cols: number, rows: number, props: Partial<Parameters<typeof
     flush: () => new Promise<void>((r) => t.write('', r)),
     resize: (c, r) => { t.resize(c, r); stdout.columns = c; stdout.rows = r; stdout.emit('resize'); },
   };
-  await settle();
-  await term.flush();
+  await waitFor(term, /Tokenistt/);
+  await quiet(term);
   return { term, stdin, stdout, stop: () => app.unmount() };
 }
 
@@ -86,27 +110,27 @@ describe('the app in a terminal emulator', () => {
       const { term, stdin, stop } = await boot(cols, rows, { exec });
       assertHealthy(term, 'start');
       for (const ch of 'hello') { stdin.write(ch); await settle(15); }
-      await settle(); await term.flush();
+      await quiet(term);
       assertHealthy(term, 'typing');
       assert.match(term.screen()[rows - 3] ?? '', /hello/);
       for (const ch of 'graph --open') { stdin.write(ch); await settle(5); }
       stdin.write('\x1b'); await settle();
       for (const ch of 'graph --open') { stdin.write(ch); await settle(5); }
-      stdin.write('\r'); await settle(300); await term.flush();
+      stdin.write('\r'); await quiet(term);
       assertHealthy(term, 'running a command');
       assert.match(term.screen().join('\n'), /line 59/, 'follows the newest line');
-      stdin.write('\x1b[H'); await settle(); await term.flush();
+      stdin.write('\x1b[H'); await quiet(term);
       assert.match(term.screen().join('\n'), /older/, 'Home goes back through the feed');
       if (rows >= 20) assert.match(term.screen().join('\n'), /Viewer running at/, 'to the oldest line');
       assert.doesNotMatch(term.screen().join('\n'), /\x1b|Starting/, 'the spinner frame and colour codes are gone');
       assertHealthy(term, 'oldest line');
       stdin.write('\x1b[F'); await settle();
       for (let i = 0; i < 12; i++) { stdin.write('\x1b[A'); await settle(10); }
-      await settle(); await term.flush();
+      await quiet(term);
       assertHealthy(term, 'scrolled up');
       for (let i = 0; i < 12; i++) { stdin.write('\x1b[B'); await settle(10); }
       for (const tab of ['\t', '\t', '\t', '\t', '\t']) { stdin.write(tab); await settle(40); }
-      await settle(); await term.flush();
+      await quiet(term);
       assertHealthy(term, 'on FinOps');
       finish(0);
       stop();
@@ -118,7 +142,7 @@ describe('the app in a terminal emulator', () => {
     assertHealthy(term, 'start');
     for (const [c, r] of [[70, 18], [140, 40], [60, 14], [100, 30]] as const) {
       term.resize(c, r);
-      await settle(250); await term.flush();
+      await quiet(term);
       assertHealthy({ ...term, cols: c, rows: r, screen: term.screen, scrolled: term.scrolled, flush: term.flush, resize: term.resize }, `resized to ${c}x${r}`);
     }
     stop();
@@ -128,19 +152,19 @@ describe('the app in a terminal emulator', () => {
     const exec = (_a: string[], on: (l: string) => void) => { for (let i = 0; i < 80; i++) on(`output ${i}`); return { done: Promise.resolve(0), stop: () => undefined }; };
     const { term, stdin, stop } = await boot(100, 30, { exec });
     for (const ch of 'doctor') { stdin.write(ch); await settle(5); }
-    stdin.write('\r'); await settle(300); await term.flush();
+    stdin.write('\r'); await quiet(term);
     assert.match(term.screen().join('\n'), /output 79/);
     for (let i = 0; i < 5; i++) { stdin.write('\x1b[<64;40;10M'); await settle(20); }
-    await settle(); await term.flush();
+    await quiet(term);
     assert.match(term.screen().join('\n'), /older/, 'wheel up goes back through the feed');
     assert.doesNotMatch(term.screen().join('\n'), /output 79/);
     for (let i = 0; i < 10; i++) { stdin.write('\x1b[<65;40;10M'); await settle(20); }
-    await settle(); await term.flush();
+    await quiet(term);
     assert.match(term.screen().join('\n'), /output 79/, 'wheel down comes back to the newest');
     // Type, then click earlier in the text and type again: the new text lands where the click was.
     for (const ch of 'abcdef') { stdin.write(ch); await settle(5); }
     stdin.write('\x1b[<0;8;27M'); await settle(40);
-    stdin.write('X'); await settle(); await term.flush();
+    stdin.write('X'); await quiet(term);
     assert.match(term.screen()[27] ?? '', /abcXdef|abXcdef|aXbcdef|Xabcdef/, 'the click moved the caret');
     assertHealthy(term, 'after clicking');
     stop();
@@ -153,7 +177,7 @@ describe('the app in a terminal emulator', () => {
     stdin.write('\x1b[<64;40;10M'); await settle(30);
     stdin.write('\x1b[<65;40;10M'); await settle(30);
     stdin.write('\x1b[<0;10;27m'); await settle();
-    await term.flush();
+    await quiet(term);
     const s = term.screen();
     assert.doesNotMatch(s.join('\n'), /\[<|;\d+M/, 'no mouse report leaked onto the screen');
     assert.match(s[s.length - 3] ?? '', /Ask about the codebase/, 'the prompt is still empty');

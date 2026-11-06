@@ -9,5 +9,8 @@ if (major < 22 || (major === 22 && minor < 13)) {
 }
 const files = process.argv.slice(2);
 const args = ['--import', 'tsx', '--test', '--test-timeout=60000', ...(files.length ? files : ['tests/**/*.test.ts', 'tests/**/*.test.tsx'])];
-const r = spawnSync(process.execPath, args, { stdio: 'inherit' });
+// Ink writes only a final frame when it thinks it is in CI. The emulator tests need the live frames Ink draws on a real terminal.
+const env = { ...process.env };
+for (const k of Object.keys(env)) if (k === 'CI' || k === 'CONTINUOUS_INTEGRATION' || k.startsWith('CI_')) delete env[k];
+const r = spawnSync(process.execPath, args, { stdio: 'inherit', env });
 process.exit(r.status ?? 1);
