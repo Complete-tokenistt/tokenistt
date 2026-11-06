@@ -59,6 +59,31 @@ jobs:
       - run: npm run build -w cli
       - run: npm test -w cli
 
+  cli-e2e:
+    # The real CLI against a real gateway, Postgres and Redis (mock provider, no network).
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_PASSWORD: ci, POSTGRES_DB: tokenistt, POSTGRES_USER: tokenistt }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U tokenistt" --health-interval 5s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+    env:
+      DATABASE_URL: postgres://tokenistt:ci@localhost:5432/tokenistt
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run migrate -w packages/db
+      - run: npm run test:e2e -w cli
+
   python-sdk:
     runs-on: ubuntu-latest
     timeout-minutes: 10

@@ -43,7 +43,7 @@ The package is `tokenistt-cli` (the command it installs is `tokenistt`). Node 22
 2. `git tag cli-v0.1.0 && git push origin cli-v0.1.0` — the tag must equal the package version or the job fails.
 3. Check: `npx -p tokenistt-cli@latest tokenistt --version` in an empty directory.
 
-First release by hand (no CI yet): `npm login`, then from `cli/`: `npm publish --access public`. `prepublishOnly` rebuilds.
+To publish by hand instead: `npm login`, then from `cli/`: `npm publish --access public`. `prepublishOnly` rebuilds.
 
 ## One-time setup
 
