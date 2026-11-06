@@ -2,7 +2,15 @@
   "name": "tokenistt",
   "version": "0.1.0",
   "description": "Open-source AI cost visibility and governance, with developer intelligence for your repositories.",
-  "keywords": ["tokenistt", "cli", "llm", "ai", "cost", "usage", "governance"],
+  "keywords": [
+    "tokenistt",
+    "cli",
+    "llm",
+    "ai",
+    "cost",
+    "usage",
+    "governance"
+  ],
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
@@ -37,10 +45,11 @@
     "@types/node": "^22.13.0",
     "@types/picomatch": "^4.0.2",
     "@types/react": "^19.0.0",
-    "ink-testing-library": "^4.0.0",
+    "@xterm/headless": "6.0.0",
     "cytoscape": "3.34.4",
     "cytoscape-fcose": "2.2.0",
     "esbuild": "^0.28.2",
+    "ink-testing-library": "^4.0.0",
     "tsx": "^4.23.15",
     "typescript": "^5.7.0"
   },

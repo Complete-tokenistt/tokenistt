@@ -2,7 +2,7 @@
  * Read side of agent observability: usage from transcripts, session summaries, comparison. Every number here comes
  * from recorded events or transcript usage; anything that was not reported stays null and renders as unknown.
  */
-import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync } from 'node:fs';
+import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CliError } from '../core/errors.js';
 import type { Database } from '../store/db.js';
@@ -31,6 +31,11 @@ export interface CostResult {
   source: 'catalog_estimate' | 'unknown';
   /** Why it is unknown, or which models were missing. */
   note?: string;
+  /** What the priced part comes to, even when other parts are unpriced. Not a total: see `unpricedTokens`. */
+  knownUsd?: number;
+  /** Tokens that no price covered. Zero means `costUsd` is complete. */
+  unpricedTokens?: number;
+  unpricedModels?: string[];
 }
 
 export interface SessionRow {
@@ -146,37 +151,97 @@ export function refresh(root: string, db: Database): void {
   ingestUsage(db);
 }
 
-/** Prices cached from the gateway's catalog, if any. There are no built-in prices, so offline with no cache means unknown. */
-export function readPrices(root: string): PriceTable | undefined {
-  const file = join(projectDir(root), 'cache', 'prices.json');
-  if (!existsSync(file)) return undefined;
+/** Models are priced by the id the vendor reports. Dates and provider prefixes are stripped only to find an id the table already has. */
+export function modelIdCandidates(model: string): string[] {
+  const out: string[] = [];
+  const add = (m: string): void => { if (m && !out.includes(m)) out.push(m); };
+  let m = model.trim();
+  add(m);
+  m = m.toLowerCase();
+  add(m);
+  const noProvider = m.replace(/^[a-z0-9_-]+[/:]/, '');
+  add(noProvider);
+  for (const x of [m, noProvider]) {
+    add(x.replace(/-(?:latest|\d{8}|\d{4}-\d{2}-\d{2})$/, ''));
+    add(x.replace(/@\d{8}$/, ''));
+  }
+  return out;
+}
+
+export function findPrice(prices: PriceTable, model: string): Price | undefined {
+  for (const id of modelIdCandidates(model)) {
+    const p = prices[id];
+    if (p) return p;
+  }
+  return undefined;
+}
+
+function readPriceFile(file: string): PriceTable {
+  if (!existsSync(file)) return {};
   try {
-    return JSON.parse(readFileSync(file, 'utf8')) as PriceTable;
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+    const table = (raw.models && typeof raw.models === 'object' ? raw.models : raw) as Record<string, unknown>;
+    const out: PriceTable = {};
+    for (const [id, v] of Object.entries(table)) {
+      const p = v as Partial<Price> | null;
+      if (p && typeof p.input === 'number' && typeof p.output === 'number') {
+        out[id] = { input: p.input, output: p.output, ...(typeof p.cachedInput === 'number' ? { cachedInput: p.cachedInput } : {}), ...(typeof p.cacheWrite === 'number' ? { cacheWrite: p.cacheWrite } : {}) };
+      }
+    }
+    return out;
   } catch {
-    return undefined;
+    return {};
   }
 }
 
+export const pricesCachePath = (root: string): string => join(projectDir(root), 'cache', 'prices.json');
+export const pricesOverridePath = (root: string): string => join(projectDir(root), 'prices.json');
+
 /**
- * A partial estimate would look like a real number while leaving out most of the cost: agent sessions are mostly cache
- * reads. So a session is priced only if every token type it used has a price, and is otherwise unknown.
+ * Prices fetched from your gateway's catalog (cache/prices.json), with your own file (prices.json, USD per 1M tokens)
+ * winning where both name a model. There are no built-in prices: with neither file, nothing is priced.
+ */
+export function readPrices(root: string): PriceTable | undefined {
+  const cached = readPriceFile(pricesCachePath(root));
+  const mine = readPriceFile(pricesOverridePath(root));
+  const merged = { ...cached, ...mine };
+  return Object.keys(merged).length ? merged : undefined;
+}
+
+/**
+ * Prices each usage record by its own model. A cost is a real total only if every token was priced. Otherwise
+ * `costUsd` is null (a partial sum would pass for the whole), and the priced part and what was left out are reported
+ * separately so neither is hidden.
  */
 export function priceUsage(usage: Array<Pick<UsageRow, 'model' | 'input_tokens' | 'output_tokens' | 'cache_read_tokens' | 'cache_creation_tokens'>>, prices: PriceTable | undefined): CostResult {
-  if (usage.length === 0) return { costUsd: null, source: 'unknown', note: 'no usage reported' };
-  if (!prices) return { costUsd: null, source: 'unknown', note: 'no price catalog; run `tokenistt models --refresh` with a gateway connection' };
-  let total = 0;
+  if (usage.length === 0) return { costUsd: null, source: 'unknown', note: 'no usage reported', knownUsd: 0, unpricedTokens: 0, unpricedModels: [] };
+  if (!prices) {
+    const tokens = usage.reduce((t, u) => t + u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_creation_tokens, 0);
+    return { costUsd: null, source: 'unknown', note: 'no price table; run `tokenistt models --refresh` with a gateway connection, or add prices to .tokenistt/prices.json', knownUsd: 0, unpricedTokens: tokens, unpricedModels: [...new Set(usage.map((u) => u.model ?? 'unknown model'))].sort() };
+  }
+  let known = 0;
+  let unpriced = 0;
+  let pricedAny = false;
   const missing = new Set<string>();
   for (const u of usage) {
-    const p = u.model ? prices[u.model] : undefined;
-    if (!p) { missing.add(u.model ?? 'unknown model'); continue; }
-    if ((u.cache_read_tokens > 0 && p.cachedInput === undefined) || (u.cache_creation_tokens > 0 && p.cacheWrite === undefined)) {
-      missing.add(`${u.model} cache pricing`);
-      continue;
+    const p = u.model ? findPrice(prices, u.model) : undefined;
+    const name = u.model ?? 'unknown model';
+    if (!p) { unpriced += u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_creation_tokens; missing.add(name); continue; }
+    known += (u.input_tokens * p.input + u.output_tokens * p.output) / 1_000_000;
+    pricedAny = true;
+    if (u.cache_read_tokens > 0) {
+      if (p.cachedInput === undefined) { unpriced += u.cache_read_tokens; missing.add(`${name} cache reads`); } else known += (u.cache_read_tokens * p.cachedInput) / 1_000_000;
     }
-    total += (u.input_tokens * p.input + u.output_tokens * p.output + u.cache_read_tokens * (p.cachedInput ?? 0) + u.cache_creation_tokens * (p.cacheWrite ?? 0)) / 1_000_000;
+    if (u.cache_creation_tokens > 0) {
+      if (p.cacheWrite === undefined) { unpriced += u.cache_creation_tokens; missing.add(`${name} cache writes`); } else known += (u.cache_creation_tokens * p.cacheWrite) / 1_000_000;
+    }
   }
-  if (missing.size) return { costUsd: null, source: 'unknown', note: `no catalog price for ${[...missing].sort().join(', ')}` };
-  return { costUsd: total, source: 'catalog_estimate' };
+  const unpricedModels = [...missing].sort();
+  if (unpriced === 0) return { costUsd: known, source: 'catalog_estimate', knownUsd: known, unpricedTokens: 0, unpricedModels: [] };
+  return {
+    costUsd: null, source: 'unknown', knownUsd: pricedAny ? known : 0, unpricedTokens: unpriced, unpricedModels,
+    note: `no price for ${unpricedModels.join(', ')}. Add one in .tokenistt/prices.json or your gateway catalog`,
+  };
 }
 
 interface UsageRow {
@@ -297,4 +362,68 @@ export function compareSessions(a: SessionSummary, b: SessionSummary): SessionCo
   const touched = (s: SessionSummary) => new Set([...s.files.created, ...s.files.modified, ...s.files.deleted]);
   const [ta, tb] = [touched(a), touched(b)];
   return { a, b, sharedFiles: [...ta].filter((f) => tb.has(f)).sort(), onlyA: [...ta].filter((f) => !tb.has(f)).sort(), onlyB: [...tb].filter((f) => !ta.has(f)).sort() };
+}
+
+/** One model as the gateway's catalog reports it (`GET /v1/admin/models`). A null price means the gateway has none. */
+export interface CatalogModel {
+  model: string;
+  input_per_1m: number | null;
+  output_per_1m: number | null;
+  cached_input_per_1m?: number | null;
+  cache_write_per_1m?: number | null;
+}
+
+/** Only models the catalog really prices. Nothing is filled in for the rest. */
+export function priceTableFromCatalog(rows: CatalogModel[]): PriceTable {
+  const table: PriceTable = {};
+  for (const m of rows) {
+    if (m.input_per_1m === null || m.output_per_1m === null) continue;
+    table[m.model] = {
+      input: m.input_per_1m, output: m.output_per_1m,
+      ...(m.cached_input_per_1m != null ? { cachedInput: m.cached_input_per_1m } : {}),
+      ...(m.cache_write_per_1m != null ? { cacheWrite: m.cache_write_per_1m } : {}),
+    };
+  }
+  return table;
+}
+
+export function writePricesCache(root: string, table: PriceTable): void {
+  mkdirSync(join(projectDir(root), 'cache'), { recursive: true });
+  writeFileSync(pricesCachePath(root), `${JSON.stringify(table, null, 2)}\n`);
+}
+
+/** How old the saved gateway prices are, or null if there are none. */
+export function pricesAgeMs(root: string, now = Date.now()): number | null {
+  try {
+    return now - statSync(pricesCachePath(root)).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+/** One cost for several sessions. A real total only if every part is; otherwise the priced part and what is missing. */
+export function sumCosts(costs: CostResult[]): CostResult {
+  if (costs.length === 0) return { costUsd: null, source: 'unknown', knownUsd: 0, unpricedTokens: 0, unpricedModels: [] };
+  let known = 0;
+  let unpriced = 0;
+  let complete = true;
+  const models = new Set<string>();
+  for (const c of costs) {
+    known += c.knownUsd ?? c.costUsd ?? 0;
+    unpriced += c.unpricedTokens ?? 0;
+    if (c.costUsd === null) complete = false;
+    for (const m of c.unpricedModels ?? []) models.add(m);
+  }
+  return complete
+    ? { costUsd: known, source: 'catalog_estimate', knownUsd: known, unpricedTokens: 0, unpricedModels: [] }
+    : { costUsd: null, source: 'unknown', knownUsd: known, unpricedTokens: unpriced, unpricedModels: [...models].sort() };
+}
+
+/** The one way a cost is written, so every screen and command says the same thing about what is and is not known. */
+export function describeCost(c: CostResult): string {
+  if (c.costUsd !== null) return `~$${c.costUsd.toFixed(4)} estimated`;
+  const known = c.knownUsd ?? 0;
+  const left = c.unpricedTokens ?? 0;
+  if (known > 0 && left > 0) return `~$${known.toFixed(4)} known + ${left.toLocaleString('en-US')} tokens unpriced`;
+  return 'unknown';
 }

@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 import { Output } from '../core/output.js';
 import { UsageError } from '../core/errors.js';
-import { compareSessions, findSession, listSessions, readPrices, recentEvents, refresh, summarize, type CostResult, type SessionSummary, type Tokens } from '../agents/sessions.js';
+import { compareSessions, describeCost, findSession, listSessions, readPrices, recentEvents, refresh, summarize, type CostResult, type SessionSummary, type Tokens } from '../agents/sessions.js';
 import { openDatabase } from '../store/db.js';
 import { requireProject } from '../store/project.js';
 import { formatDuration } from '../tui/format.js';
@@ -15,7 +15,7 @@ export { formatDuration };
 export const formatTokens = (t: Tokens | null): string => (t ? t.total.toLocaleString('en-US') : 'unknown');
 
 export function formatCost(c: CostResult): string {
-  return c.costUsd === null ? 'unknown' : `~$${c.costUsd.toFixed(4)} estimated`;
+  return describeCost(c);
 }
 
 function list(ctx: Context, rows: SessionSummary[]): void {

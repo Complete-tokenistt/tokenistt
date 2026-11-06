@@ -34,6 +34,69 @@ node cli/bin/tokenistt.js --help          # or: npm link -w cli   →  tokenistt
 
 Requires Node.js 22.13 or newer (the local database uses Node's built-in SQLite).
 
+### Use it on any of your projects
+
+Link the build once, then run it inside any Git repository:
+
+```bash
+npm install && npm run build -w cli && npm link -w cli      # once, from this repo; gives you `tokenistt`
+# no link? call it directly: node /path/to/tokenist-main/cli/bin/tokenistt.js <command>
+
+cd /path/to/your-project
+tokenistt init                  # creates .tokenistt/ in that repo (local SQLite, nothing leaves the machine)
+tokenistt map                   # builds the code knowledge graph
+tokenistt                       # opens the interactive app (see below)
+```
+
+Everything local (`init`, `map`, `search`, `impact`, `memory`, `context`, `sessions`, `graph`) works without a
+gateway. Gateway features (FinOps spend, usage, budgets) need `tokenistt login` against your own running gateway;
+without it the FinOps screen says no gateway is configured. Sync to the gateway is off unless you turn it on per
+repository. To record coding-agent sessions in a project, run `tokenistt agents connect claude-code` (Claude Code is
+the one verified against the real agent; Codex and Antigravity hooks are written from their docs).
+
+### The interactive app
+
+Bare `tokenistt` in a set-up repository, on a terminal, opens a persistent app. In pipes, CI or with `--json` it
+prints a plain status instead, so scripts never get stuck.
+
+![The Tokenistt app on its Home screen: project and agent status on the left, live activity on the right, and a prompt at the bottom](../docs/cli/images/tokenistt-app.png)
+
+The prompt at the bottom is always live. Type a question to search the graph and memory, a `/command` to move around, or any real command (`graph --open`, `map`, `doctor`, `usage`...) to run it in place and watch its output stream into Activity. `help` lists everything.
+
+| Screen | Shows |
+|---|---|
+| Home | Project and agent status, plus a live activity feed that narrates real changes (sessions starting, errors, new memories, gateway up or down) |
+| Agents | Connected agents and their sessions: state, tokens, estimated cost, files changed, tests |
+| Memory | What the project remembers; stale entries are marked `?` |
+| Graph | Node and relationship counts, largest areas, most depended-on symbols |
+| Nano | Placeholder. Not built yet; shows nothing measured |
+| FinOps | Tabs for **Overview**, **Models**, **Daily**, **Weekly** and **Sessions**: tokens and cost from your gateway's ledger (needs `tokenistt login`), and, separately, coding-agent usage recorded on this machine. Weeks start on Monday (UTC). Switch tabs with `[` and `]`, the arrow keys on an empty prompt, or a click |
+
+| Key | Action |
+|---|---|
+| Type + Enter | Plain text searches the graph and memory; text starting with `/` runs a command (`/agents`, `/finops`, `/search`, `/refresh`, `/clear`, `/help`, `/quit`) |
+| `Tab` / `Shift+Tab` | Next / previous screen (completes a command while typing `/…`) |
+| `Ctrl+K` | Command palette |
+| Up / Down, PgUp / PgDn, mouse wheel | Select or scroll. `Home` / `End` go to the oldest / newest |
+| Click | A tab switches screen, the prompt starts typing at that spot, a list row selects it |
+| `Ctrl+L` | Clear the activity feed |
+| `Ctrl+C` | Quit |
+
+The mouse is on while the app is open, so drag does not select text: hold `Shift` to select and copy. Turn the mouse off with `TOKENISTT_NO_MOUSE=1`.
+
+Windows: works in Windows Terminal, PowerShell and the VS Code terminal. Consoles that can't draw box characters get plain ASCII
+automatically; force it with `TOKENISTT_ASCII=1`. Costs shown for local agents are estimates (tokens times catalog
+prices), not your bill.
+
+### Costs
+
+A session's cost is its tokens times your model prices. There are no built-in prices. They come from:
+
+1. your gateway's catalog, saved to `.tokenistt/cache/prices.json` by `tokenistt models --refresh` (the app also refreshes it when it is older than a day and the gateway is connected); and
+2. your own `.tokenistt/prices.json`, which wins where both name a model. It is a map of model id to `{ "input": 3, "output": 15, "cachedInput": 0.3, "cacheWrite": 3.75 }` in USD per million tokens.
+
+A model is found by the id the vendor reports; a trailing date (`-20250929`) or a `provider/` prefix is dropped only to reach an id your table already has. Nothing is guessed. Where a model, or a cache price, is missing, that part is left out and said so: you see `~$4.20 known + 18,000 tokens unpriced` and which models need a price, never a total that hides the gap.
+
 ## Quick start
 
 **A. Local only (no gateway needed).** Run inside any git repository:
@@ -324,7 +387,7 @@ endpoint). Dashboard tokens expire; `tokenistt auth status` shows when, and `doc
 | `tokenistt search <query>` | Find related code, memories and sessions |
 | `tokenistt analyze` | Circular imports, coupling, boundaries, entry points, isolated files, possible duplicates. `--trace "GET /users"` follows a route to its tables |
 | `tokenistt embeddings` | Optional: build vectors for semantic search |
-| `tokenistt` | On a terminal, the live dashboard: overview, agents, sessions, codebase, graph, memory, costs, policies, settings. Elsewhere, a plain status |
+| `tokenistt` | On a terminal, the interactive app: Home (overview and live activity), Agents, Memory, Graph, Nano (placeholder) and FinOps (gateway spend, models, budgets), with a prompt at the bottom. `Tab` switches screen, `Ctrl+K` opens the command palette, `/` starts a command, plain text searches the graph and memory, `Ctrl+C` quits. Elsewhere (pipes, CI, `--json`), a plain status. `TOKENISTT_ASCII=1` forces plain-ASCII drawing |
 | `tokenistt sync` | Send summaries to your gateway. Off until `--enable`. `--dry-run`, `--ledger` |
 | `tokenistt usage`, `tokenistt cost` | From your gateway's ledger, `--by` model, user, customer, project, feature and more. `--days`, `--since`, `--csv` |
 | `tokenistt models` | The catalog. `--refresh` saves prices here for session cost estimates |
