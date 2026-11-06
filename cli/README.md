@@ -19,6 +19,53 @@ node cli/bin/tokenistt.js --help          # or: npm link -w cli   →  tokenistt
 
 Requires Node.js 22.13 or newer (the local database uses Node's built-in SQLite).
 
+### Use it on any of your projects
+
+Link the build once, then run it inside any Git repository:
+
+```bash
+npm install && npm run build -w cli && npm link -w cli      # once, from this repo; gives you `tokenistt`
+# no link? call it directly: node /path/to/tokenist-main/cli/bin/tokenistt.js <command>
+
+cd /path/to/your-project
+tokenistt init                  # creates .tokenistt/ in that repo (local SQLite, nothing leaves the machine)
+tokenistt map                   # builds the code knowledge graph
+tokenistt                       # opens the interactive app (see below)
+```
+
+Everything local (`init`, `map`, `search`, `impact`, `memory`, `context`, `sessions`, `graph`) works without a
+gateway. Gateway features (FinOps spend, usage, budgets) need `tokenistt login` against your own running gateway;
+without it the FinOps screen says no gateway is configured. Sync to the gateway is off unless you turn it on per
+repository. To record coding-agent sessions in a project, run `tokenistt agents connect claude-code` (Claude Code is
+the one verified against the real agent; Codex and Antigravity hooks are written from their docs).
+
+### The interactive app
+
+Bare `tokenistt` in a set-up repository, on a terminal, opens a persistent app. In pipes, CI or with `--json` it
+prints a plain status instead, so scripts never get stuck.
+
+| Screen | Shows |
+|---|---|
+| Home | Project and agent status, plus a live activity feed that narrates real changes (sessions starting, errors, new memories, gateway up or down) |
+| Agents | Connected agents and their sessions: state, tokens, estimated cost, files changed, tests |
+| Memory | What the project remembers; stale entries are marked `?` |
+| Graph | Node and relationship counts, largest areas, most depended-on symbols |
+| Nano | Placeholder. Not built yet; shows nothing measured |
+| FinOps | Gateway spend for 30 days, spend by model, budgets, and local agent estimates. Needs `tokenistt login` |
+
+| Key | Action |
+|---|---|
+| Type + Enter | Plain text searches the graph and memory; text starting with `/` runs a command (`/agents`, `/finops`, `/search`, `/refresh`, `/clear`, `/help`, `/quit`) |
+| `Tab` / `Shift+Tab` | Next / previous screen (completes a command while typing `/…`) |
+| `Ctrl+K` | Command palette |
+| Up / Down, PgUp / PgDn | Select or scroll |
+| `Ctrl+L` | Clear the activity feed |
+| `Ctrl+C` | Quit |
+
+Windows: works in Windows Terminal and PowerShell. Consoles that can't draw box characters get plain ASCII
+automatically; force it with `TOKENISTT_ASCII=1`. Costs shown for local agents are estimates (tokens times catalog
+prices), not your bill.
+
 ## Quick start
 
 Start the stack (`node scripts/setup.mjs && docker compose up -d`, see the root README), then:
