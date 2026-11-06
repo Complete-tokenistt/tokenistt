@@ -78,7 +78,16 @@ Macros are not expanded, so macro-heavy C and C++ report syntax errors and yield
 
 ### Exploring it
 
-`tokenistt graph --open` runs a viewer that starts from your top-level folders. Double-click an area to open it; connections roll up to whatever is on screen, so a large repository stays readable and only what you open is drawn. Click anything for its details, and use **Show what depends on this** to see the impact of changing it. Dashed lines are inferred from names; solid lines are stated in the code.
+`tokenistt graph --open` runs a viewer that starts from your top-level folders, drawn as rings that stand for everything inside them. It is rendered with WebGL ([Sigma.js](https://www.sigmajs.org/), Graphology and ForceAtlas2), and only what you open is on screen, so a large repository stays readable.
+
+- **Open and close.** Double-click a ring to open it: its contents appear inside a soft outline coloured by area. **Open level** opens every visible folder one level (it stops near 3,000 nodes so the picture stays readable). **Collapse all** returns to the top level.
+- **Shapes and colour.** Folders are rings, files and functions are small dots, classes, components, API routes and tables are squares, and each kind has its own colour. Rings and outlines take the colour of their area (the top-level folders listed under **Areas**, which you can switch off one by one).
+- **Lines.** Curved arrows point from the thing that depends to the thing it depends on, coloured by relationship (imports, calls, extends, reads, writes and so on). Strong lines are stated in the code; paler ones are inferred from names. With hundreds of things open, only the strongest connections between areas are drawn; select or hover something to see all of its own.
+- **Layouts.** *Clusters* (force-directed, with areas kept apart), *Radial* (folders nest in rings, relationships drawn across) and *Layers* (one band per folder depth).
+- **Find and inspect.** Press `/` to search by file, symbol, route or table; the viewer opens the path to it. Click anything to highlight what it is connected to (amber out, green in) and open the inspector with its source reference (`path:line-line`), what uses it, what it uses and its recent commits. **Used by** / **Uses** light up everything affected, hop by hop. **Isolate** shows only that node and what it is directly connected to, taken straight from its recorded relationships.
+- **Navigate.** Scroll to zoom, drag to pan, **Fit** to see everything, **Focus** to zoom to a node, and the minimap to jump around (click or drag).
+
+Every line drawn is a real relationship from the graph: folder-level lines are the counted sum of the relationships between what is inside, and nothing is added for layout. Filters only hide things on screen.
 
 The viewer needs no network. It listens only on `127.0.0.1`, requires the random token in the URL it prints, and can't change anything.
 
