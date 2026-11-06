@@ -1,6 +1,7 @@
 /** Screens as lines of text. Pure functions of real data, so they can be tested without a terminal and never overflow. */
 import type { DashboardData, FinopsData } from './data.js';
 import { formatDuration } from './format.js';
+import { CLI_HELP } from './commands.js';
 import type { Glyphs, Tone } from './theme.js';
 
 export interface Seg { t: string; tone?: Tone; bold?: boolean }
@@ -11,7 +12,7 @@ export interface Opts { selected: number; glyphs: Glyphs; width: number }
 export const L = (t: string, tone?: Tone, bold?: boolean): Line => ({ segs: [{ t, ...(tone ? { tone } : {}), ...(bold ? { bold } : {}) }] });
 export const blank = (): Line => L('');
 const head = (t: string): Line => L(t, 'accent', true);
-const kv = (k: string, v: string, tone?: Tone): Line => ({ segs: [{ t: k.padEnd(16), tone: 'dim' }, { t: v, ...(tone ? { tone } : {}) }] });
+const kv = (k: string, v: string, tone?: Tone, w = 16): Line => ({ segs: [{ t: k.padEnd(w), tone: 'dim' }, { t: v, ...(tone ? { tone } : {}) }] });
 const sum = (o: Record<string, number> | undefined): number => Object.values(o ?? {}).reduce((a, b) => a + b, 0);
 export const tokens = (n: number | null | undefined): string => (n === null || n === undefined ? 'unknown' : n.toLocaleString('en-US'));
 export const usd = (n: number): string => `$${n.toFixed(n !== 0 && Math.abs(n) < 1 ? 4 : 2)}`;
@@ -28,7 +29,7 @@ export function homeSummary(d: DashboardData, g: Glyphs): Line[] {
     kv('Branch', d.project.branch ?? 'none'),
     kv('Commit', d.project.commit ? `${d.project.commit} ${d.project.subject ?? ''}`.trim() : 'none yet'),
     blank(), head('Agents'),
-    ...d.agents.map((a): Line => ({ segs: [{ t: a.name.padEnd(16), tone: 'dim' }, { t: `${a.state === 'not connected' ? g.ring : g.bullet} ${a.state}`, tone: agentTone(a.state) }] })),
+    ...d.agents.map((a): Line => ({ segs: [{ t: a.name.padEnd(20), tone: 'dim' }, { t: `${a.state === 'not connected' ? g.ring : g.bullet} ${a.state}`, tone: agentTone(a.state) }] })),
     blank(), head('Knowledge'),
     kv('Graph', d.graph ? `${sum(d.graph.nodes)} nodes, ${d.graph.files.total} files` : 'not indexed', d.graph ? undefined : 'warn'),
     kv('Memory', `${d.memory.active} active, ${d.memory.stale} stale`),
@@ -127,4 +128,22 @@ export function finopsView(d: DashboardData, { glyphs: g }: Opts): View {
   for (const c of d.costs) lines.push(kv(c.agent, c.sessions ? `${c.sessions} sessions, tokens ${tokens(c.tokens)}, ${est(c.costUsd)}` : 'none', c.sessions ? undefined : 'dim'));
   lines.push(L('Estimates are tokens times catalog prices, not your bill. On a subscription they are not spend at all.', 'dim'));
   return { lines, count: lines.length };
+}
+
+export function helpView(): View {
+  const keys: Array<[string, string]> = [
+    ['Enter', 'run what you typed'], ['Tab / Shift+Tab', 'next / previous screen (completes a /command)'], ['Ctrl+K', 'command palette'],
+    ['Up / Down / PgUp / PgDn', 'select or scroll'], ['Esc', 'clear the prompt, or stop a running command'], ['Ctrl+L', 'clear the activity feed'], ['Ctrl+C', 'quit'],
+  ];
+  return {
+    count: 0,
+    lines: [
+      head('How to use this'), L('Type a command, or a question about your code. Commands run right here and print into Activity.'),
+      L('Example:  graph --open     map     impact src/app.ts     how does login work', 'dim'), blank(),
+      head('Keys'), ...keys.map(([k, v]) => kv(k, v, undefined, 26)), blank(),
+      head('Screens (type the name, or /name)'), L('home  agents  memory  graph  nano  finops'), blank(),
+      head('Commands'), ...CLI_HELP.map(([n, d]) => kv(n, d, undefined, 26)), blank(),
+      L('Add --help to any command for its options, e.g.  graph --help', 'dim'),
+    ],
+  };
 }

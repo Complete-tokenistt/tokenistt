@@ -4,7 +4,8 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { render } from 'ink-testing-library';
 import { App, changes } from '../src/tui/App.js';
-import { parse } from '../src/tui/commands.js';
+import { CLI_COMMANDS, parse } from '../src/tui/commands.js';
+import { buildProgram } from '../src/program.js';
 import { unicodeSupported } from '../src/tui/theme.js';
 import { fetchFinops, gatherLocal, plainStatus, probeGateway, type DashboardData } from '../src/tui/data.js';
 import { handleHook } from '../src/agents/hook-main.js';
@@ -188,6 +189,67 @@ describe('terminal application', () => {
     assert.deepEqual(parse('how does auth work'), { kind: 'search', query: 'how does auth work' });
     assert.equal(parse('/search').kind, 'unknown');
     assert.equal(parse('   ').kind, 'none');
+  });
+});
+
+
+describe('typing real commands at the prompt', () => {
+  it('knows every CLI command, so none is mistaken for a search', () => {
+    assert.deepEqual([...CLI_COMMANDS].sort(), buildProgram().commands.map((c) => c.name()).sort());
+  });
+  it('runs real commands, with or without the program name', () => {
+    assert.deepEqual(parse('graph --open'), { kind: 'cli', args: ['graph', '--open'] });
+    assert.deepEqual(parse('tokenistt map'), { kind: 'cli', args: ['map'] });
+    assert.deepEqual(parse('tokensitt map'), { kind: 'cli', args: ['map'] });
+    assert.deepEqual(parse('doctor --json'), { kind: 'cli', args: ['doctor', '--json'] });
+    assert.deepEqual(parse('graph'), { kind: 'screen', screen: 'Graph' });
+  });
+  it('shows help for help, --help and typos of it', () => {
+    for (const t of ['help', '--help', '-h', '?', 'tokenistt --help']) assert.deepEqual(parse(t), { kind: 'help' }, t);
+    assert.deepEqual(parse('--heelp'), { kind: 'suggest', typed: '--heelp', suggestion: '--help' });
+  });
+  it('suggests the command for a typo, and leaves real questions as searches', () => {
+    assert.deepEqual(parse('grph'), { kind: 'suggest', typed: 'grph', suggestion: 'graph' });
+    assert.deepEqual(parse('mapp'), { kind: 'suggest', typed: 'mapp', suggestion: 'map' });
+    assert.equal(parse('how does login work').kind, 'search');
+    assert.equal(parse('AuthService').kind, 'search');
+  });
+  it('sends commands that need their own terminal there instead of hanging', () => {
+    assert.equal(parse('login').kind, 'terminal');
+    assert.equal(parse('watch').kind, 'terminal');
+  });
+  it('runs a command in the app, streams its output and lets Esc stop it', async () => {
+    let stopped = false;
+    let finish: (c: number | null) => void = () => undefined;
+    const exec = (args: string[], on: (l: string) => void) => {
+      on('viewer at http://127.0.0.1:1 for ' + args.join(' '));
+      return { done: new Promise<number | null>((r) => { finish = r; }), stop: () => { stopped = true; finish(null); } };
+    };
+    const { lastFrame, stdin, unmount } = render(<App data={data()} motion={false} exec={exec} />);
+    await type(stdin, 'graph --open'); stdin.write(KEY.enter);
+    await until(lastFrame, /viewer at http:\/\/127\.0\.0\.1:1 for graph --open/);
+    assert.match(lastFrame() ?? '', /running: graph --open/);
+    stdin.write(KEY.esc);
+    await until(lastFrame, /stopped/);
+    assert.equal(stopped, true);
+    assert.doesNotMatch(lastFrame() ?? '', /running:/);
+    unmount();
+  });
+  it('opens a help screen listing keys and commands, and closes it with Esc', async () => {
+    const { lastFrame, stdin, unmount } = render(<App data={data()} motion={false} />);
+    await type(stdin, '--help'); stdin.write(KEY.enter);
+    await until(lastFrame, /How to use this/);
+    assert.match(lastFrame() ?? '', /graph --open/);
+    stdin.write(KEY.esc);
+    await until(lastFrame, /Activity/);
+    unmount();
+  });
+  it('prefills the suggestion after a typo', async () => {
+    const { lastFrame, stdin, unmount } = render(<App data={data()} motion={false} />);
+    await type(stdin, 'grph'); stdin.write(KEY.enter);
+    await until(lastFrame, /Did you mean "graph"/);
+    assert.match(lastFrame() ?? '', /› graph/);
+    unmount();
   });
 });
 
