@@ -1,6 +1,6 @@
 {
-  "name": "tokenistt",
-  "version": "0.1.0",
+  "name": "tokenistt-cli",
+  "version": "0.1.1",
   "description": "Open-source AI cost visibility and governance, with developer intelligence for your repositories.",
   "keywords": [
     "tokenistt",
@@ -8,8 +8,13 @@
     "llm",
     "ai",
     "cost",
+    "finops",
     "usage",
-    "governance"
+    "governance",
+    "knowledge-graph",
+    "mcp",
+    "claude-code",
+    "developer-tools"
   ],
   "license": "Apache-2.0",
   "type": "module",
@@ -19,7 +24,8 @@
   "files": [
     "bin",
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=22.13"
@@ -60,12 +66,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Complete-tokenistt/tokenist-main.git",
+    "url": "git+https://github.com/Complete-tokenistt/tokenistt.git",
     "directory": "cli"
   },
-  "homepage": "https://github.com/Complete-tokenistt/tokenist-main/tree/main/cli#readme",
+  "homepage": "https://github.com/Complete-tokenistt/tokenistt/tree/main/cli#readme",
   "bugs": {
-    "url": "https://github.com/Complete-tokenistt/tokenist-main/issues"
+    "url": "https://github.com/Complete-tokenistt/tokenistt/issues"
   },
   "publishConfig": {
     "access": "public"

@@ -1,19 +1,33 @@
-# tokenistt CLI
+# tokenistt-cli
 
-Command-line tool for [Tokenistt](../README.md). It has two halves:
+[![npm](https://img.shields.io/npm/v/tokenistt-cli)](https://www.npmjs.com/package/tokenistt-cli)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue)](https://github.com/Complete-tokenistt/tokenistt/blob/main/LICENSE)
+[![node](https://img.shields.io/badge/node-%E2%89%A522.13-brightgreen)](https://nodejs.org)
 
-- **Gateway client.** Talks to your self-hosted gateway, the same one the dashboard uses, so numbers in the terminal are the numbers on the dashboard: `login`, `connect`, `doctor`, `usage`, `cost`, `models`, `providers`, `policy`, `optimize`.
+The command line for [Tokenistt](https://github.com/Complete-tokenistt/tokenistt): open-source AI cost visibility and governance, with developer intelligence for your repositories. The command you run is `tokenistt`.
+
+```bash
+npm install -g tokenistt-cli
+tokenistt --help
+```
+
+It has two halves:
+
+- **Gateway client.** Talks to your self-hosted Tokenistt gateway, the same one the dashboard uses, so numbers in the terminal are the numbers on the dashboard: `login`, `connect`, `doctor`, `usage`, `cost`, `models`, `providers`, `policy`, `optimize`.
 - **Local developer intelligence.** Works inside a git repository with no gateway and no network: a codebase knowledge graph, coding-agent session recording, project memory, context for agents, change impact and search. Data lives in `.tokenistt/` in the repo.
 
 Use either half alone. Nothing leaves your machine unless you run `sync --enable`.
 
-> **Status: early (0.1.0).** Not published to npm; build from the repo. Claude Code integration has been run live; Codex and Antigravity are written from their docs and unverified. See [Roadmap](#roadmap).
+> **Status: early (0.1.x).** Claude Code integration has been run live; Codex and Antigravity are written from their docs and unverified. There is no hosted service: the CLI only ever talks to a gateway you run. See [Roadmap](#roadmap).
+
+**Links:** [Source and issues](https://github.com/Complete-tokenistt/tokenistt) · [Dashboard and gateway setup](#the-dashboard) · [Full project README](https://github.com/Complete-tokenistt/tokenistt#readme) · [Agent capabilities](https://github.com/Complete-tokenistt/tokenistt/blob/main/docs/cli/AGENTS.md)
 
 ## How to use this README
 
 | I want to… | Go to |
 |---|---|
 | Install and try it | [Install](#install), [Quick start](#quick-start) |
+| Open the dashboard | [The dashboard](#the-dashboard) |
 | Understand my codebase, find what a change affects | [Codebase graph](#codebase-graph), [Change impact](#change-impact), [Search](#search) |
 | Record and review coding-agent sessions and their cost | [Coding agents](#coding-agents) |
 | Give agents project knowledge | [Project memory](#project-memory), [Context for agents](#context-for-agents), [MCP](#mcp) |
@@ -24,24 +38,23 @@ Use either half alone. Nothing leaves your machine unless you run `sync --enable
 
 ## Install
 
-From a clone of this repository (the package is not published to npm yet):
+Requires **Node.js 22.13 or newer** (the local database uses Node's built-in SQLite). Check with `node -v`.
 
 ```bash
-npm install
-npm run build -w cli
-node cli/bin/tokenistt.js --help          # or: npm link -w cli   →  tokenistt --help
+npm install -g tokenistt-cli      # puts `tokenistt` on your PATH
+tokenistt --version
+tokenistt doctor                  # checks the install and tells you how to fix anything red
 ```
 
-Requires Node.js 22.13 or newer (the local database uses Node's built-in SQLite).
+Or run it once without installing: `npx -p tokenistt-cli tokenistt --help`. To work from source instead, see [Development](#development).
+
+Update with `npm install -g tokenistt-cli@latest`; remove with `npm uninstall -g tokenistt-cli`. Agent hooks written by `agents connect` point at the installed file, so run `tokenistt agents connect <agent>` again after moving or reinstalling.
 
 ### Use it on any of your projects
 
-Link the build once, then run it inside any Git repository:
+Run it inside any Git repository:
 
 ```bash
-npm install && npm run build -w cli && npm link -w cli      # once, from this repo; gives you `tokenistt`
-# no link? call it directly: node /path/to/tokenist-main/cli/bin/tokenistt.js <command>
-
 cd /path/to/your-project
 tokenistt init                  # creates .tokenistt/ in that repo (local SQLite, nothing leaves the machine)
 tokenistt map                   # builds the code knowledge graph
@@ -54,12 +67,39 @@ without it the FinOps screen says no gateway is configured. Sync to the gateway 
 repository. To record coding-agent sessions in a project, run `tokenistt agents connect claude-code` (Claude Code is
 the one verified against the real agent; Codex and Antigravity hooks are written from their docs).
 
-### The interactive app
+## The dashboard
+
+The dashboard is a separate web app in the same open-source repository: **https://github.com/Complete-tokenistt/tokenistt**. The CLI does not bundle or start it; you run the Tokenistt stack yourself (Docker is the easy way) and the CLI connects to it.
+
+```bash
+git clone https://github.com/Complete-tokenistt/tokenistt.git
+cd tokenistt
+node scripts/setup.mjs                  # writes .env with fresh secrets; never overwrites an existing one
+docker compose up --build -d            # postgres, redis, migrations, gateway, dashboard
+```
+
+| What | Where |
+|---|---|
+| **Dashboard** | http://localhost:3001 (opens without a login by default; see the repo README for `AUTH_MODE`) |
+| **Gateway** (OpenAI-compatible) | http://localhost:3000/v1 |
+| API reference | http://localhost:3000/v1/openapi.json |
+
+Ports are configurable with `DASHBOARD_PORT` and `GATEWAY_PORT`. Then point the CLI at it:
+
+```bash
+tokenistt login            # asks for the gateway URL (http://localhost:3000) and a credential
+tokenistt connect          # finds your organization, workspaces and projects
+tokenistt doctor           # every check should be green
+```
+
+Use the **gateway** URL (port 3000) for the CLI, not the dashboard's. To also see this repository's sessions and graph summary on the dashboard, run `tokenistt sync --dry-run` to preview, then `tokenistt sync --enable`. Full stack, configuration and API documentation: [project README](https://github.com/Complete-tokenistt/tokenistt#readme).
+
+## The interactive app
 
 Bare `tokenistt` in a set-up repository, on a terminal, opens a persistent app. In pipes, CI or with `--json` it
 prints a plain status instead, so scripts never get stuck.
 
-![The Tokenistt app on its Home screen: project and agent status on the left, live activity on the right, and a prompt at the bottom](../docs/cli/images/tokenistt-app.png)
+![The Tokenistt app on its Home screen: project and agent status on the left, live activity on the right, and a prompt at the bottom](https://raw.githubusercontent.com/Complete-tokenistt/tokenistt/main/docs/cli/images/tokenistt-app.png)
 
 The prompt at the bottom is always live. Type a question to search the graph and memory, a `/command` to move around, or any real command (`graph --open`, `map`, `doctor`, `usage`...) to run it in place and watch its output stream into Activity. `help` lists everything.
 
@@ -130,16 +170,14 @@ Run `tokenistt <command> --help` for flags on any command.
 
 The CLI is installed once on your machine and then run from inside whichever repository you want to analyse. Nothing is added to the repository's dependencies.
 
-**1. Install once** (until it's on npm):
+**1. Install once:**
 
 ```bash
-git clone <this repo> && cd tokenist-main
-npm install && npm run build -w cli
-npm link -w cli            # puts `tokenistt` on your PATH
+npm install -g tokenistt-cli
 tokenistt --version
 ```
 
-Without `npm link`, call `node /path/to/tokenist-main/cli/bin/tokenistt.js <command>` instead. Needs Node.js 22.13+.
+Needs Node.js 22.13+.
 
 **2. Set up the target repository.** It must be a git repository (files come from `git ls-files`, so `.gitignore` is respected).
 
@@ -259,7 +297,7 @@ The viewer needs no network. It listens only on `127.0.0.1`, requires the random
 
 ## Coding agents
 
-`tokenistt agents connect <agent>` adds hooks to the agent's own settings file, so sessions are recorded as they happen. It works with `claude-code`, `codex` and `antigravity`, and each can report different things: see [what each agent exposes](../docs/cli/AGENTS.md). Claude Code has been run live; Codex and Antigravity are written from their documentation and are not yet checked against the real agents. Project scope is the default, and `--user` uses your user-level settings instead. It shows the change and asks first, keeps everything else in the file, saves a backup, and refuses to touch a file it can't parse. `agents disconnect` removes only Tokenistt's entries.
+`tokenistt agents connect <agent>` adds hooks to the agent's own settings file, so sessions are recorded as they happen. It works with `claude-code`, `codex` and `antigravity`, and each can report different things: see [what each agent exposes](https://github.com/Complete-tokenistt/tokenistt/blob/main/docs/cli/AGENTS.md). Claude Code has been run live; Codex and Antigravity are written from their documentation and are not yet checked against the real agents. Project scope is the default, and `--user` uses your user-level settings instead. It shows the change and asks first, keeps everything else in the file, saves a backup, and refuses to touch a file it can't parse. `agents disconnect` removes only Tokenistt's entries.
 
 **What's recorded:** session start and end, which files were read or changed, tool names, whether things failed, and the program of each command, plus the subcommand for well-known tools (`npm test`, `git push`, but never arguments).
 
@@ -440,7 +478,7 @@ Network calls are retried with exponential backoff and jitter on connection fail
 ## Use in CI
 
 ```yaml
-- run: npm install -g tokenistt          # once published; until then build from the repo
+- run: npm install -g tokenistt-cli
 - run: tokenistt doctor --json
   env:
     TOKENISTT_API_URL: ${{ vars.TOKENISTT_API_URL }}
@@ -462,25 +500,33 @@ tell "retry later" from "fix the credentials" (`3`).
 
 ## Roadmap
 
-Shipped: auth and diagnostics, `usage`, `cost`, `models`, `providers`, `policy`, `optimize`, `sync`, and the local intelligence engine. Plans: [`docs/cli/PLAN.md`](../docs/cli/PLAN.md), [`docs/cli/INTELLIGENCE_PLAN.md`](../docs/cli/INTELLIGENCE_PLAN.md).
+Shipped: auth and diagnostics, `usage`, `cost`, `models`, `providers`, `policy`, `optimize`, `sync`, and the local intelligence engine. Plans: [`docs/cli/PLAN.md`](https://github.com/Complete-tokenistt/tokenistt/blob/main/docs/cli/PLAN.md), [`docs/cli/INTELLIGENCE_PLAN.md`](https://github.com/Complete-tokenistt/tokenistt/blob/main/docs/cli/INTELLIGENCE_PLAN.md).
 
 Still to do:
 
 1. `attribution` command.
 2. Verify the Codex and Antigravity hooks against the real agents.
-3. npm publishing workflow.
+3. Publish from CI on every release tag (the workflow exists; see the repo's `docs/RELEASING.md`).
 
 Not planned for now: browser/device login and keychain storage (need dashboard + gateway work), a dedicated Mistral
 adapter (use the OpenAI-compatible provider), currency conversion (USD only).
 
 ## Development
 
+Work from source (the CLI lives in `cli/` of the [monorepo](https://github.com/Complete-tokenistt/tokenistt)):
+
 ```bash
+git clone https://github.com/Complete-tokenistt/tokenistt.git && cd tokenistt
 npm install
 npm run build -w cli
+node cli/bin/tokenistt.js --help      # or: npm link -w cli   →   tokenistt --help
 npm test -w cli            # unit tests + end-to-end tests that spawn the real CLI against a fake gateway
 npm run typecheck -w cli
 ```
 
 Layout: `src/commands` (thin commander wiring) → `src/services` (logic, no terminal I/O) → `src/api` (gateway client) and
 `src/config` (credential store); `src/project` reads git and manifests; `src/store` owns `.tokenistt/` and SQLite; `src/core` holds output, errors, redaction and prompts.
+
+## Contributing and licence
+
+Issues and pull requests: https://github.com/Complete-tokenistt/tokenistt/issues. Licensed under [Apache-2.0](https://github.com/Complete-tokenistt/tokenistt/blob/main/LICENSE).
