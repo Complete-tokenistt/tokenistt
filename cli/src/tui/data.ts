@@ -6,7 +6,7 @@ import { listSessions, readPrices, refresh, summarize, type SessionSummary } fro
 import type { ResolvedConfig } from '../config/store.js';
 import { readMetadata, type GraphMetadata } from '../graph/store.js';
 import { GraphIndex } from '../graph/query.js';
-import { memoryStats, listMemories, type Memory, type MemoryStats } from '../memory/store.js';
+import { memoryStats, listMemories, searchMemories, type Memory, type MemoryStats } from '../memory/store.js';
 import type { Database } from '../store/db.js';
 import type { Project } from '../store/project.js';
 
@@ -43,6 +43,52 @@ export interface DashboardData {
   memory: MemoryStats;
   memories: Memory[];
   gateway: GatewayStatus;
+  /** Gateway spend, when connected with management credentials. Absent means not fetched, never zero. */
+  finops?: FinopsData;
+}
+
+export interface FinopsRow { key: string; requests: number; tokens: number; costUsd: number; errors: number; p95Ms: number | null }
+export interface FinopsBudget { id: string; scope: string; name: string | null; capUsd: number; period: string; mode: string; active: boolean }
+export interface FinopsData {
+  state: 'ok' | 'no credentials' | 'error';
+  detail?: string;
+  days: number;
+  total: { requests: number; tokens: number; costUsd: number; errors: number; zeroCost: number } | null;
+  byModel: FinopsRow[];
+  byDay: FinopsRow[];
+  budgets: FinopsBudget[];
+}
+
+const num = (v: unknown): number => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+const mapRow = (r: Record<string, unknown>): FinopsRow => ({
+  key: String(r.key ?? ''), requests: num(r.requests), tokens: num(r.total_tokens), costUsd: num(r.cost_usd), errors: num(r.errors), p95Ms: r.p95_latency_ms == null ? null : num(r.p95_latency_ms),
+});
+
+/** Real spend from the gateway management API (30 days). Never throws; failures come back as a state the screen explains. */
+export async function fetchFinops(cfg: ResolvedConfig, fetchImpl?: typeof fetch): Promise<FinopsData> {
+  const empty = { days: 30, total: null, byModel: [], byDay: [], budgets: [] };
+  const client = new ApiClient(cfg, { timeoutMs: 4000, maxAttempts: 1, ...(fetchImpl ? { fetch: fetchImpl } : {}) });
+  if (!client.hasManagementCredentials) return { state: 'no credentials', detail: 'Run tokenistt login with a dashboard token.', ...empty };
+  try {
+    const [all, models, days, budgets] = await Promise.all([
+      client.get<{ rows: Array<Record<string, unknown>> }>('management', '/v1/admin/usage/summary'),
+      client.get<{ rows: Array<Record<string, unknown>> }>('management', '/v1/admin/usage/summary', { query: { group_by: 'model', limit: 8 } }),
+      client.get<{ rows: Array<Record<string, unknown>> }>('management', '/v1/admin/usage/summary', { query: { group_by: 'day', limit: 14 } }),
+      client.get<Array<Record<string, unknown>>>('management', '/v1/admin/budgets'),
+    ]);
+    const t = all.rows[0];
+    return {
+      state: 'ok', days: 30,
+      total: t ? { requests: num(t.requests), tokens: num(t.total_tokens), costUsd: num(t.cost_usd), errors: num(t.errors), zeroCost: num(t.zero_cost_requests) } : null,
+      byModel: models.rows.map(mapRow),
+      byDay: days.rows.map(mapRow).sort((a, b) => a.key.localeCompare(b.key)),
+      budgets: (Array.isArray(budgets) ? budgets : []).map((b) => ({
+        id: String(b.id), scope: String(b.scope_type), name: b.name == null ? null : String(b.name), capUsd: num(b.cap_usd), period: String(b.period), mode: String(b.enforcement_mode), active: b.is_active !== false,
+      })),
+    };
+  } catch (err) {
+    return { state: 'error', detail: err instanceof Error ? err.message : String(err), ...empty };
+  }
 }
 
 export function gatherLocal(project: Project, db: Database, home: string): Omit<DashboardData, 'gateway'> {
@@ -113,4 +159,14 @@ export function plainStatus(d: DashboardData): string {
     '',
     'Run `tokenistt --help` for commands. On a terminal, `tokenistt` opens the dashboard.',
   ].join('\n');
+}
+
+/** What the prompt does with plain text: look in the graph and in memory. Local only; nothing leaves the machine. */
+export function searchAll(db: Database, text: string): string[] {
+  const out: string[] = [];
+  if (readMetadata(db)) {
+    for (const n of GraphIndex.load(db).search(text, 8)) out.push(`${n.type.padEnd(10)} ${n.name}${n.path ? `  ${n.path}${n.startLine ? `:${n.startLine}` : ''}` : ''}`);
+  }
+  for (const m of searchMemories(db, text, 4)) out.push(`memory     ${m.content.replace(/\s+/g, ' ').slice(0, 120)}`);
+  return out;
 }

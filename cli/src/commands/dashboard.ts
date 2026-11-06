@@ -3,6 +3,7 @@
  * status and exits, so scripts and CI never get stuck in an interface.
  */
 import { homedir } from 'node:os';
+import { unicodeSupported } from '../tui/theme.js';
 import { motionAllowed, Progress } from '../core/progress.js';
 import { repoInfo } from '../project/git.js';
 import { openDatabase } from '../store/db.js';
@@ -23,7 +24,7 @@ export async function runDashboard(ctx: Context, showHelp: () => void): Promise<
   }
   const project = { repo, dir: projectDir(repo.root), config };
   const home = ctx.env.TOKENISTT_HOME ?? homedir();
-  const { gatherLocal, plainStatus, probeGateway } = await import('../tui/data.js');
+  const { fetchFinops, gatherLocal, plainStatus, probeGateway, searchAll } = await import('../tui/data.js');
   const interactive = !!process.stdin.isTTY && !!process.stdout.isTTY && !ctx.out.json;
   const motion = motionAllowed(ctx.env, process.stdout.isTTY);
   const progress = new Progress({ silent: ctx.out.json || ctx.out.quiet || !interactive, motion, color: ctx.out.color });
@@ -37,7 +38,8 @@ export async function runDashboard(ctx: Context, showHelp: () => void): Promise<
     const gateway = await probeGateway(ctx.config);
     progress.succeed(gateway.state);
     progress.stop();
-    const data = { ...local, gateway };
+    const initialFinops = gateway.state === 'connected' ? await fetchFinops(ctx.config) : undefined;
+    const data = { ...local, gateway, ...(initialFinops ? { finops: initialFinops } : {}) };
 
     if (!interactive) {
       ctx.out.result(data, () => ctx.out.line(plainStatus(data)));
@@ -55,7 +57,7 @@ export async function runDashboard(ctx: Context, showHelp: () => void): Promise<
       if (++ticks % 15 === 0) last = await probeGateway(ctx.config);
       return { ...gatherLocal(project, db, home), gateway: last };
     };
-    const app = render(createElement(App, { data, motion, reload }), { exitOnCtrlC: true });
+    const app = render(createElement(App, { data, motion, reload, search: (q: string) => searchAll(db, q), unicode: unicodeSupported(ctx.env) }), { exitOnCtrlC: true, incrementalRendering: true, maxFps: 20 });
     try {
       await app.waitUntilExit();
     } finally {
