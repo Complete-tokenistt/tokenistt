@@ -48,6 +48,7 @@
     "@types/node": "^22.13.0",
     "@types/picomatch": "^4.0.2",
     "@types/react": "^19.0.0",
+    "@xterm/headless": "6.0.0",
     "esbuild": "^0.28.2",
     "graphology": "0.26.0",
     "graphology-layout-forceatlas2": "0.10.1",

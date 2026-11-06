@@ -1,11 +1,26 @@
 # tokenistt CLI
 
-Command-line client for a self-hosted [Tokenistt](../README.md) gateway. It talks to the same gateway and
-database the dashboard uses, so numbers you see in the terminal are the numbers on the dashboard.
+Command-line tool for [Tokenistt](../README.md). It has two halves:
 
-> **Status: early.** This release covers authentication, connection management and diagnostics.
-> Usage/cost reports, attribution, providers, policies, `init` and offline sync are planned and listed under
-> [Roadmap](#roadmap). Nothing below documents a command that does not exist yet.
+- **Gateway client.** Talks to your self-hosted gateway, the same one the dashboard uses, so numbers in the terminal are the numbers on the dashboard: `login`, `connect`, `doctor`, `usage`, `cost`, `models`, `providers`, `policy`, `optimize`.
+- **Local developer intelligence.** Works inside a git repository with no gateway and no network: a codebase knowledge graph, coding-agent session recording, project memory, context for agents, change impact and search. Data lives in `.tokenistt/` in the repo.
+
+Use either half alone. Nothing leaves your machine unless you run `sync --enable`.
+
+> **Status: early (0.1.0).** Not published to npm; build from the repo. Claude Code integration has been run live; Codex and Antigravity are written from their docs and unverified. See [Roadmap](#roadmap).
+
+## How to use this README
+
+| I want to… | Go to |
+|---|---|
+| Install and try it | [Install](#install), [Quick start](#quick-start) |
+| Understand my codebase, find what a change affects | [Codebase graph](#codebase-graph), [Change impact](#change-impact), [Search](#search) |
+| Record and review coding-agent sessions and their cost | [Coding agents](#coding-agents) |
+| Give agents project knowledge | [Project memory](#project-memory), [Context for agents](#context-for-agents), [MCP](#mcp) |
+| See spend, set policies, get savings suggestions | [Commands](#commands) (`usage`, `cost`, `policy`, `optimize`) |
+| Log in, script it, use it in CI | [Credentials](#credentials), [Use in CI](#use-in-ci) |
+| Fix an error | [Troubleshooting](#troubleshooting), [Exit codes](#exit-codes) |
+| Find every command and flag | [Commands](#commands), or `tokenistt <command> --help` |
 
 ## Install
 
@@ -19,16 +34,167 @@ node cli/bin/tokenistt.js --help          # or: npm link -w cli   →  tokenistt
 
 Requires Node.js 22.13 or newer (the local database uses Node's built-in SQLite).
 
+### Use it on any of your projects
+
+Link the build once, then run it inside any Git repository:
+
+```bash
+npm install && npm run build -w cli && npm link -w cli      # once, from this repo; gives you `tokenistt`
+# no link? call it directly: node /path/to/tokenist-main/cli/bin/tokenistt.js <command>
+
+cd /path/to/your-project
+tokenistt init                  # creates .tokenistt/ in that repo (local SQLite, nothing leaves the machine)
+tokenistt map                   # builds the code knowledge graph
+tokenistt                       # opens the interactive app (see below)
+```
+
+Everything local (`init`, `map`, `search`, `impact`, `memory`, `context`, `sessions`, `graph`) works without a
+gateway. Gateway features (FinOps spend, usage, budgets) need `tokenistt login` against your own running gateway;
+without it the FinOps screen says no gateway is configured. Sync to the gateway is off unless you turn it on per
+repository. To record coding-agent sessions in a project, run `tokenistt agents connect claude-code` (Claude Code is
+the one verified against the real agent; Codex and Antigravity hooks are written from their docs).
+
+### The interactive app
+
+Bare `tokenistt` in a set-up repository, on a terminal, opens a persistent app. In pipes, CI or with `--json` it
+prints a plain status instead, so scripts never get stuck.
+
+![The Tokenistt app on its Home screen: project and agent status on the left, live activity on the right, and a prompt at the bottom](../docs/cli/images/tokenistt-app.png)
+
+The prompt at the bottom is always live. Type a question to search the graph and memory, a `/command` to move around, or any real command (`graph --open`, `map`, `doctor`, `usage`...) to run it in place and watch its output stream into Activity. `help` lists everything.
+
+| Screen | Shows |
+|---|---|
+| Home | Project and agent status, plus a live activity feed that narrates real changes (sessions starting, errors, new memories, gateway up or down) |
+| Agents | Connected agents and their sessions: state, tokens, estimated cost, files changed, tests |
+| Memory | What the project remembers; stale entries are marked `?` |
+| Graph | Node and relationship counts, largest areas, most depended-on symbols |
+| Nano | Placeholder. Not built yet; shows nothing measured |
+| FinOps | Tabs for **Overview**, **Models**, **Daily**, **Weekly** and **Sessions**: tokens and cost from your gateway's ledger (needs `tokenistt login`), and, separately, coding-agent usage recorded on this machine. Weeks start on Monday (UTC). Switch tabs with `[` and `]`, the arrow keys on an empty prompt, or a click |
+
+| Key | Action |
+|---|---|
+| Type + Enter | Plain text searches the graph and memory; text starting with `/` runs a command (`/agents`, `/finops`, `/search`, `/refresh`, `/clear`, `/help`, `/quit`) |
+| `Tab` / `Shift+Tab` | Next / previous screen (completes a command while typing `/…`) |
+| `Ctrl+K` | Command palette |
+| Up / Down, PgUp / PgDn, mouse wheel | Select or scroll. `Home` / `End` go to the oldest / newest |
+| Click | A tab switches screen, the prompt starts typing at that spot, a list row selects it |
+| `Ctrl+L` | Clear the activity feed |
+| `Ctrl+C` | Quit |
+
+The mouse is on while the app is open, so drag does not select text: hold `Shift` to select and copy. Turn the mouse off with `TOKENISTT_NO_MOUSE=1`.
+
+Windows: works in Windows Terminal, PowerShell and the VS Code terminal. Consoles that can't draw box characters get plain ASCII
+automatically; force it with `TOKENISTT_ASCII=1`. Costs shown for local agents are estimates (tokens times catalog
+prices), not your bill.
+
+### Costs
+
+A session's cost is its tokens times your model prices. There are no built-in prices. They come from:
+
+1. your gateway's catalog, saved to `.tokenistt/cache/prices.json` by `tokenistt models --refresh` (the app also refreshes it when it is older than a day and the gateway is connected); and
+2. your own `.tokenistt/prices.json`, which wins where both name a model. It is a map of model id to `{ "input": 3, "output": 15, "cachedInput": 0.3, "cacheWrite": 3.75 }` in USD per million tokens.
+
+A model is found by the id the vendor reports; a trailing date (`-20250929`) or a `provider/` prefix is dropped only to reach an id your table already has. Nothing is guessed. Where a model, or a cache price, is missing, that part is left out and said so: you see `~$4.20 known + 18,000 tokens unpriced` and which models need a price, never a total that hides the gap.
+
 ## Quick start
 
-Start the stack (`node scripts/setup.mjs && docker compose up -d`, see the root README), then:
+**A. Local only (no gateway needed).** Run inside any git repository:
+
+```bash
+tokenistt init                       # creates .tokenistt/ (git-ignored data) and the local database
+tokenistt map                        # build the codebase graph; re-runs only re-parse changed files
+tokenistt graph --open               # explore it in your browser
+tokenistt agents connect claude-code # record agent sessions (shows the change, asks first)
+tokenistt memory update              # build project memory from sessions, decisions, commits
+tokenistt context --task "Add rate limiting"   # what an agent should know for this task
+tokenistt impact src/auth/session.ts # what depends on this file
+tokenistt                            # on a terminal: the live dashboard
+```
+
+**B. With your gateway.** Start the stack (`node scripts/setup.mjs && docker compose up -d`, see the root README), then:
 
 ```bash
 tokenistt login            # prompts for the gateway URL and a credential
 tokenistt doctor           # checks the install, credentials and gateway; tells you how to fix anything red
 tokenistt connect          # discovers your organization, workspaces and projects
-tokenistt connection status
+tokenistt usage --by model --days 7
+tokenistt cost --by project
+tokenistt optimize         # rules-based savings suggestions, with evidence; changes nothing
+tokenistt sync --dry-run   # preview what local summaries would be sent (then --enable)
 ```
+
+Run `tokenistt <command> --help` for flags on any command.
+
+## Use it in any repository
+
+The CLI is installed once on your machine and then run from inside whichever repository you want to analyse. Nothing is added to the repository's dependencies.
+
+**1. Install once** (until it's on npm):
+
+```bash
+git clone <this repo> && cd tokenist-main
+npm install && npm run build -w cli
+npm link -w cli            # puts `tokenistt` on your PATH
+tokenistt --version
+```
+
+Without `npm link`, call `node /path/to/tokenist-main/cli/bin/tokenistt.js <command>` instead. Needs Node.js 22.13+.
+
+**2. Set up the target repository.** It must be a git repository (files come from `git ls-files`, so `.gitignore` is respected).
+
+```bash
+cd /path/to/your-project
+tokenistt init             # creates .tokenistt/ and the local database; safe to re-run
+tokenistt doctor           # confirms the setup
+```
+
+`.tokenistt/` holds the graph, memory and sessions. Add it to `.gitignore` if `init` hasn't already; session data in particular shouldn't be committed.
+
+**3. Analyse the codebase.**
+
+```bash
+tokenistt map --stats      # build the graph; --stats shows file counts and unresolved calls
+tokenistt graph            # summary; add --open for the interactive viewer
+tokenistt analyze          # circular imports, coupling, boundaries, entry points, isolated files, duplicates
+tokenistt analyze --trace "GET /users"    # follow an API route down to its tables
+tokenistt search "where do we validate tokens"
+```
+
+**4. Understand a change before you make it.**
+
+```bash
+tokenistt impact src/auth/session.ts      # dependents, API routes, tables, tests to run, related decisions
+tokenistt impact --staged                 # same, for what you're about to commit
+tokenistt changes --compare main          # what differs from main and what deserves a closer look
+```
+
+**5. Observe your coding agents.**
+
+```bash
+tokenistt agents                          # which agents are installed and connected
+tokenistt agents connect claude-code      # adds hooks (shows the diff, asks, backs up the file)
+# ...work with the agent as usual...
+tokenistt sessions                        # recent sessions: files touched, tests run, tokens, estimated cost
+tokenistt sessions inspect <id>
+tokenistt watch                           # live view while a session runs
+```
+
+**6. Build memory and feed it back to agents.**
+
+```bash
+tokenistt memory update                   # from sessions, ADRs, commits, the graph, README
+tokenistt memory add "Retry logic in billing must stay idempotent"
+tokenistt context --task "Add rate limiting" --max-tokens 4000
+tokenistt context inject                  # connected agents receive it at session start
+claude mcp add tokenistt -- tokenistt mcp # or expose it to any MCP-capable agent
+```
+
+**7. Keep it fresh.** `tokenistt map --watch` re-parses as files change, or add `tokenistt map --incremental` to a git hook or CI step. Run `memory update` and `context inject` again after significant work.
+
+**8. Optionally connect a gateway** for spend, policies and the dashboard: `tokenistt login`, then `usage`, `cost`, `optimize`, `policy`, and `sync --enable` to send summaries to the dashboard. See [Credentials](#credentials) and [Sync](#sync).
+
+**What "everything" covers, and what it doesn't.** The graph is built from syntax, not a type checker, so dynamic dispatch and framework magic can be missed, and inferred links are marked. Language support differs: TypeScript and Python are tested on real code, the others on fixtures only (see the table in [Codebase graph](#codebase-graph)). Impact output shows what is connected to a change, not proof of what will break.
 
 ## Codebase graph
 
@@ -162,6 +328,18 @@ Semantic search is optional and off by default. To turn it on, create `intellige
 
 Any OpenAI-compatible endpoint works, including a local Ollama. Only symbol names and file paths are sent, never source code. Those can still be sensitive, so check before using a remote endpoint. This setting is only read from your own config folder, so a cloned repository can't redirect it.
 
+## Sync
+
+Everything above works with no gateway. `tokenistt sync --enable` sends summaries to your own gateway for the dashboard, and `--dry-run` prints exactly what would go.
+
+**Sent:** repository name, branch and commit; graph counts and module names; session summaries with repo-relative changed files, tokens and estimated cost; memory entries with their sources. **Never sent:** source code, prompts, transcripts or absolute paths. The gateway rejects those fields outright.
+
+Memory content can include text from your repository, such as a README summary or a decision, and anyone in your organization with dashboard access can read it.
+
+If the gateway can't be reached, nothing is lost: the next run covers the gap.
+
+Agent usage is kept separate from spend and doesn't count toward budgets. For usage billed per token, `--ledger` also records it in the ledger. Don't use it for a subscription, where it would appear as spend that didn't happen. A session that ran through this gateway (`ANTHROPIC_BASE_URL` or `OPENAI_BASE_URL` pointing at it) is skipped, so it isn't counted twice.
+
 ## Credentials
 
 The gateway has three kinds of credential. Use whichever matches what you need to do:
@@ -218,7 +396,13 @@ endpoint). Dashboard tokens expire; `tokenistt auth status` shows when, and `doc
 | `tokenistt search <query>` | Find related code, memories and sessions |
 | `tokenistt analyze` | Circular imports, coupling, boundaries, entry points, isolated files, possible duplicates. `--trace "GET /users"` follows a route to its tables |
 | `tokenistt embeddings` | Optional: build vectors for semantic search |
-| `tokenistt` | On a terminal, the live dashboard: overview, agents, sessions, codebase, graph, memory, costs, policies, settings. Elsewhere, a plain status |
+| `tokenistt` | On a terminal, the interactive app: Home (overview and live activity), Agents, Memory, Graph, Nano (placeholder) and FinOps (gateway spend, models, budgets), with a prompt at the bottom. `Tab` switches screen, `Ctrl+K` opens the command palette, `/` starts a command, plain text searches the graph and memory, `Ctrl+C` quits. Elsewhere (pipes, CI, `--json`), a plain status. `TOKENISTT_ASCII=1` forces plain-ASCII drawing |
+| `tokenistt sync` | Send summaries to your gateway. Off until `--enable`. `--dry-run`, `--ledger` |
+| `tokenistt usage`, `tokenistt cost` | From your gateway's ledger, `--by` model, user, customer, project, feature and more. `--days`, `--since`, `--csv` |
+| `tokenistt models` | The catalog. `--refresh` saves prices here for session cost estimates |
+| `tokenistt providers` | Provider keys, write-only. `add` (key on stdin), `remove` |
+| `tokenistt policy` | Policies. `test` is a dry run that exits 5 if a request would be stopped. `apply <file>` creates from YAML |
+| `tokenistt optimize` | Rules-based suggestions from real usage, with evidence and trade-offs. It never changes anything |
 | `tokenistt login` | Authenticate and store credentials (see above) |
 | `tokenistt logout` | Remove stored credentials (environment variables are untouched and reported) |
 | `tokenistt auth status` | Which credentials are in effect, masked, with source and expiry. Local, no network |
@@ -248,7 +432,7 @@ endpoint). Dashboard tokens expire; `tokenistt auth status` shows when, and `doc
 | `2` | usage error (bad flags, missing input in a non-interactive session) |
 | `3` | authentication failed, expired, or no credentials |
 | `4` | gateway unreachable (offline); safe to retry later |
-| `5` | blocked by a policy (reserved for upcoming commands) |
+| `5` | blocked by a policy (`tokenistt policy test`) |
 
 Network calls are retried with exponential backoff and jitter on connection failures and `429/502/503/504`
 (honouring `Retry-After`); only requests that are safe to repeat are retried.
@@ -278,12 +462,13 @@ tell "retry later" from "fix the credentials" (`3`).
 
 ## Roadmap
 
-Planned in this order (see [`docs/cli/PLAN.md`](../docs/cli/PLAN.md)); none of these exist yet:
+Shipped: auth and diagnostics, `usage`, `cost`, `models`, `providers`, `policy`, `optimize`, `sync`, and the local intelligence engine. Plans: [`docs/cli/PLAN.md`](../docs/cli/PLAN.md), [`docs/cli/INTELLIGENCE_PLAN.md`](../docs/cli/INTELLIGENCE_PLAN.md).
 
-1. `usage`, `cost`, `attribution`, `models`, `providers` — reads from the gateway's `/v1/admin/usage/summary` (already shipped in the gateway).
-2. Local SQLite queue and `sync` — records usage events locally and sends them to `/v1/ingest/events` (already shipped).
-3. `policy` (YAML apply/test, using the gateway's dry-run endpoint) and `optimize` (rule-based findings with evidence).
-4. npm publishing workflow.
+Still to do:
+
+1. `attribution` command.
+2. Verify the Codex and Antigravity hooks against the real agents.
+3. npm publishing workflow.
 
 Not planned for now: browser/device login and keychain storage (need dashboard + gateway work), a dedicated Mistral
 adapter (use the OpenAI-compatible provider), currency conversion (USD only).

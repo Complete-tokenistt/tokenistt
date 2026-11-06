@@ -10,6 +10,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 export interface Recorded {
   method: string;
   path: string;
+  search: string;
   headers: http.IncomingHttpHeaders;
   body: string;
 }
@@ -23,7 +24,7 @@ export async function fakeGateway(routes: Record<string, Handler | { status?: nu
     req.on('data', (c) => chunks.push(c));
     req.on('end', () => {
       const url = new URL(req.url ?? '/', 'http://x');
-      const rec: Recorded = { method: req.method ?? 'GET', path: url.pathname, headers: req.headers, body: Buffer.concat(chunks).toString() };
+      const rec: Recorded = { method: req.method ?? 'GET', path: url.pathname, search: url.search, headers: req.headers, body: Buffer.concat(chunks).toString() };
       requests.push(rec);
       const route = routes[`${rec.method} ${rec.path}`];
       const out = typeof route === 'function' ? route(rec) : route;

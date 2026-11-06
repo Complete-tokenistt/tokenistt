@@ -148,7 +148,7 @@ describe('cost', () => {
       assert.equal(r.source, 'unknown');
       assert.ok(r.note);
     }
-    assert.match(priceUsage(cached, { m: { input: 3, output: 15 } }).note ?? '', /cache pricing/);
+    assert.match(priceUsage(cached, { m: { input: 3, output: 15 } }).note ?? '', /cache reads/);
   });
   it('renders unknown as a word, and an estimate as an estimate', () => {
     assert.equal(formatCost({ costUsd: null, source: 'unknown' }), 'unknown');
@@ -261,7 +261,7 @@ describe('tokenistt sessions and watch (end to end)', () => {
     const inspected = runCli(t.dir, ['sessions', 'inspect', 'aaaa']);
     assert.equal(inspected.code, 0, inspected.err);
     assert.match(inspected.out, /385 over 2 requests/);
-    assert.match(inspected.out, /no price catalog/);
+    assert.match(inspected.out, /no price table/);
     assert.match(inspected.out, /\+ new\.ts/);
     assert.match(inspected.out, /1 passed, 1 failed/);
     const compared = runCli(t.dir, ['sessions', 'compare', 'aaaa', 'bbbb']);

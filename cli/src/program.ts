@@ -13,8 +13,10 @@ import { registerMap } from './commands/map.js';
 import { registerContext } from './commands/context.js';
 import { registerMcp } from './commands/mcp.js';
 import { registerMemory } from './commands/memory.js';
+import { registerReports } from './commands/reports.js';
 import { registerSearch } from './commands/search.js';
 import { registerSessions } from './commands/sessions.js';
+import { registerSync } from './commands/sync.js';
 import { registerWatch } from './commands/watch.js';
 
 const require = createRequire(import.meta.url);
@@ -58,6 +60,8 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
   registerMcp(program, getCtx);
   registerImpact(program, getCtx);
   registerSearch(program, getCtx);
+  registerSync(program, getCtx);
+  registerReports(program, getCtx);
   return program;
 }
 
