@@ -122,6 +122,8 @@ export class AzureAdapter extends BaseProviderAdapter {
         stopReason,
         inputTokens: data.usage?.prompt_tokens || 0,
         outputTokens: data.usage?.completion_tokens || 0,
+        cacheReadTokens: data.usage?.prompt_tokens_details?.cached_tokens || 0,
+        reasoningTokens: data.usage?.completion_tokens_details?.reasoning_tokens || 0,
         modelId: data.model || this.deploymentName,
         rawResponse: data,
       };
