@@ -7,6 +7,7 @@ import { homedir } from 'node:os';
 import { cleanLine } from '../tui/format.js';
 import { MOUSE_OFF, MOUSE_ON } from '../tui/mouse.js';
 import { unicodeSupported } from '../tui/theme.js';
+import { confirm } from '../core/prompt.js';
 import { motionAllowed, Progress } from '../core/progress.js';
 import { repoInfo } from '../project/git.js';
 import { openDatabase } from '../store/db.js';
@@ -47,6 +48,15 @@ export async function runDashboard(ctx: Context, showHelp: () => void): Promise<
   const repo = repoInfo(process.cwd());
   const config = repo ? readProjectConfig(repo.root) : undefined;
   if (!repo || !config) {
+    // A person at a terminal who has not set anything up gets the guided setup instead of a wall of help.
+    if (process.stdin.isTTY && process.stderr.isTTY && !ctx.out.json && !ctx.out.quiet) {
+      ctx.out.info(repo ? 'This repository is not set up yet.' : 'Welcome to Tokenistt.');
+      if (await confirm('Run the guided setup now?')) {
+        const { runSetup } = await import('./setup.js');
+        await runSetup(ctx, {});
+        return;
+      }
+    }
     showHelp();
     ctx.out.info('');
     ctx.out.info(repo ? 'This repository is not set up yet. Run `tokenistt init`.' : 'Run this inside a Git repository to see its dashboard.');

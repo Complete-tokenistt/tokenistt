@@ -12,16 +12,16 @@ import type { Context } from '../context.js';
 
 type GetCtx = (cmd: Command) => Context;
 
-const homeOf = (env: NodeJS.ProcessEnv): string => env.TOKENISTT_HOME ?? homedir();
+export const homeOf = (env: NodeJS.ProcessEnv): string => env.TOKENISTT_HOME ?? homedir();
 
-function targetFor(adapter: AgentAdapter, root: string, home: string, user: boolean | undefined): HookTarget {
+export function targetFor(adapter: AgentAdapter, root: string, home: string, user: boolean | undefined): HookTarget {
   const scope = user ? 'user' : 'project';
   const target = adapter.hookTargets(root, home).find((t) => t.scope === scope);
   if (!target) throw new UsageError(`${adapter.displayName} has no ${scope} hook configuration.`);
   return target;
 }
 
-async function runChange(ctx: Context, adapter: AgentAdapter, target: HookTarget, plan: { before: string; after: string; changed: boolean }, verb: 'connect' | 'disconnect', o: { yes?: boolean; dryRun?: boolean }, root: string): Promise<boolean> {
+export async function runChange(ctx: Context, adapter: AgentAdapter, target: HookTarget, plan: { before: string; after: string; changed: boolean }, verb: 'connect' | 'disconnect', o: { yes?: boolean; dryRun?: boolean }, root: string): Promise<boolean> {
   if (!plan.changed) {
     ctx.out.result({ agent: adapter.id, file: target.file, changed: false }, () => ctx.out.info(verb === 'connect' ? `${adapter.displayName} is already connected.` : `${adapter.displayName} is not connected in ${target.file}.`));
     return false;

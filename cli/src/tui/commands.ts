@@ -20,7 +20,7 @@ export const COMMANDS: CommandSpec[] = [
 ];
 
 /** Every real CLI command. A test keeps this in step with the program, so typing one at the prompt runs it. */
-export const CLI_COMMANDS = ['login', 'logout', 'auth', 'connect', 'disconnect', 'connection', 'doctor', 'init', 'map', 'graph', 'agents', 'sessions', 'watch', 'memory', 'context', 'mcp', 'impact', 'changes', 'search', 'embeddings', 'analyze', 'sync', 'usage', 'cost', 'models', 'providers', 'policy', 'optimize'];
+export const CLI_COMMANDS = ['setup', 'login', 'logout', 'auth', 'connect', 'disconnect', 'connection', 'doctor', 'init', 'map', 'graph', 'agents', 'sessions', 'watch', 'memory', 'context', 'mcp', 'impact', 'changes', 'search', 'embeddings', 'analyze', 'sync', 'usage', 'cost', 'models', 'providers', 'policy', 'optimize'];
 export const CLI_HELP: Array<[string, string]> = [
   ['init', 'set up this repository (creates .tokenistt/)'], ['map', 'build the codebase knowledge graph'], ['graph --open', 'explore the graph in your browser'],
   ['search <text>', 'find symbols and files'], ['impact <target>', 'what a change could affect'], ['changes', 'what changed and what it touches'],
@@ -30,7 +30,7 @@ export const CLI_HELP: Array<[string, string]> = [
   ['connect', 'link to your gateway'], ['auth', 'credentials'], ['login', 'sign in (needs its own terminal)'], ['watch', 'live sessions (needs its own terminal)'], ['mcp', 'MCP server (needs its own terminal)'],
 ];
 /** Need a real terminal of their own (prompts, or they never exit), so the app can't host them. */
-export const NEEDS_TERMINAL = new Set(['login', 'watch', 'mcp']);
+export const NEEDS_TERMINAL = new Set(['login', 'setup', 'watch', 'mcp']);
 const GLOBAL_OPTIONS = ['--help', '--version', '--json', '--quiet', '--verbose', '--no-color', '--api-url'];
 
 export function distance(a: string, b: string): number {
