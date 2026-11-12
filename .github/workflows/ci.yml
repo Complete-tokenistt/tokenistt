@@ -118,3 +118,14 @@ jobs:
           push: false
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  compose-smoke:
+    # Boots the real docker-compose.yml and checks the self-hosting defaults (ports, metrics lock,
+    # owner bootstrap, health under a database outage, concurrent migrations).
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 20 }
+      - run: node scripts/smoke-compose.mjs
