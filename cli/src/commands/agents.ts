@@ -87,6 +87,7 @@ export function registerAgents(program: Command, getCtx: GetCtx): void {
       const target = targetFor(adapter, project.repo.root, homeOf(ctx.env), o.user);
       const changed = await runChange(ctx, adapter, target, planConnect(adapter, target, hookCommand(adapter.id)), 'connect', o, project.repo.root);
       if (changed && adapter.afterConnect) ctx.out.info(adapter.afterConnect);
+      if (changed) ctx.out.info('Start your agent as usual, then see it live with `tokenistt watch` (or `tokenistt sessions` afterwards).');
     });
 
   agents

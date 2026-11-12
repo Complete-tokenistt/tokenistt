@@ -55,6 +55,7 @@ export function registerConnect(program: Command, getCtx: GetCtx): void {
 
   program
     .command('doctor')
+    .addHelpText('after', '\nWorks without a gateway: gateway checks are skipped in local-only mode.\nExample:\n  tokenistt doctor --json')
     .description('Check the installation, credentials, gateway and configuration')
     .action(async (_o: unknown, cmd: Command) => {
       const ctx = getCtx(cmd);
