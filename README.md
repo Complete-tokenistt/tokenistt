@@ -39,7 +39,7 @@ docker compose --profile demo up seed     # optional: load clearly-labelled synt
 
 | | URL | |
 |---|---|---|
-| 📊 **Dashboard** | http://localhost:3001 | opens straight in — **no login** by default |
+| 📊 **Dashboard** | http://localhost:3001 | first visit: create the owner account (setup token = `ADMIN_SECRET` from `.env`) |
 | 🔌 **Gateway** (OpenAI-compatible) | http://localhost:3000/v1 | point your tools here |
 | 📘 **API docs** | http://localhost:3000/v1/openapi.json | OpenAPI 3.1 |
 
@@ -47,11 +47,12 @@ Open the dashboard → **Get started**: it creates an API key, sends a real requ
 `mock:` provider is on by default, so everything works **without any provider keys**. Add `OPENAI_API_KEY` /
 `ANTHROPIC_API_KEY` to `.env` (or store per-organization keys in **Providers & Keys**) to send real traffic.
 
-> **About "no login".** `AUTH_MODE=open` (the default) makes everyone who can reach the dashboard the owner of a local
-> workspace. That is right for trying it on your machine. Set `AUTH_MODE=jwt` to require sign-in, and put your own
-> auth/HTTPS proxy in front before exposing it beyond localhost.
+> **Auth and network defaults.** `AUTH_MODE=jwt` (the default) requires sign-in; the first visit creates the owner
+> account. The gateway and dashboard listen on `127.0.0.1` only, and Postgres and Redis are not published. `AUTH_MODE=open`
+> (no login, everyone is the owner) exists for throwaway local installs. To serve other machines, use the TLS profile and
+> read [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) (TLS, backups, upgrades, retention).
 
-Ports are configurable with `GATEWAY_PORT`, `DASHBOARD_PORT`, `POSTGRES_PORT`, `REDIS_PORT` if something local already uses them.
+Ports are configurable with `GATEWAY_PORT` and `DASHBOARD_PORT` if something local already uses them. The demo seed (`--profile demo`) needs an organization, so create the owner account first.
 
 **Next:** the **[User guide](docs/GUIDE.md)** walks through real traffic, budgets, policies and approvals, routing, provider keys,
 attribution, MCP, hardening for non-local use, and troubleshooting.
@@ -297,7 +298,7 @@ logging never blocks the request path · provider differences live in adapters.
 
 | Variable | Needed | Purpose |
 |---|---|---|
-| `AUTH_MODE` | – | `open` (default, no login) or `jwt` (sign-in required) |
+| `AUTH_MODE` | – | `jwt` (default, sign-in required) or `open` (no login, throwaway local installs only) |
 | `DATABASE_URL` | yes | Postgres |
 | `REDIS_URL` | recommended | Shared rate limits and atomic budget reservation. `REDIS_REQUIRED=true` refuses to start without it |
 | `ADMIN_SECRET` · `MASTER_KEY` · `ENCRYPTION_KEY` · `JWT_SECRET` | yes | Generated for you by `node scripts/setup.mjs` |

@@ -7,6 +7,8 @@ import {
   ensurePartitionForDate,
   startPartitionMaintenanceScheduler,
   stopPartitionMaintenanceScheduler,
+  selectExpiredPartitions,
+  dropExpiredPartitions,
 } from '../services/partitionManager.js';
 import { setMockPool } from '../db/pool.js';
 
@@ -104,3 +106,38 @@ describe('Partition Manager Service', () => {
   });
 });
 
+describe('Partition retention', () => {
+  const now = new Date(Date.UTC(2026, 10, 12)); // 2026-11-12
+  const names = ['transactions_y2025m09', 'transactions_y2025m10', 'transactions_y2025m11', 'transactions_y2026m10', 'transactions_default', 'transactions_y2026m11'];
+
+  it('keeps everything when retention is unset or below 1', () => {
+    assert.deepEqual(selectExpiredPartitions(names, 0, now), []);
+    assert.deepEqual(selectExpiredPartitions(names, NaN, now), []);
+  });
+
+  it('expires only months that ended before the cutoff and never the default partition', () => {
+    // 12 months retention at 2026-11-12: cutoff 2025-11-01. Oct 2025 ends 2025-11-01 -> expired; Nov 2025 is kept.
+    assert.deepEqual(selectExpiredPartitions(names, 12, now), ['transactions_y2025m09', 'transactions_y2025m10']);
+  });
+
+  it('detaches then drops each expired partition, and does nothing without DATABASE_URL', async () => {
+    const executed: string[] = [];
+    setMockPool({
+      query: async (text: string) => {
+        executed.push(text);
+        if (text.includes('pg_inherits')) return { rows: names.map((name) => ({ name })) };
+        return { rows: [] };
+      },
+    });
+    const orig = process.env.DATABASE_URL;
+    delete process.env.DATABASE_URL;
+    assert.deepEqual(await dropExpiredPartitions(12, now), []);
+    process.env.DATABASE_URL = 'postgres://test';
+    const dropped = await dropExpiredPartitions(12, now);
+    assert.deepEqual(dropped, ['transactions_y2025m09', 'transactions_y2025m10']);
+    assert.ok(executed.some((q) => q === 'ALTER TABLE transactions DETACH PARTITION "transactions_y2025m09"'));
+    assert.ok(executed.some((q) => q === 'DROP TABLE "transactions_y2025m10"'));
+    if (orig) process.env.DATABASE_URL = orig; else delete process.env.DATABASE_URL;
+    setMockPool(null);
+  });
+});
