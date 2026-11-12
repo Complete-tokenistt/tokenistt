@@ -22,7 +22,7 @@ describe('Phase 2 — FinOps Accuracy & Dynamic Pricing Catalog', () => {
     assert.equal(sonnet.cachedInput, 0.30);
   });
 
-  test('resolves versioned model strings using prefix matching', async () => {
+  test('resolves dated model snapshots to their own family', async () => {
     const versioned = await resolvePricingTierDynamic('openai', 'gpt-4o-2024-08-06');
     assert.ok(versioned);
     assert.equal(versioned.input, 2.50);
@@ -43,10 +43,11 @@ describe('Phase 2 — FinOps Accuracy & Dynamic Pricing Catalog', () => {
 
     assert.equal(result.isKnown, true);
     assert.equal(result.costStatus, 'ok');
-    assert.equal(result.inputCost, 2.50);
+    // OpenAI-style usage: the 500k cached tokens are part of the 1M prompt tokens.
+    assert.equal(result.inputCost, 1.25);        // 0.5M uncached * $2.50/M
     assert.equal(result.cachedInputCost, 0.625); // 0.5M * $1.25/M
     assert.equal(result.outputCost, 1.00);       // 0.1M * $10.00/M
-    assert.equal(result.cost, 4.125);
+    assert.equal(result.cost, 2.875);
   });
 
   test('marks unknown models as COST_UNAVAILABLE per non-negotiable rule #1', () => {
