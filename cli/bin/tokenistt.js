@@ -6,4 +6,5 @@ if (major < 22 || (major === 22 && minor < 13)) {
 }
 // Hooks run on every agent event, so they skip argument parsing and everything else.
 if (process.argv[2] === 'hook') import('../dist/agents/hook-main.js').then((m) => m.runHook(process.argv));
+else if (process.argv[2] === 'statusline') import('../dist/agents/statusline.js').then((m) => m.runStatusLine());
 else import('../dist/main.js').then((m) => m.run(process.argv));

@@ -164,7 +164,19 @@ export function App({ data, motion, initialScreen = 'Home', initialFinopsTab = 0
       case 'quit': exit(); break;
       case 'clear': queue.current = []; setFeed([]); setCursor(0); break;
       case 'help': setHelpOpen(true); setCursor(0); break;
-      case 'terminal': push([{ text: `${a.command} needs a terminal of its own. Quit (Ctrl+C) and run: tokenistt ${a.line}`, tone: 'warn' }]); go('Home'); break;
+      case 'terminal':
+        if (a.command === 'watch') {
+          // The Agents screen is the live view, refreshed every couple of seconds, so there is nothing to leave for.
+          push([{ text: 'Live sessions are on this Agents screen and update on their own.', tone: 'accent' }]);
+          go('Agents');
+        } else if (a.command === 'run') {
+          push([{ text: `Your agent needs the whole terminal. Quit (Ctrl+C) and run: tokenistt ${a.line}. Its live cost shows in its status bar, and this dashboard shows the rest when you come back.`, tone: 'warn' }]);
+          go('Home');
+        } else {
+          push([{ text: `${a.command} needs a terminal of its own. Quit (Ctrl+C) and run: tokenistt ${a.line}`, tone: 'warn' }]);
+          go('Home');
+        }
+        break;
       case 'suggest': push([{ text: `"${a.typed}" is not a command. Did you mean "${a.suggestion}"? It is in the prompt, press Enter to run it.`, tone: 'warn' }]); setInput(a.suggestion); setPos(a.suggestion.length); go('Home'); break;
       case 'cli': {
         go('Home');

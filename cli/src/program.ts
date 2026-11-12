@@ -15,6 +15,7 @@ import { registerMcp } from './commands/mcp.js';
 import { registerMemory } from './commands/memory.js';
 import { registerReports } from './commands/reports.js';
 import { registerSearch } from './commands/search.js';
+import { registerRun } from './commands/run.js';
 import { registerSessions } from './commands/sessions.js';
 import { registerSetup } from './commands/setup.js';
 import { registerSync } from './commands/sync.js';
@@ -46,12 +47,13 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
         'New here? Run `tokenistt setup` for a guided walk-through, or by hand, in a Git repository:',
         '  tokenistt init                       set up this repo (no network needed)',
         '  tokenistt agents connect claude-code track your coding agent (codex, antigravity too)',
-        '  tokenistt watch                      follow agent sessions live',
+        '  tokenistt run claude                 start your agent here, tracked, with a live status line',
+        '  tokenistt watch                      follow agent sessions live (needs its own pane)',
         '  tokenistt doctor                     check that everything is wired up',
         '',
         'Groups:',
         '  Understand code   map, graph, search, analyze, impact, changes, context, memory',
-        '  Watch agents      agents, sessions, watch, mcp',
+        '  Watch agents      run, agents, sessions, watch, mcp',
         '  Gateway and cost  login, logout, auth, connect, usage, cost, models, providers, policy, optimize, sync',
         '',
         'Everything except the gateway group works offline.',
@@ -75,6 +77,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
   registerAgents(program, getCtx);
   registerSessions(program, getCtx);
   registerWatch(program, getCtx);
+  registerRun(program, getCtx);
   registerMemory(program, getCtx);
   registerContext(program, getCtx);
   registerMcp(program, getCtx);
