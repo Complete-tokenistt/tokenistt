@@ -32,22 +32,24 @@ export const PRICING: Record<string, PricingTier> = {
   'openai:gpt-3.5-turbo': { input: 0.50, output: 1.50 },
   'openai:gpt-3.5-turbo-16k': { input: 1.00, output: 2.00 },
   
-  // Anthropic Models
-  'anthropic:claude-3-5-sonnet': { input: 3.00, output: 15.00, cachedInput: 0.30 },
-  'anthropic:claude-3-5-sonnet-20241022': { input: 3.00, output: 15.00, cachedInput: 0.30 },
-  'anthropic:claude-3-5-haiku': { input: 0.80, output: 4.00, cachedInput: 0.08 },
-  'anthropic:claude-3-5-haiku-20241022': { input: 0.80, output: 4.00, cachedInput: 0.08 },
-  'anthropic:claude-3-opus': { input: 15.00, output: 75.00 },
-  'anthropic:claude-3-opus-20240229': { input: 15.00, output: 75.00 },
+  // Anthropic Models. Prompt caching (per Anthropic's published rules): cache reads bill at 0.1x the input
+  // price and 5-minute cache writes at 1.25x. (1-hour cache writes bill at 2x and are not modelled here.)
+  'anthropic:claude-3-5-sonnet': { input: 3.00, output: 15.00, cachedInput: 0.30, cacheWrite: 3.75 },
+  'anthropic:claude-3-5-sonnet-20241022': { input: 3.00, output: 15.00, cachedInput: 0.30, cacheWrite: 3.75 },
+  'anthropic:claude-3-5-haiku': { input: 0.80, output: 4.00, cachedInput: 0.08, cacheWrite: 1.00 },
+  'anthropic:claude-3-5-haiku-20241022': { input: 0.80, output: 4.00, cachedInput: 0.08, cacheWrite: 1.00 },
+  'anthropic:claude-3-opus': { input: 15.00, output: 75.00, cachedInput: 1.50, cacheWrite: 18.75 },
+  'anthropic:claude-3-opus-20240229': { input: 15.00, output: 75.00, cachedInput: 1.50, cacheWrite: 18.75 },
   'anthropic:claude-3-sonnet': { input: 3.00, output: 15.00 },
   'anthropic:claude-3-sonnet-20240229': { input: 3.00, output: 15.00 },
-  'anthropic:claude-3-haiku': { input: 0.25, output: 1.25 },
-  'anthropic:claude-3-haiku-20240307': { input: 0.25, output: 1.25 },
+  'anthropic:claude-3-haiku': { input: 0.25, output: 1.25, cachedInput: 0.03, cacheWrite: 0.30 },
+  'anthropic:claude-3-haiku-20240307': { input: 0.25, output: 1.25, cachedInput: 0.03, cacheWrite: 0.30 },
   'anthropic:claude-2.1': { input: 8.00, output: 24.00 },
   'anthropic:claude-2.0': { input: 8.00, output: 24.00 },
   'anthropic:claude-instant': { input: 0.80, output: 2.40 },
   
-  // AWS Bedrock Models (base pricing, AWS markup added separately)
+  // AWS Bedrock Models (on-demand list prices; Bedrock charges the same per-token rates as the model
+  // vendor for these models, so no extra markup is applied)
   'bedrock:claude-3-5-sonnet': { input: 3.00, output: 15.00 },
   'bedrock:claude-3-sonnet': { input: 3.00, output: 15.00 },
   'bedrock:claude-3-haiku': { input: 0.25, output: 1.25 },
@@ -72,12 +74,6 @@ export const PRICING: Record<string, PricingTier> = {
   'azure:gpt-35-turbo-16k': { input: 1.00, output: 2.00 },
 };
 
-// AWS Bedrock additional costs (EC2/Bedrock API costs per token)
-const BEDROCK_AWS_MARKUP = {
-  input: 0.000008,  // per token
-  output: 0.000024, // per token
-};
-
 export interface CostCalculationResult {
   cost: number;
   inputCost: number;
@@ -90,36 +86,54 @@ export interface CostCalculationResult {
 }
 
 /**
- * Resolves pricing tier with direct lookup and intelligent prefix/family matching.
+ * Candidate catalog model names for a requested model, most specific first: the name itself, then the name
+ * with a trailing snapshot suffix removed (-YYYY-MM-DD, -YYYYMMDD, -latest). We deliberately do NOT match
+ * by prefix: gpt-4o-mini-2024-07-18 must price as gpt-4o-mini, never as gpt-4o, and gpt-4.1 must not
+ * borrow the gpt-4 price. Anything we cannot place exactly is COST_UNAVAILABLE.
+ */
+export function modelNameCandidates(model: string): string[] {
+  const out: string[] = [];
+  let cur = model.toLowerCase();
+  for (let i = 0; i < 3; i++) {
+    out.push(cur);
+    const next = cur.replace(/-(\d{4}-\d{2}-\d{2}|\d{8}|latest)$/, '');
+    if (next === cur) break;
+    cur = next;
+  }
+  return out;
+}
+
+/** Strips a leading "provider:" from a model string. */
+export function stripProviderPrefix(provider: string, model: string): string {
+  const p = provider.toLowerCase();
+  const m = model.toLowerCase();
+  return m.startsWith(`${p}:`) ? m.slice(p.length + 1) : m;
+}
+
+/**
+ * Resolves a pricing tier: exact match, then exact match after removing a snapshot-date suffix.
  */
 export function resolvePricing(provider: string, model: string): PricingTier | null {
   const normProvider = provider.toLowerCase();
-  let normModel = model.toLowerCase();
 
   // Self-hosted models carry no per-token charge.
   if (normProvider === 'ollama') return { input: 0, output: 0 };
 
-  // Strip provider prefix if passed in model (e.g. "openai:gpt-4o")
-  if (normModel.startsWith(`${normProvider}:`)) {
-    normModel = normModel.slice(normProvider.length + 1);
+  for (const candidate of modelNameCandidates(stripProviderPrefix(provider, model))) {
+    const tier = PRICING[`${normProvider}:${candidate}`];
+    if (tier) return tier;
   }
-
-  // 1. Exact match
-  const directKey = `${normProvider}:${normModel}`;
-  if (PRICING[directKey]) {
-    return PRICING[directKey];
-  }
-
-  // 2. Prefix / Versioned model matching
-  const candidates = Object.keys(PRICING).filter(k => k.startsWith(`${normProvider}:`));
-  for (const candidate of candidates) {
-    const candidateModel = candidate.slice(normProvider.length + 1);
-    if (normModel.startsWith(candidateModel) || candidateModel.startsWith(normModel)) {
-      return PRICING[candidate];
-    }
-  }
-
   return null;
+}
+
+/**
+ * Providers whose reported prompt/input token count already INCLUDES cached tokens (OpenAI-style usage:
+ * prompt_tokens contains prompt_tokens_details.cached_tokens). Anthropic and Bedrock report cache reads
+ * and cache writes separately from input_tokens, so nothing is subtracted for them.
+ */
+export function inputIncludesCachedTokens(provider: string): boolean {
+  const p = provider.toLowerCase();
+  return p !== 'anthropic' && p !== 'bedrock';
 }
 
 export function calculateCostWithStatus(
@@ -150,11 +164,15 @@ export function calculateCostWithStatus(
     };
   }
 
-  const inputCost = (inputTokens / 1_000_000) * pricing.input;
+  // OpenAI-style usage counts cached tokens inside the input total: bill only the uncached remainder at
+  // the input rate, and the cached part at the cached rate (or the full input rate when the catalog has no
+  // cached price, which is exactly right when no discount is published).
+  const uncachedInput = inputIncludesCachedTokens(provider)
+    ? Math.max(0, inputTokens - cachedTokens)
+    : inputTokens;
+  const inputCost = (uncachedInput / 1_000_000) * pricing.input;
   const outputCost = (outputTokens / 1_000_000) * pricing.output;
-  const cachedInputCost = pricing.cachedInput 
-    ? (cachedTokens / 1_000_000) * pricing.cachedInput 
-    : 0;
+  const cachedInputCost = (cachedTokens / 1_000_000) * (pricing.cachedInput ?? pricing.input);
   const cacheCreationCost = pricing.cacheWrite
     ? (cacheCreationTokens / 1_000_000) * pricing.cacheWrite
     : 0;
@@ -162,14 +180,7 @@ export function calculateCostWithStatus(
     ? (reasoningTokens / 1_000_000) * pricing.reasoning
     : 0;
 
-  let totalCost = inputCost + outputCost + cachedInputCost + cacheCreationCost + reasoningCost;
-
-  // Add AWS Bedrock markup if applicable
-  if (provider.toLowerCase() === 'bedrock') {
-    const awsMarkupInput = inputTokens * BEDROCK_AWS_MARKUP.input;
-    const awsMarkupOutput = outputTokens * BEDROCK_AWS_MARKUP.output;
-    totalCost += awsMarkupInput + awsMarkupOutput;
-  }
+  const totalCost = inputCost + outputCost + cachedInputCost + cacheCreationCost + reasoningCost;
 
   const rounded = Math.round(totalCost * 1_000_000) / 1_000_000;
   return {

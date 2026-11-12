@@ -51,10 +51,13 @@ describe('Pricing Service', () => {
       assert.strictEqual(cost, 0.000875);
     });
     
-    it('should add AWS markup for Bedrock', () => {
-      const anthropicCost = calculateCost('anthropic', 'claude-3-sonnet', 1000, 500);
-      const bedrockCost = calculateCost('bedrock', 'claude-3-sonnet', 1000, 500);
-      assert.ok(bedrockCost > anthropicCost);
+    it('prices Bedrock at the list rate with no invented markup', () => {
+      // 1M in at $3 + 1M out at $15 = $18 exactly, same as the vendor list price.
+      assert.strictEqual(calculateCost('bedrock', 'claude-3-sonnet', 1_000_000, 1_000_000), 18);
+      assert.strictEqual(
+        calculateCost('bedrock', 'claude-3-sonnet', 1000, 500),
+        calculateCost('anthropic', 'claude-3-sonnet', 1000, 500),
+      );
     });
     
     it('unknown model must return cost=$0.00 (NEVER invent a fallback price)', () => {
@@ -129,5 +132,45 @@ describe('Pricing Service', () => {
       assert.ok(models.openai.includes('gpt-4o'));
       assert.ok(models.openai.includes('o1'));
     });
+  });
+});
+
+describe('Pricing correctness', () => {
+  it('prices dated snapshots as their own family, never a shorter prefix', () => {
+    // gpt-4o-mini snapshot must not be priced as gpt-4o ($2.50 in).
+    assert.strictEqual(calculateCost('openai', 'gpt-4o-mini-2024-07-18', 1_000_000, 0), 0.15);
+    assert.strictEqual(calculateCost('openai', 'gpt-4o-2024-08-06', 1_000_000, 0), 2.5);
+    assert.strictEqual(calculateCost('anthropic', 'claude-3-5-sonnet-latest', 1_000_000, 0), 3);
+  });
+
+  it('does not borrow a neighbour price for unlisted models', () => {
+    for (const model of ['gpt-4.1', 'gpt-4.5-preview', 'o3', 'o1-preview', 'gpt-4-1106-preview']) {
+      const r = calculateCostWithStatus('openai', model, 1000, 1000);
+      assert.strictEqual(r.costStatus, 'COST_UNAVAILABLE', model);
+      assert.strictEqual(r.cost, 0, model);
+    }
+  });
+
+  it('OpenAI-style usage: cached tokens are inside the input total and are not double charged', () => {
+    // 1M prompt tokens of which 400k cached: 600k at $2.50 + 400k at $1.25 = 1.5 + 0.5 = $2.00
+    const r = calculateCostWithStatus('openai', 'gpt-4o', 1_000_000, 0, 400_000);
+    assert.strictEqual(r.inputCost, 1.5);
+    assert.strictEqual(r.cachedInputCost, 0.5);
+    assert.strictEqual(r.cost, 2);
+  });
+
+  it('cached tokens without a cached price are billed at the input rate (no discount known)', () => {
+    // gpt-4 has no cached price: 1M prompt of which 250k cached still costs 1M x $30.
+    const r = calculateCostWithStatus('openai', 'gpt-4', 1_000_000, 0, 250_000);
+    assert.strictEqual(r.cost, 30);
+  });
+
+  it('Anthropic usage: input excludes cache reads/writes, which are billed separately', () => {
+    // 100k fresh input $3, 1M cache read at $0.30, 200k cache write at $3.75, 0 output
+    const r = calculateCostWithStatus('anthropic', 'claude-3-5-sonnet', 100_000, 0, 1_000_000, 200_000);
+    assert.strictEqual(r.inputCost, 0.3);
+    assert.strictEqual(r.cachedInputCost, 0.3);
+    assert.strictEqual(r.cacheCreationCost, 0.75);
+    assert.strictEqual(r.cost, 1.35);
   });
 });

@@ -7,7 +7,7 @@
 
 import { getPool } from '../db/pool.js';
 import { PricingTier } from '../types/index.js';
-import { PRICING as FALLBACK_PRICING } from './pricing.js';
+import { PRICING as FALLBACK_PRICING, modelNameCandidates, stripProviderPrefix } from './pricing.js';
 
 export interface DbModelPricing {
   id?: string;
@@ -93,7 +93,18 @@ export async function loadPricingFromDb(): Promise<Map<string, PricingTier>> {
       };
 
       const key = `${r.provider.toLowerCase()}:${r.model_id.toLowerCase()}`;
-      newMap.set(key, tier);
+      // Rows are ordered newest effective_from first: the first row seen for a model is the current price.
+      // (A later, older row must not overwrite it.)
+      if (!newMap.has(key)) {
+        // Catalog rows seeded before cache prices were tracked leave them NULL; fill only those gaps
+        // from the built-in table so cache reads/writes are not silently priced at the wrong rate.
+        const fb = FALLBACK_PRICING[key];
+        if (fb) {
+          tier.cachedInput ??= fb.cachedInput;
+          tier.cacheWrite ??= fb.cacheWrite;
+        }
+        newMap.set(key, tier);
+      }
 
       newCatalog.push({
         id: r.id,
@@ -139,28 +150,13 @@ export async function resolvePricingTierDynamic(
 ): Promise<PricingTier | null> {
   const map = await loadPricingFromDb();
   const normProvider = provider.toLowerCase();
-  let normModel = model.toLowerCase();
 
-  if (normModel.startsWith(`${normProvider}:`)) {
-    normModel = normModel.slice(normProvider.length + 1);
+  // Exact match, then exact match after removing a snapshot-date suffix. No prefix matching: it
+  // mis-priced gpt-4o-mini snapshots as gpt-4o and gpt-4.1 as gpt-4.
+  for (const candidate of modelNameCandidates(stripProviderPrefix(provider, model))) {
+    const tier = map.get(`${normProvider}:${candidate}`);
+    if (tier) return tier;
   }
-
-  // 1. Exact match
-  const directKey = `${normProvider}:${normModel}`;
-  if (map.has(directKey)) {
-    return map.get(directKey)!;
-  }
-
-  // 2. Prefix / Versioned model matching
-  for (const [candidateKey, tier] of map.entries()) {
-    if (candidateKey.startsWith(`${normProvider}:`)) {
-      const candidateModel = candidateKey.slice(normProvider.length + 1);
-      if (normModel.startsWith(candidateModel) || candidateModel.startsWith(normModel)) {
-        return tier;
-      }
-    }
-  }
-
   return null;
 }
 
