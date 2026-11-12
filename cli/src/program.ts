@@ -16,6 +16,7 @@ import { registerMemory } from './commands/memory.js';
 import { registerReports } from './commands/reports.js';
 import { registerSearch } from './commands/search.js';
 import { registerSessions } from './commands/sessions.js';
+import { registerSetup } from './commands/setup.js';
 import { registerSync } from './commands/sync.js';
 import { registerWatch } from './commands/watch.js';
 
@@ -42,7 +43,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
       'after',
       [
         '',
-        'New here? Start with these, in a Git repository:',
+        'New here? Run `tokenistt setup` for a guided walk-through, or by hand, in a Git repository:',
         '  tokenistt init                       set up this repo (no network needed)',
         '  tokenistt agents connect claude-code track your coding agent (codex, antigravity too)',
         '  tokenistt watch                      follow agent sessions live',
@@ -65,6 +66,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
     await runDashboard(getCtx(cmd), () => program.outputHelp());
   });
 
+  registerSetup(program, getCtx);
   registerAuth(program, getCtx);
   registerConnect(program, getCtx);
   registerInit(program, getCtx);
