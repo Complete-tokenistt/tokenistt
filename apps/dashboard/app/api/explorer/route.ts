@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPool, isDbAvailable } from '@/lib/db';
+import { dbUnavailable } from '@/lib/db-unavailable';
 import { getSessionFromRequest, unauthorizedResponse } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
@@ -15,18 +16,7 @@ export async function GET(req: NextRequest) {
   const modelFilter = searchParams.get('model');
 
   const dbUp = await isDbAvailable();
-  if (!dbUp) {
-    return NextResponse.json({
-      dimension,
-      series: [
-        { label: 'openai', cost: 12450.32, requests: 142000, tokens: 48200000 },
-        { label: 'anthropic', cost: 8920.15, requests: 62000, tokens: 29100000 },
-        { label: 'bedrock', cost: 3100.50, requests: 28000, tokens: 12000000 },
-        { label: 'azure', cost: 2150.00, requests: 19000, tokens: 8500000 },
-      ],
-      totalCost: 26620.97,
-    });
-  }
+  if (!dbUp) return dbUnavailable();
 
   try {
     const pool = getPool();

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const PUBLIC_PATHS = [
   '/api/auth/login',
+  '/api/auth/register', // self-guarded: only works while no user exists
   '/api/auth/logout',
   '/login',
   '/',

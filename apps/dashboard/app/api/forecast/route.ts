@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPool, isDbAvailable } from '@/lib/db';
+import { dbUnavailable } from '@/lib/db-unavailable';
 import { getSessionFromRequest, unauthorizedResponse } from '@/lib/auth';
 
 interface DailyPoint {
@@ -56,22 +57,7 @@ export async function GET(req: NextRequest) {
   if (!session) return unauthorizedResponse();
 
   const dbUp = await isDbAvailable();
-  if (!dbUp) {
-    return NextResponse.json({
-      currentSpendMonthToDate: 14250.80,
-      forecastedMonthEndSpend: 28500.00,
-      dailyBurnRate: 950.05,
-      budgetCap: 30000.00,
-      budgetHealthStatus: 'on_track',
-      historicalDaily: [
-        { date: '2026-03-01', cost: 920.10 },
-        { date: '2026-03-02', cost: 980.50 },
-        { date: '2026-03-03', cost: 940.00 },
-        { date: '2026-03-04', cost: 1010.20 },
-        { date: '2026-03-05', cost: 950.00 },
-      ],
-    });
-  }
+  if (!dbUp) return dbUnavailable();
 
   try {
     const pool = getPool();
