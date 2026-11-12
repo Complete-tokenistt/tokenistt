@@ -1,0 +1,17 @@
+# TLS front door for Tokenistt (enabled with: docker compose --profile tls up -d).
+# DOMAIN must resolve to this host and ports 80/443 must be reachable so Caddy can get a certificate.
+# For a local trial use DOMAIN=localhost (Caddy issues a locally-trusted certificate).
+{$DOMAIN:localhost} {
+	encode zstd gzip
+
+	# Gateway API for developers' tools and SDKs. /metrics and /v1/admin are deliberately NOT exposed here:
+	# admin calls from the dashboard go over the internal Docker network.
+	@gateway path /v1/chat/completions /v1/batch/chat/completions /v1/models /v1/ingest/* /v1/sync /v1/logs /v1/usage/* /health /ready
+	handle @gateway {
+		reverse_proxy gateway:3000
+	}
+
+	handle {
+		reverse_proxy dashboard:3000
+	}
+}

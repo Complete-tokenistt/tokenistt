@@ -90,6 +90,64 @@ export async function ensurePartitionsAhead(monthsAhead: number = 3): Promise<st
   return ensuredNames;
 }
 
+const PARTITION_NAME_RE = /^transactions_y(\d{4})m(\d{2})$/;
+
+/**
+ * Pure helper: which of `names` are monthly partitions that ended on or before the retention cutoff.
+ * A partition covering month M is expired once M + 1 <= (current month - retentionMonths), i.e. every
+ * row in it is older than `retentionMonths` full months. Non-matching names (default partition etc.)
+ * are never returned.
+ */
+export function selectExpiredPartitions(names: string[], retentionMonths: number, now: Date = new Date()): string[] {
+  if (!Number.isFinite(retentionMonths) || retentionMonths < 1) return [];
+  const cutoff = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - Math.floor(retentionMonths), 1);
+  return names.filter((name) => {
+    const m = PARTITION_NAME_RE.exec(name);
+    if (!m) return false;
+    const partitionEnd = Date.UTC(Number(m[1]), Number(m[2]), 1); // first day of the following month
+    return partitionEnd <= cutoff;
+  });
+}
+
+/**
+ * Drops monthly `transactions` partitions older than `retentionMonths`. OFF by default: the request
+ * log is the record of spend, so deleting it is an explicit operator decision
+ * (TRANSACTIONS_RETENTION_MONTHS). Rollups (`hourly_spend`) are not touched.
+ */
+export async function dropExpiredPartitions(retentionMonths: number, now: Date = new Date()): Promise<string[]> {
+  if (!process.env.DATABASE_URL || !(retentionMonths >= 1)) return [];
+  const pool = getPool();
+  const { rows } = await pool.query(
+    `SELECT c.relname AS name
+       FROM pg_inherits i
+       JOIN pg_class c ON c.oid = i.inhrelid
+       JOIN pg_class p ON p.oid = i.inhparent
+      WHERE p.relname = 'transactions'`
+  );
+  const expired = selectExpiredPartitions(rows.map((r: { name: string }) => r.name), retentionMonths, now);
+  const dropped: string[] = [];
+  for (const name of expired) {
+    try {
+      // name is validated against PARTITION_NAME_RE above, so quoting it is safe.
+      await pool.query(`ALTER TABLE transactions DETACH PARTITION "${name}"`);
+      await pool.query(`DROP TABLE "${name}"`);
+      dropped.push(name);
+    } catch (err: any) {
+      console.warn(`[PartitionManager] Failed dropping expired partition ${name}:`, err.message);
+    }
+  }
+  if (dropped.length > 0) {
+    console.log(`[PartitionManager] Dropped ${dropped.length} partition(s) older than ${retentionMonths} month(s): ${dropped.join(', ')}`);
+  }
+  return dropped;
+}
+
+async function runMaintenance(): Promise<void> {
+  await ensurePartitionsAhead(3);
+  const retention = Number(process.env.TRANSACTIONS_RETENTION_MONTHS);
+  if (retention >= 1) await dropExpiredPartitions(retention);
+}
+
 /**
  * Starts a periodic background scheduler to maintain future partitions.
  * Defaults to running once every 24 hours.
@@ -102,12 +160,12 @@ export function startPartitionMaintenanceScheduler(
   }
 
   // Run initial check asynchronously
-  ensurePartitionsAhead(3).catch((err) => {
+  runMaintenance().catch((err) => {
     console.warn('[PartitionManager] Initial partition maintenance failed:', err.message);
   });
 
   maintenanceTimer = setInterval(() => {
-    ensurePartitionsAhead(3).catch((err) => {
+    runMaintenance().catch((err) => {
       console.warn('[PartitionManager] Scheduled partition maintenance failed:', err.message);
     });
   }, intervalMs);
