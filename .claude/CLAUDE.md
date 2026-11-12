@@ -1,7 +1,7 @@
 # CLAUDE.md — Tokenistt Project Constitution
 ### Read this first, every session. Accumulated context and guardrails — deviating from it should be a deliberate decision, not a default.
 
-_Last synced to the code: 2026-11-06 (branch `main`). If the code and this file disagree, check the code, then fix this file._
+_Last synced to the code: 2026-11-12 (branch `main`). If the code and this file disagree, check the code, then fix this file._
 
 ---
 
@@ -28,7 +28,7 @@ The original Phase 1 scope (cost tracking, budgets, governance, routing, BYOK on
 
 **New direction (decided 2026-11-02): developer intelligence in the CLI.** The `tokenistt` CLI (`cli/`) is growing into a local-first engine: codebase knowledge graph, coding-agent session observability, project memory, context generation and injection, change impact, session cost. See `docs/cli/INTELLIGENCE_PLAN.md`. External positioning does not change (§1): copy says "open-source AI cost visibility and governance" plus "developer intelligence", never "AI FinOps" and never "cloud" (there is no hosted service; the CLI talks to your own gateway). The stage note above still applies to the gateway and dashboard.
 
-**CLI status (2026-11-06):** built and merged: gateway client (`login`, `auth`, `connect`, `doctor`, `usage`, `cost`, `models`, `providers`, `policy`, `optimize`) and the local engine (`init`, `map`, `analyze`, `search`, `impact`, `changes`, `memory`, `sessions`/agent hooks for Claude Code, Codex and Antigravity, `context`, `mcp`, `dashboard`, `sync` with an opt-in ledger). Needs Node 22.13+ (`node:sqlite`); not published to npm yet (tag-driven `publish-cli.yml`, tag `cli-vX.Y.Z`, needs `NPM_TOKEN`). Codex/Antigravity hooks are written from docs, not checked against the real agents. `sync` sends repository summaries only when turned on per repo; `--ledger` counts agent usage toward budgets and is for API-billed usage only.
+**CLI status (2026-11-12):** built and merged: guided onboarding (`setup` wizard, offered by bare `tokenistt` on an un-set-up repo; `doctor` treats no-gateway as local-only, not a failure) and `run <agent>` (starts the agent in the same terminal with inherited stdio, no PTY; Claude Code gets a live status line through `statusline` and a per-run `--settings` file, Codex/Antigravity get an end-of-run summary only), gateway client (`login`, `auth`, `connect`, `doctor`, `usage`, `cost`, `models`, `providers`, `policy`, `optimize`) and the local engine (`init`, `map`, `analyze`, `search`, `impact`, `changes`, `memory`, `sessions`/agent hooks for Claude Code, Codex and Antigravity, `context`, `mcp`, `dashboard`, `sync` with an opt-in ledger). Needs Node 22.13+ (`node:sqlite`); not published to npm yet (tag-driven `publish-cli.yml`, tag `cli-vX.Y.Z`, needs `NPM_TOKEN`). Codex/Antigravity hooks are written from docs, not checked against the real agents. `sync` sends repository summaries only when turned on per repo; `--ledger` counts agent usage toward budgets and is for API-billed usage only.
 
 **Built and working** (verified by the test suites + `npm run test:e2e -w apps/gateway`):
 - Auth with virtual keys (`tktt_live_…`), org/workspace/team/project resolution, RBAC (owner / admin / finance / developer / viewer), tenant isolation.
