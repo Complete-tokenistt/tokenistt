@@ -37,6 +37,12 @@ export interface TransactionPayload {
   totalTokens:       number;
   cacheCreationTokens?: number;
   cacheReadTokens?:   number;
+  /** Reasoning tokens (included in completionTokens). Falls back to metadata.reasoning_tokens. */
+  reasoningTokens?:   number;
+  /** 'ok' | 'COST_UNAVAILABLE' | 'NOT_APPLICABLE'. Falls back to metadata.cost_status, then 'ok'. */
+  costStatus?:        string;
+  /** True when token counts are our estimate (provider sent no usage). Falls back to metadata.tokens_estimated. */
+  tokensEstimated?:   boolean;
   inputCostUsd:      number;
   outputCostUsd:     number;
   costUsd:           number;
@@ -55,6 +61,16 @@ let mockLogger: ((payload: TransactionPayload) => Promise<string | null>) | null
 
 export function setMockLogger(fn: typeof mockLogger) {
   mockLogger = fn;
+}
+
+/** Usage facts that have their own columns; explicit fields win, metadata is the fallback. */
+function usageFacts(payload: TransactionPayload) {
+  const md = (payload.metadata ?? {}) as Record<string, unknown>;
+  return {
+    reasoningTokens: payload.reasoningTokens ?? (typeof md.reasoning_tokens === 'number' ? md.reasoning_tokens : 0),
+    costStatus: payload.costStatus ?? (typeof md.cost_status === 'string' ? md.cost_status : 'ok'),
+    tokensEstimated: payload.tokensEstimated ?? md.tokens_estimated === true,
+  };
 }
 
 /**
@@ -100,6 +116,8 @@ export async function logTransaction(
     return null;
   }
 
+  const facts = usageFacts(payload);
+
   try {
     const pool = getPool();
 
@@ -130,13 +148,15 @@ export async function logTransaction(
         duration_ms,
         metadata,
         team_id, project_id, environment,
-        repo, ticket, sprint, feature, customer, employee
+        repo, ticket, sprint, feature, customer, employee,
+        reasoning_tokens, cost_status, tokens_estimated
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
         $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
         $21, $22, $23,
         $24, $25, $26,
-        $27, $28, $29, $30, $31, $32
+        $27, $28, $29, $30, $31, $32,
+        $33, $34, $35
       )
       RETURNING public_id::text
       `,
@@ -173,6 +193,9 @@ export async function logTransaction(
         payload.auth.attribution?.feature ?? null,
         payload.auth.attribution?.customer ?? null,
         payload.auth.attribution?.employee ?? null,
+        facts.reasoningTokens,
+        facts.costStatus,
+        facts.tokensEstimated,
       ],
     );
 
@@ -264,6 +287,19 @@ export async function logTransaction(
       totalTokens: payload.totalTokens,
       cacheCreationTokens: payload.cacheCreationTokens ?? 0,
       cacheReadTokens: payload.cacheReadTokens ?? 0,
+      reasoningTokens: facts.reasoningTokens,
+      costStatus: facts.costStatus,
+      tokensEstimated: facts.tokensEstimated,
+      // Attribution survives an outage: without it replayed rows lose team/project/etc.
+      teamId: payload.auth.attribution?.teamId?.toString() ?? null,
+      projectId: payload.auth.attribution?.projectId?.toString() ?? null,
+      environment: payload.auth.attribution?.environment ?? null,
+      repo: payload.auth.attribution?.repo ?? null,
+      ticket: payload.auth.attribution?.ticket ?? null,
+      sprint: payload.auth.attribution?.sprint ?? null,
+      feature: payload.auth.attribution?.feature ?? null,
+      customer: payload.auth.attribution?.customer ?? null,
+      employee: payload.auth.attribution?.employee ?? null,
       status: payload.status,
       errorCode: payload.errorCode ?? null,
       durationMs: payload.durationMs,

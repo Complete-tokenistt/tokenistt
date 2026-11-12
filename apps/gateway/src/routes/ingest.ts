@@ -55,6 +55,7 @@ const EventSchema = z.object({
   output_tokens: tokens,
   cached_tokens: tokens.optional(),
   cache_creation_tokens: tokens.optional(),
+  reasoning_tokens: tokens.optional(),
   latency_ms: z.number().int().min(0).max(3_600_000).optional(),
   status: z.enum(['success', 'error', 'timeout', 'rate_limited']).default('success'),
   error_code: z.string().trim().max(100).optional(),
@@ -134,7 +135,7 @@ ingestRouter.post('/ingest/events', ipLimiter, async (req: Request, res: Respons
       const a = e.attribution ?? {};
       const tier = e.status === 'success' ? await resolvePricingTierDynamic(e.provider, e.model) : null;
       const cost = e.status === 'success'
-        ? calculateCostWithStatus(e.provider, e.model, e.input_tokens, e.output_tokens, e.cached_tokens ?? 0, e.cache_creation_tokens ?? 0, 0, tier)
+        ? calculateCostWithStatus(e.provider, e.model, e.input_tokens, e.output_tokens, e.cached_tokens ?? 0, e.cache_creation_tokens ?? 0, e.reasoning_tokens ?? 0, tier)
         : null;
       const costUsd = cost?.cost ?? 0;
 
@@ -150,11 +151,13 @@ ingestRouter.post('/ingest/events', ipLimiter, async (req: Request, res: Respons
            cost_center, project_tag, cost_usd, amortized_cost_usd, input_cost_usd, output_cost_usd,
            prompt_tokens, completion_tokens, total_tokens, cache_creation_tokens, cache_read_tokens,
            status, error_code, duration_ms, metadata, team_id, project_id, environment,
-           repo, ticket, sprint, feature, customer, employee, created_at)
+           repo, ticket, sprint, feature, customer, employee, created_at,
+           reasoning_tokens, cost_status)
          SELECT $1::bigint,$2::bigint,$3::bigint,$4::text,$5::text,$6::text,$7::text,$8::text,$9::text,$10::text,
                 $11::numeric,$11::numeric,$12::numeric,$13::numeric,$14::int,$15::int,$16::int,$17::int,$18::int,
                 $19::text,$20::text,$21::int,$22::jsonb,$23::bigint,$24::bigint,$25::text,
-                $26::text,$27::text,NULL,$28::text,$29::text,$30::text,$31::timestamptz
+                $26::text,$27::text,NULL,$28::text,$29::text,$30::text,$31::timestamptz,
+                $32::int,$33::text
           WHERE NOT EXISTS (SELECT 1 FROM transactions WHERE request_id = $8)`,
         [
           key.organization_id, key.workspace_id, key.id, a.user ?? null, e.provider.toLowerCase(), e.model,
@@ -168,6 +171,7 @@ ingestRouter.post('/ingest/events', ipLimiter, async (req: Request, res: Respons
           }),
           attr.teamId?.toString() ?? null, attr.projectId?.toString() ?? null, attr.environment,
           attr.repo, attr.ticket, attr.feature, attr.customer, attr.employee, new Date(at).toISOString(),
+          e.reasoning_tokens ?? 0, cost?.costStatus ?? 'NOT_APPLICABLE',
         ],
       );
 

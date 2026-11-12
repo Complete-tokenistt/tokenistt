@@ -483,6 +483,7 @@ app.post('/v1/chat/completions', async (req: Request, res: Response, next: NextF
       metadata: {
         trace_id:        traceId,
         cost_status:     costStatus,
+        reasoning_tokens: reasoningTokens,
         finish_reason:   response.choices?.[0]?.finish_reason,
         model_used:      response.model_used,
         user_agent:      req.headers['user-agent'],
