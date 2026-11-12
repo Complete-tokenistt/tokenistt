@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPool, isDbAvailable } from '@/lib/db';
+import { timingSafeEqual } from 'node:crypto';
 import { hashPassword, signJwt } from '@/lib/auth';
+import { sessionCookieSecure } from '@/lib/cookies';
 
 /**
  * First-admin bootstrap only.
@@ -13,7 +15,20 @@ import { hashPassword, signJwt } from '@/lib/auth';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { orgName, email, password, displayName } = body;
+    const { orgName, email, password, displayName, setupToken } = body;
+
+    // The operator proves they own the deployment by supplying ADMIN_SECRET
+    // from their .env, so a stranger who finds a fresh install cannot claim it.
+    const expected = process.env.ADMIN_SECRET || '';
+    const given = typeof setupToken === 'string' ? setupToken : '';
+    const a = Buffer.from(given);
+    const b = Buffer.from(expected);
+    if (!expected || a.length !== b.length || !timingSafeEqual(a, b)) {
+      return NextResponse.json(
+        { error: { message: 'Invalid setup token. Use ADMIN_SECRET from your .env file.' } },
+        { status: 403 }
+      );
+    }
 
     if (!orgName || !email || !password) {
       return NextResponse.json(
@@ -106,7 +121,7 @@ export async function POST(req: NextRequest) {
 
     response.cookies.set('tokenistt_session', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: sessionCookieSecure(),
       sameSite: 'lax',
       path: '/',
       maxAge: 86400,
