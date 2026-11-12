@@ -202,6 +202,21 @@ describe('typing real commands at the prompt', () => {
     assert.equal(parse('login').kind, 'terminal');
     assert.equal(parse('watch').kind, 'terminal');
   });
+  it('hands the terminal over for interactive commands and keeps the rest in the app', async () => {
+    const calls: string[][] = [];
+    const first = render(<App data={data()} motion={false} handOff={(a) => calls.push(a)} />);
+    await type(first.stdin, 'login'); first.stdin.write(KEY.enter); await tick();
+    first.unmount();
+    const second = render(<App data={data()} motion={false} handOff={(a) => calls.push(a)} />);
+    await type(second.stdin, 'setup --yes'); second.stdin.write(KEY.enter); await tick();
+    second.unmount();
+    assert.deepEqual(calls, [['login'], ['setup', '--yes']]);
+    const third = render(<App data={data()} motion={false} handOff={(a) => calls.push(a)} />);
+    await type(third.stdin, 'mcp'); third.stdin.write(KEY.enter); await tick();
+    assert.equal(calls.length, 2, 'mcp is a server for another program, so it stays a hint');
+    assert.match(third.lastFrame() ?? '', /needs a terminal of its own/);
+    third.unmount();
+  });
   it('runs a command in the app, streams its output and lets Esc stop it', async () => {
     let stopped = false;
     let finish: (c: number | null) => void = () => undefined;

@@ -27,9 +27,9 @@ export const CLI_HELP: Array<[string, string]> = [
   ['analyze', 'structure checks: cycles, dead code, duplicates'], ['memory', 'what the project remembers'], ['context', 'generate context for a coding agent'],
   ['agents', 'connect Claude Code and others'], ['sessions', 'recorded agent sessions'], ['doctor', 'check install, credentials and gateway'],
   ['usage', 'requests and tokens from your gateway'], ['cost', 'what it cost, by model and more'], ['models', 'gateway model catalog (--refresh saves prices)'], ['optimize', 'rules-based cost suggestions'], ['sync', 'send summaries to your gateway'],
-  ['connect', 'link to your gateway'], ['auth', 'credentials'], ['login', 'sign in (needs its own terminal)'], ['watch', 'live sessions (needs its own terminal)'], ['mcp', 'MCP server (needs its own terminal)'],
+  ['connect', 'link to your gateway'], ['auth', 'credentials'], ['login', 'sign in to your gateway'], ['watch', 'live sessions (needs its own terminal)'], ['mcp', 'MCP server (run it from a shell)'],
 ];
-/** Need a real terminal of their own (prompts, or they never exit), so the app can't host them. */
+/** Interactive (prompts, an agent): the app hands the terminal over and takes it back after. `mcp` is a server for another program, so it needs its own shell. */
 export const NEEDS_TERMINAL = new Set(['login', 'setup', 'run', 'watch', 'mcp']);
 const GLOBAL_OPTIONS = ['--help', '--version', '--json', '--quiet', '--verbose', '--no-color', '--api-url'];
 

@@ -32,6 +32,8 @@ export interface AppProps {
   unicode?: boolean;
   /** Runs a real tokenistt command and reports its output as it arrives. Absent in tests that don't need it. */
   exec?: (args: string[], onLine: (line: string) => void) => { done: Promise<number | null>; stop: () => void };
+  /** Asks the host to run an interactive command on the real terminal, after the app has exited; the host brings the app back. */
+  handOff?: (args: string[]) => void;
 }
 
 function Segs({ line }: { line: Line }): ReactNode {
@@ -71,7 +73,7 @@ function Palette({ query, sel, g, width, max }: { query: string; sel: number; g:
   );
 }
 
-export function App({ data, motion, initialScreen = 'Home', initialFinopsTab = 0, reload, reloadMs = 2000, search, unicode = true, exec }: AppProps): ReactNode {
+export function App({ data, motion, initialScreen = 'Home', initialFinopsTab = 0, reload, reloadMs = 2000, search, unicode = true, exec, handOff }: AppProps): ReactNode {
   const g = unicode ? UNICODE : ASCII;
   const [d, setD] = useState(data);
   const [screen, setScreen] = useState<Screen>(initialScreen);
@@ -169,9 +171,10 @@ export function App({ data, motion, initialScreen = 'Home', initialFinopsTab = 0
           // The Agents screen is the live view, refreshed every couple of seconds, so there is nothing to leave for.
           push([{ text: 'Live sessions are on this Agents screen and update on their own.', tone: 'accent' }]);
           go('Agents');
-        } else if (a.command === 'run') {
-          push([{ text: `Your agent needs the whole terminal. Quit (Ctrl+C) and run: tokenistt ${a.line}. Its live cost shows in its status bar, and this dashboard shows the rest when you come back.`, tone: 'warn' }]);
-          go('Home');
+        } else if (handOff && a.command !== 'mcp') {
+          // Hand the whole terminal to the command (a login prompt, setup, your agent); the dashboard returns afterwards.
+          handOff(a.line.split(/\s+/));
+          exit();
         } else {
           push([{ text: `${a.command} needs a terminal of its own. Quit (Ctrl+C) and run: tokenistt ${a.line}`, tone: 'warn' }]);
           go('Home');

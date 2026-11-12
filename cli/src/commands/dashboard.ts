@@ -7,7 +7,8 @@ import { homedir } from 'node:os';
 import { cleanLine } from '../tui/format.js';
 import { MOUSE_OFF, MOUSE_ON } from '../tui/mouse.js';
 import { unicodeSupported } from '../tui/theme.js';
-import { confirm } from '../core/prompt.js';
+import { resolveConfig } from '../config/store.js';
+import { ask, confirm } from '../core/prompt.js';
 import { motionAllowed, Progress } from '../core/progress.js';
 import { repoInfo } from '../project/git.js';
 import { openDatabase } from '../store/db.js';
@@ -39,6 +40,22 @@ export function runChild(args: string[], cwd: string, env: NodeJS.ProcessEnv, on
     child.on('close', (code, signal) => resolve(signal ? null : code));
   });
   return { done, stop: () => { child.kill(); } };
+}
+
+/**
+ * Runs a tokenistt command on the user's own terminal (prompts, a coding agent) and waits for it. The dashboard has
+ * already given the screen back, so the command behaves exactly as it would typed at a shell.
+ */
+export function runOnTerminal(args: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<number | null> {
+  const entry = process.argv[1] ?? '';
+  // Ctrl+C belongs to the command; we stay alive to take the screen back afterwards.
+  const ignore = (): void => {};
+  process.on('SIGINT', ignore);
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [entry, ...args], { cwd, env, stdio: 'inherit' });
+    child.on('error', () => resolve(1));
+    child.on('close', (code, signal) => { process.off('SIGINT', ignore); resolve(signal ? null : code); });
+  });
 }
 
 const ENTER = '\x1b[?1049h\x1b[2J\x1b[H';
@@ -90,41 +107,55 @@ export async function runDashboard(ctx: Context, showHelp: () => void): Promise<
 
     const [{ render }, { createElement }, { App }] = await Promise.all([import('ink'), import('react'), import('../tui/App.js')]);
     const mouse = ctx.env.TOKENISTT_NO_MOUSE !== '1';
-    let restored = false;
-    // Whatever way this ends, the terminal must be given back: main screen, cursor, and no mouse reporting left on.
-    const restore = (): void => {
-      if (restored) return;
-      restored = true;
-      process.stdout.write(`${mouse ? MOUSE_OFF : ''}${LEAVE}`);
-    };
-    const onSignal = (): void => { restore(); process.exit(130); };
-    process.stdout.write(`${ENTER}${mouse ? MOUSE_ON : ''}`);
-    process.once('exit', restore);
-    process.once('SIGINT', onSignal);
-    process.once('SIGTERM', onSignal);
-    let last = gateway;
-    let finops = initialFinops;
-    let ticks = 0;
-    const reload = async () => {
-      // The gateway is checked less often than local data, since it is a network call.
-      if (++ticks % 15 === 0) {
-        last = await probeGateway(ctx.config);
-        if (last.state === 'connected') {
-          await refreshPricesIfStale(ctx.config, repo.root);
-          finops = await fetchFinops(ctx.config);
-        } else finops = undefined;
+    let current: typeof data = data;
+    // The app can hand the terminal to an interactive command (login, setup, a coding agent) and take it back after.
+    for (;;) {
+      let handOff: string[] | undefined;
+      let restored = false;
+      // Whatever way this ends, the terminal must be given back: main screen, cursor, and no mouse reporting left on.
+      const restore = (): void => {
+        if (restored) return;
+        restored = true;
+        process.stdout.write(`${mouse ? MOUSE_OFF : ''}${LEAVE}`);
+      };
+      const onSignal = (): void => { restore(); process.exit(130); };
+      process.stdout.write(`${ENTER}${mouse ? MOUSE_ON : ''}`);
+      process.once('exit', restore);
+      process.once('SIGINT', onSignal);
+      process.once('SIGTERM', onSignal);
+      let last = current.gateway;
+      let finops = current.finops;
+      let ticks = 0;
+      const reload = async () => {
+        // The gateway is checked less often than local data, since it is a network call.
+        if (++ticks % 15 === 0) {
+          last = await probeGateway(ctx.config);
+          if (last.state === 'connected') {
+            await refreshPricesIfStale(ctx.config, repo.root);
+            finops = await fetchFinops(ctx.config);
+          } else finops = undefined;
+        }
+        return { ...gatherLocal(project, db, home), gateway: last, ...(finops ? { finops } : {}) };
+      };
+      // The frame is the size of the terminal and Ink redraws it whole each time, so nothing old can be left on screen.
+      const app = render(createElement(App, { data: current, motion, reload, search: (q: string) => searchAll(db, q), exec: (args: string[], onLine: (l: string) => void) => runChild(args, repo.root, ctx.env, onLine), handOff: (args: string[]) => { handOff = args; }, unicode: unicodeSupported(ctx.env) }), { exitOnCtrlC: true, maxFps: 20 });
+      try {
+        await app.waitUntilExit();
+      } finally {
+        process.removeListener('exit', restore);
+        process.removeListener('SIGINT', onSignal);
+        process.removeListener('SIGTERM', onSignal);
+        restore();
       }
-      return { ...gatherLocal(project, db, home), gateway: last, ...(finops ? { finops } : {}) };
-    };
-    // The frame is the size of the terminal and Ink redraws it whole each time, so nothing old can be left on screen.
-    const app = render(createElement(App, { data, motion, reload, search: (q: string) => searchAll(db, q), exec: (args: string[], onLine: (l: string) => void) => runChild(args, repo.root, ctx.env, onLine), unicode: unicodeSupported(ctx.env) }), { exitOnCtrlC: true, maxFps: 20 });
-    try {
-      await app.waitUntilExit();
-    } finally {
-      process.removeListener('exit', restore);
-      process.removeListener('SIGINT', onSignal);
-      process.removeListener('SIGTERM', onSignal);
-      restore();
+      if (!handOff) break;
+      const code = await runOnTerminal(handOff, repo.root, ctx.env);
+      process.stderr.write(`\n[tokenistt ${handOff.join(' ')} finished${code ? ` with code ${code}` : ''}]\n`);
+      await ask('Press Enter to return to the dashboard', '');
+      // Login and setup change what the dashboard should show, so read the config and data again.
+      Object.assign(ctx.config, resolveConfig(ctx.env));
+      last = await probeGateway(ctx.config);
+      finops = last.state === 'connected' ? await fetchFinops(ctx.config) : undefined;
+      current = { ...gatherLocal(project, db, home), gateway: last, ...(finops ? { finops } : {}) };
     }
   } finally {
     progress.stop();
