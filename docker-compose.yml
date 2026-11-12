@@ -1,10 +1,14 @@
 # Tokenistt — self-hosted stack.
 #
-#   cp .env.example .env      # set the required secrets (see below)
-#   docker compose up --build
+#   node scripts/setup.mjs    # writes .env with fresh secrets (or: cp .env.example .env and fill them in)
+#   docker compose up --build -d
 #
 # Gateway  http://localhost:${GATEWAY_PORT:-3000}      Dashboard  http://localhost:${DASHBOARD_PORT:-3001}
-# Host ports are configurable so the stack never clashes with something already running locally.
+#
+# Network: Gateway and Dashboard bind to BIND_ADDR (default 127.0.0.1, this machine only). To serve
+# other machines, put a TLS reverse proxy in front (see docs/DEPLOYMENT.md) or set BIND_ADDR=0.0.0.0
+# and AUTH_MODE=jwt. Postgres and Redis are never published to the host; use
+# `docker compose exec postgres psql -U tokenistt` to reach the database.
 
 services:
   postgres:
@@ -15,8 +19,6 @@ services:
       POSTGRES_DB: tokenistt
       POSTGRES_USER: tokenistt
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — set a strong value in .env or CI/CD secrets}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -29,13 +31,13 @@ services:
     image: redis:7-alpine
     container_name: tokenistt-redis
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required — run node scripts/setup.mjs or set a strong value in .env}
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
     volumes:
       - redisdata:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -48,7 +50,7 @@ services:
     container_name: tokenistt-migrate
     environment:
       DATABASE_URL: postgres://tokenistt:${POSTGRES_PASSWORD}@postgres:5432/tokenistt
-      AUTH_MODE: ${AUTH_MODE:-open}
+      AUTH_MODE: ${AUTH_MODE:-jwt}
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,12 +79,12 @@ services:
     container_name: tokenistt-gateway
     restart: unless-stopped
     ports:
-      - "${GATEWAY_PORT:-3000}:3000"
+      - "${BIND_ADDR:-127.0.0.1}:${GATEWAY_PORT:-3000}:3000"
     environment:
       PORT: 3000
       NODE_ENV: production
       DATABASE_URL: postgres://tokenistt:${POSTGRES_PASSWORD}@postgres:5432/tokenistt
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       # Redis holds shared rate-limit / budget-reservation state; refuse to run without it.
       REDIS_REQUIRED: "true"
       DEFAULT_PROVIDER: ${DEFAULT_PROVIDER:-openai}
@@ -99,7 +101,9 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3001}
       # MOCK_PROVIDER=1 adds an offline fake provider (model prefix "mock:") for trying things without real keys
       MOCK_PROVIDER: ${MOCK_PROVIDER:-}
-      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      # Bearer token for /metrics. Required: the Docker bridge counts as a private network, so
+      # without it /metrics (spend by provider/model) would be readable from any published port.
+      METRICS_TOKEN: ${METRICS_TOKEN:?METRICS_TOKEN is required — run node scripts/setup.mjs or set a strong value in .env}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
@@ -128,7 +132,7 @@ services:
     container_name: tokenistt-dashboard
     restart: unless-stopped
     ports:
-      - "${DASHBOARD_PORT:-3001}:3000"
+      - "${BIND_ADDR:-127.0.0.1}:${DASHBOARD_PORT:-3001}:3000"
     environment:
       NODE_ENV: production
       DATABASE_URL: postgres://tokenistt:${POSTGRES_PASSWORD}@postgres:5432/tokenistt
@@ -140,11 +144,15 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required in production}
       # MASTER_KEY: encrypts BYOK provider keys saved from Settings; must equal the gateway's
       MASTER_KEY: ${MASTER_KEY:?MASTER_KEY is required in production}
-      # AUTH_MODE=open (default): no login, everyone is the owner of the local org — for trying it out
-      # on your own machine. Set AUTH_MODE=jwt to require sign-in (then expose it behind your own proxy).
-      AUTH_MODE: ${AUTH_MODE:-open}
+      # AUTH_MODE=jwt (default): sign-in required. The first visit offers owner setup (needs ADMIN_SECRET).
+      # AUTH_MODE=open: no login, everyone is the owner. Only for a throwaway install on your own
+      # machine; never combine it with BIND_ADDR=0.0.0.0.
+      AUTH_MODE: ${AUTH_MODE:-jwt}
+      # Set COOKIE_SECURE=false only if you serve the dashboard over plain HTTP on a trusted network.
+      COOKIE_SECURE: ${COOKIE_SECURE:-}
       OPEN_ORG_ID: "1"
-      # Lets the dashboard call the gateway management API without a user token in open mode
+      # Lets the dashboard call the gateway management API on behalf of signed-in users, and is the
+      # one-time token for first-run owner setup
       ADMIN_SECRET: ${ADMIN_SECRET}
       # STRICT_AUTH: enforces JWT authentication on all routes regardless of NODE_ENV (unless AUTH_MODE=open)
       STRICT_AUTH: "true"
