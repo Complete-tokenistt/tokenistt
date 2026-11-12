@@ -35,7 +35,7 @@ export function resolveAgentBinary(agentId: string, env: NodeJS.ProcessEnv): str
   return undefined;
 }
 
-const quote = (s: string): string => `"${s.replace(/"/g, '\\"')}"`;
+const quote = (s: string): string => JSON.stringify(s);
 
 /** On Windows, npm installs agents as .cmd shims, which can only be started through a shell. */
 export function launchSpec(file: string, args: string[], platform: string = process.platform): { file: string; args: string[]; shell: boolean } {
