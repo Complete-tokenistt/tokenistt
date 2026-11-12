@@ -5,7 +5,7 @@
 import { existsSync } from 'node:fs';
 import { ApiClient } from '../api/client.js';
 import { ApiError, CliError } from '../core/errors.js';
-import { configFile, isFileTooOpen, type ResolvedConfig } from '../config/store.js';
+import { configFile, DEFAULT_API_URL, isFileTooOpen, type ResolvedConfig } from '../config/store.js';
 import { repoInfo } from '../project/git.js';
 import { databasePath, openDatabase, SCHEMA_VERSION } from '../store/db.js';
 import { readProjectConfig } from '../store/project.js';
@@ -30,6 +30,14 @@ export interface DoctorContext {
 }
 
 const MIN_NODE: [number, number] = [22, 13];
+
+/** No gateway was ever set up: no credentials, no saved profile, and no URL given. Local features work without one. */
+export function isLocalOnly(cfg: ResolvedConfig): boolean {
+  const noCredentials = !cfg.token && !cfg.adminSecret && !cfg.apiKey;
+  return noCredentials && !cfg.hasFile && !cfg.fromEnv.includes('TOKENISTT_API_URL') && cfg.apiUrl === DEFAULT_API_URL;
+}
+
+const LOCAL_ONLY = 'Local-only mode (no gateway configured)';
 
 type Check = (ctx: DoctorContext) => Promise<CheckResult> | CheckResult;
 
@@ -76,6 +84,9 @@ const configPermissions: Check = ({ env, cfg }) => {
 };
 
 const credentials: Check = ({ cfg }) => {
+  if (isLocalOnly(cfg)) {
+    return { id: 'credentials', title: 'Credentials', status: 'skip', detail: LOCAL_ONLY, fix: 'Optional: `tokenistt login` links a gateway for org-wide cost, budgets and policies.' };
+  }
   const kinds = [cfg.token && 'dashboard token', cfg.adminSecret && 'admin secret', cfg.apiKey && 'api key'].filter(Boolean);
   if (kinds.length === 0) {
     return { id: 'credentials', title: 'Credentials', status: 'fail', detail: 'None configured', fix: 'Run `tokenistt login` (or set TOKENISTT_TOKEN / TOKENISTT_API_KEY for CI).' };
@@ -87,7 +98,8 @@ const credentials: Check = ({ cfg }) => {
   return { id: 'credentials', title: 'Credentials', status: 'ok', detail: kinds.join(', ') };
 };
 
-const gatewayHealth: Check = async ({ client }) => {
+const gatewayHealth: Check = async ({ client, cfg }) => {
+  if (isLocalOnly(cfg)) return { id: 'gateway', title: 'Gateway', status: 'skip', detail: LOCAL_ONLY };
   try {
     const h = await client.get<Health>('none', '/health');
     if (h.database && /unreachable/.test(h.database)) {

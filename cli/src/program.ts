@@ -38,6 +38,24 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
     .option('--no-color', 'disable coloured output')
     .option('--api-url <url>', 'gateway URL (overrides TOKENISTT_API_URL and the saved config)')
     .showHelpAfterError('(add --help for usage)')
+    .addHelpText(
+      'after',
+      [
+        '',
+        'New here? Start with these, in a Git repository:',
+        '  tokenistt init                       set up this repo (no network needed)',
+        '  tokenistt agents connect claude-code track your coding agent (codex, antigravity too)',
+        '  tokenistt watch                      follow agent sessions live',
+        '  tokenistt doctor                     check that everything is wired up',
+        '',
+        'Groups:',
+        '  Understand code   map, graph, search, analyze, impact, changes, context, memory',
+        '  Watch agents      agents, sessions, watch, mcp',
+        '  Gateway and cost  login, logout, auth, connect, usage, cost, models, providers, policy, optimize, sync',
+        '',
+        'Everything except the gateway group works offline.',
+      ].join('\n'),
+    )
     .exitOverride();
 
   const getCtx = (cmd: Command): Context => createContext(cmd.optsWithGlobals() as GlobalOptions, VERSION, env, deps.fetch);

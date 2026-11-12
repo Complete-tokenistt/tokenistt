@@ -196,6 +196,18 @@ describe('doctor', () => {
     } finally { await gw.close(); }
   });
 
+  it('a setup with no gateway is local-only: skipped checks, not failures', async () => {
+    const e = env();
+    const cfg = resolveConfig(e);
+    const r = await runDoctor({ cfg, client: mk(cfg), nodeVersion: 'v22.13.0', env: e });
+    for (const id of ['credentials', 'gateway']) {
+      const c = r.checks.find((x) => x.id === id)!;
+      assert.equal(c.status, 'skip', id);
+      assert.match(c.detail, /Local-only/);
+    }
+    assert.equal(r.ok, true);
+  });
+
   it('flags an expired token and an unreachable gateway with specific advice', async () => {
     const e = env();
     const cfg = resolveConfig({ ...e, TOKENISTT_API_URL: 'http://127.0.0.1:1', TOKENISTT_TOKEN: fakeJwt(-60) });

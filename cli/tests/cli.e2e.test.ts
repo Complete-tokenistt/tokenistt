@@ -38,6 +38,8 @@ describe('tokenistt CLI (end to end)', () => {
     const h = await run(['--help']);
     assert.equal(h.code, 0);
     for (const c of ['login', 'logout', 'auth', 'connect', 'doctor']) assert.match(h.out, new RegExp(c));
+    assert.match(h.out, /New here\?/);
+    assert.match(h.out, /agents connect claude-code/);
   });
 
   it('unknown commands and missing credentials give usage (2) and auth (3) exit codes', async () => {

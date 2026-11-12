@@ -40,6 +40,9 @@ export function registerInit(program: Command, getCtx: GetCtx): void {
           if (detection.packageManagers.length) ctx.out.line(`Packages:   ${detection.packageManagers.join(', ')}`);
           ctx.out.info('');
           ctx.out.info(created ? 'Commit .tokenistt/config.json to share these settings; everything else there stays local.' : 'Already set up; nothing was overwritten.');
+          ctx.out.info('');
+          ctx.out.info('Next: `tokenistt agents connect claude-code` to track your coding agent (or codex, antigravity),');
+          ctx.out.info('      `tokenistt map` to index the code, `tokenistt doctor` to check everything.');
         });
       } catch (err) {
         progress.fail();
