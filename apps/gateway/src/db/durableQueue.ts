@@ -38,6 +38,19 @@ export interface QueuedTransaction {
   totalTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
+  // Added later; absent on entries queued by older versions, so every use below defaults them.
+  reasoningTokens?: number;
+  costStatus?: string;
+  tokensEstimated?: boolean;
+  teamId?: string | null;
+  projectId?: string | null;
+  environment?: string | null;
+  repo?: string | null;
+  ticket?: string | null;
+  sprint?: string | null;
+  feature?: string | null;
+  customer?: string | null;
+  employee?: string | null;
   status: string;
   errorCode: string | null;
   durationMs: number;
@@ -115,12 +128,16 @@ export async function drainQueue(pool: any): Promise<void> {
           cost_usd, amortized_cost_usd, input_cost_usd, output_cost_usd,
           prompt_tokens, completion_tokens, total_tokens,
           cache_creation_tokens, cache_read_tokens,
-          status, error_code, duration_ms, metadata
+          status, error_code, duration_ms, metadata,
+          reasoning_tokens, cost_status, tokens_estimated,
+          team_id, project_id, environment, repo, ticket, sprint, feature, customer, employee
         )
         SELECT
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
           $11, $12, $13, $14, $15, $16, $17, $18, $19,
-          $20, $21, $22, $23
+          $20, $21, $22, $23,
+          $24, $25, $26,
+          $27, $28, $29, $30, $31, $32, $33, $34, $35
         WHERE NOT EXISTS (
           SELECT 1 FROM transactions WHERE request_id = $8
         )`,
@@ -131,6 +148,9 @@ export async function drainQueue(pool: any): Promise<void> {
           tx.promptTokens, tx.completionTokens, tx.totalTokens,
           tx.cacheCreationTokens, tx.cacheReadTokens,
           tx.status, tx.errorCode, tx.durationMs, JSON.stringify(tx.metadata),
+          tx.reasoningTokens ?? 0, tx.costStatus ?? 'ok', tx.tokensEstimated ?? false,
+          tx.teamId ?? null, tx.projectId ?? null, tx.environment ?? null, tx.repo ?? null, tx.ticket ?? null,
+          tx.sprint ?? null, tx.feature ?? null, tx.customer ?? null, tx.employee ?? null,
         ]
       );
       console.log(`[DurableQueue] Recovered transaction ${tx.requestId}`);

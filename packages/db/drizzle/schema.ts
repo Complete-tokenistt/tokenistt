@@ -147,6 +147,9 @@ export const transactions = pgTable('transactions', {
   totalTokens: integer('total_tokens').notNull().default(0),
   cacheCreationTokens: integer('cache_creation_tokens').notNull().default(0),
   cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
+  reasoningTokens: integer('reasoning_tokens').notNull().default(0),
+  costStatus: text('cost_status').notNull().default('ok'),
+  tokensEstimated: boolean('tokens_estimated').notNull().default(false),
 
   status: text('status').notNull().default('success'),
   errorCode: text('error_code'),
