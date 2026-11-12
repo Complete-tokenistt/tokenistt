@@ -99,6 +99,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required in production}
       # ── Optional ───────────────────────────────────────────────────────────
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3001}
+      # Set to the number of reverse proxies in front of the gateway (e.g. 1) so rate limits see real client IPs
+      TRUST_PROXY: ${TRUST_PROXY:-}
       # MOCK_PROVIDER=1 adds an offline fake provider (model prefix "mock:") for trying things without real keys
       MOCK_PROVIDER: ${MOCK_PROVIDER:-}
       # Bearer token for /metrics. Required: the Docker bridge counts as a private network, so
@@ -156,11 +158,17 @@ services:
       ADMIN_SECRET: ${ADMIN_SECRET}
       # STRICT_AUTH: enforces JWT authentication on all routes regardless of NODE_ENV (unless AUTH_MODE=open)
       STRICT_AUTH: "true"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     depends_on:
       postgres:
         condition: service_healthy
       gateway:
-        condition: service_started
+        condition: service_healthy
 
 volumes:
   pgdata:
