@@ -210,6 +210,8 @@ export class BedrockAdapter extends BaseProviderAdapter {
                       responseBody.stop_reason === 'content_filter' ? 'content_filter' : 'stop',
           inputTokens: responseBody.usage?.input_tokens || 0,
           outputTokens: responseBody.usage?.output_tokens || 0,
+          cacheReadTokens: responseBody.usage?.cache_read_input_tokens || 0,
+          cacheCreationTokens: responseBody.usage?.cache_creation_input_tokens || 0,
           modelId,
           rawResponse: responseBody,
         };

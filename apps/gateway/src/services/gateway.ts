@@ -7,7 +7,7 @@ import {
 } from '../types/index.js';
 import { ProviderRegistry, ProviderConfig } from '../providers/registry.js';
 import { BaseProviderAdapter } from '../providers/base.js';
-import { calculateCost } from './pricing.js';
+import { calculateCostWithStatus } from './pricing.js';
 import { withRetry } from './retry.js';
 
 const VALID_ROLES = ['system', 'user', 'assistant', 'tool'];
@@ -69,12 +69,15 @@ export class GatewayService {
       );
       const latencyMs = Date.now() - startTime;
       
-      const actualCost = calculateCost(
+      const actualCost = calculateCostWithStatus(
         providerType,
         request.model,
         providerResponse.inputTokens,
-        providerResponse.outputTokens
-      );
+        providerResponse.outputTokens,
+        providerResponse.cacheReadTokens ?? 0,
+        providerResponse.cacheCreationTokens ?? 0,
+        providerResponse.reasoningTokens ?? 0
+      ).cost;
       
       const parsedResponse = provider.parseResponse(providerResponse);
       
@@ -84,6 +87,11 @@ export class GatewayService {
         parsedResponse.finishReason,
         providerResponse.inputTokens,
         providerResponse.outputTokens,
+        {
+          cacheReadTokens: providerResponse.cacheReadTokens ?? 0,
+          cacheCreationTokens: providerResponse.cacheCreationTokens ?? 0,
+          reasoningTokens: providerResponse.reasoningTokens ?? 0,
+        },
         {
           provider: providerType,
           actual_cost: actualCost,
@@ -114,6 +122,7 @@ export class GatewayService {
     finishReason: string,
     promptTokens: number,
     completionTokens: number,
+    extra: { cacheReadTokens: number; cacheCreationTokens: number; reasoningTokens: number },
     metadata: {
       provider: ProviderType;
       actual_cost: number;
@@ -143,6 +152,15 @@ export class GatewayService {
         prompt_tokens: promptTokens,
         completion_tokens: completionTokens,
         total_tokens: promptTokens + completionTokens,
+        // Only emitted when non-zero so ordinary responses stay byte-identical to before.
+        ...(extra.cacheReadTokens > 0 && {
+          prompt_tokens_details: { cached_tokens: extra.cacheReadTokens },
+          cache_read_input_tokens: extra.cacheReadTokens,
+        }),
+        ...(extra.cacheCreationTokens > 0 && { cache_creation_input_tokens: extra.cacheCreationTokens }),
+        ...(extra.reasoningTokens > 0 && {
+          completion_tokens_details: { reasoning_tokens: extra.reasoningTokens },
+        }),
       },
       provider: metadata.provider,
       actual_cost: metadata.actual_cost,

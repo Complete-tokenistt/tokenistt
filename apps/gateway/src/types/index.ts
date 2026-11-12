@@ -46,6 +46,13 @@ export interface OpenAIUsage {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  /** OpenAI shape: cached prompt tokens (included in prompt_tokens). */
+  prompt_tokens_details?: { cached_tokens: number };
+  /** OpenAI shape: reasoning tokens (included in completion_tokens). */
+  completion_tokens_details?: { reasoning_tokens: number };
+  /** Anthropic shape: cache reads/writes are reported separately from input tokens. */
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
 }
 
 export interface OpenAIChatCompletionChoice {
@@ -107,6 +114,12 @@ export interface ProviderResponse {
   stopReason: 'stop' | 'length' | 'content_filter';
   inputTokens: number;
   outputTokens: number;
+  /** Tokens served from the provider's prompt cache (OpenAI cached_tokens / Anthropic cache_read_input_tokens). */
+  cacheReadTokens?: number;
+  /** Tokens written to the provider's prompt cache (Anthropic cache_creation_input_tokens). */
+  cacheCreationTokens?: number;
+  /** Reasoning tokens (OpenAI completion_tokens_details.reasoning_tokens), already included in outputTokens. */
+  reasoningTokens?: number;
   modelId: string;
   rawResponse?: unknown;
 }

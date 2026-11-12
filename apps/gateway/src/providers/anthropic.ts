@@ -127,6 +127,8 @@ export class AnthropicAdapter extends BaseProviderAdapter {
       stopReason,
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,
+      cacheReadTokens: (response.usage as any).cache_read_input_tokens || 0,
+      cacheCreationTokens: (response.usage as any).cache_creation_input_tokens || 0,
       modelId: response.model,
       rawResponse: response,
     };

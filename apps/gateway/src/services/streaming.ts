@@ -10,6 +10,7 @@ import {
 import { AuthContext } from '../db/auth.js';
 import { logTransaction } from '../db/transactionLogger.js';
 import { calculateCost, calculateCostWithStatus } from './pricing.js';
+import { resolvePricingTierDynamic } from './pricingDb.js';
 import { estimateRequestTokens } from '../providers/base.js';
 
 /** Providers handleStreamingCompletion can talk to directly (true passthrough). */
@@ -94,6 +95,7 @@ export async function handleStreamingCompletion(
   let cacheReadTokens = 0;        // Anthropic: cache_read_input_tokens; OpenAI: cached_tokens
   let cacheCreationTokens = 0;    // Anthropic: cache_creation_input_tokens
   let reasoningTokens = 0;        // OpenAI o1/o3: completion_tokens_details.reasoning_tokens
+  let usageReported = false;      // false => token counts below are our own estimate, not the provider's
   let accumulatedText = '';
   let modelUsed = request.model;
 
@@ -240,6 +242,7 @@ export async function handleStreamingCompletion(
               // BUG-C FIX: also extract reasoning tokens from completion_tokens_details
               // and cached tokens from prompt_tokens_details.
               if (eventData.usage) {
+                usageReported = true;
                 inputTokens = eventData.usage.prompt_tokens || inputTokens;
                 outputTokens = eventData.usage.completion_tokens || outputTokens;
                 cacheReadTokens = eventData.usage.prompt_tokens_details?.cached_tokens ?? cacheReadTokens;
@@ -257,6 +260,7 @@ export async function handleStreamingCompletion(
               if (eventData.type === 'message_start') {
                 // BUG-B FIX: capture Anthropic cache tokens from message_start.usage.
                 // These are NOT present in message_delta — only message_start carries them.
+                if (eventData.message?.usage) usageReported = true;
                 inputTokens = eventData.message?.usage?.input_tokens || inputTokens;
                 cacheReadTokens = eventData.message?.usage?.cache_read_input_tokens ?? 0;
                 cacheCreationTokens = eventData.message?.usage?.cache_creation_input_tokens ?? 0;
@@ -280,6 +284,7 @@ export async function handleStreamingCompletion(
                 };
                 res.write(`data: ${JSON.stringify(openaiChunk)}\n\n`);
               } else if (eventData.type === 'message_delta') {
+                if (eventData.usage) usageReported = true;
                 outputTokens = eventData.usage?.output_tokens || outputTokens;
               } else if (eventData.type === 'message_stop') {
                 const finalChunk = {
@@ -308,7 +313,7 @@ export async function handleStreamingCompletion(
       }
     });
 
-    response.data.on('end', () => {
+    response.data.on('end', async () => {
       // Process remaining buffer if any
       if (buffer.trim() && buffer.trim().startsWith('data:')) {
         const trimmed = buffer.trim();
@@ -318,6 +323,7 @@ export async function handleStreamingCompletion(
             const eventData = JSON.parse(dataStr);
             if (providerType === 'openai' || providerType === 'azure' || compat) {
               if (eventData.usage) {
+                usageReported = true;
                 inputTokens = eventData.usage.prompt_tokens || inputTokens;
                 outputTokens = eventData.usage.completion_tokens || outputTokens;
                 cacheReadTokens = eventData.usage.prompt_tokens_details?.cached_tokens ?? cacheReadTokens;
@@ -337,9 +343,14 @@ export async function handleStreamingCompletion(
         outputTokens = Math.ceil(accumulatedText.length / 4);
       }
 
-      // Use calculateCostWithStatus with all token types including cache and reasoning.
-      // BUG-B/C/E FIX: pass the cache and reasoning tokens captured during streaming.
-      // This matches the non-streaming path in server.ts exactly.
+      // Same pricing path as the non-streaming handler: catalog (DB) price first, built-in table as
+      // fallback, all token types included. A catalog lookup failure must never lose the ledger row.
+      let customPricing = null;
+      try {
+        customPricing = await resolvePricingTierDynamic(providerType, request.model);
+      } catch {
+        customPricing = null;
+      }
       const costBreakdown = calculateCostWithStatus(
         providerType,
         request.model,
@@ -348,6 +359,7 @@ export async function handleStreamingCompletion(
         cacheReadTokens,
         cacheCreationTokens,
         reasoningTokens,
+        customPricing,
       );
       const inputCostUsd  = costBreakdown.inputCost + costBreakdown.cachedInputCost + costBreakdown.cacheCreationCost;
       const outputCostUsd = costBreakdown.outputCost + costBreakdown.reasoningCost;
@@ -374,6 +386,10 @@ export async function handleStreamingCompletion(
           finish_reason: 'stop',
           model_used: modelUsed,
           user_agent: 'tokenistt-streaming-client',
+          cost_status: costBreakdown.costStatus,
+          // true when the provider sent no usage block and the counts are our own estimate
+          tokens_estimated: !usageReported,
+          reasoning_tokens: reasoningTokens,
         },
       }).catch(err => {
         console.error('Failed to log streaming transaction:', err);
