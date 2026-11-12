@@ -35,7 +35,11 @@ export function resolveAgentBinary(agentId: string, env: NodeJS.ProcessEnv): str
   return undefined;
 }
 
-const quote = (s: string): string => JSON.stringify(s);
+/**
+ * Quotes one argument for cmd.exe. Backslashes only matter in front of a quote (or the closing one), so a path like
+ * C:\npm\claude.cmd stays as typed; doubling every backslash, as JSON.stringify does, would change what the agent receives.
+ */
+const quote = (s: string): string => `"${s.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1')}"`;
 
 /** On Windows, npm installs agents as .cmd shims, which can only be started through a shell. */
 export function launchSpec(file: string, args: string[], platform: string = process.platform): { file: string; args: string[]; shell: boolean } {

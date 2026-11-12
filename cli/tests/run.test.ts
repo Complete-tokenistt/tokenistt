@@ -56,6 +56,8 @@ describe('status line from real events', () => {
 describe('run helpers', () => {
   it('wraps Windows .cmd shims for a shell, and nothing else', () => {
     assert.deepEqual(launchSpec('C:\\npm\\claude.cmd', ['--resume'], 'win32'), { file: '"C:\\npm\\claude.cmd"', args: ['"--resume"'], shell: true });
+    // Only backslashes before a quote are special, so Windows paths pass through unchanged.
+    assert.deepEqual(launchSpec('C:\\a.cmd', ['C:\\dir\\file', 'say "hi"', 'C:\\dir\\', 'x\\"y'], 'win32').args, ['"C:\\dir\\file"', '"say \\"hi\\""', '"C:\\dir\\\\"', '"x\\\\\\"y"']);
     assert.deepEqual(launchSpec('C:\\bin\\codex.exe', ['x'], 'win32'), { file: 'C:\\bin\\codex.exe', args: ['x'], shell: false });
     assert.deepEqual(launchSpec('/usr/bin/claude', ['x'], 'linux'), { file: '/usr/bin/claude', args: ['x'], shell: false });
   });
