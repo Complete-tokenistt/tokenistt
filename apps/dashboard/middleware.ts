@@ -4,6 +4,7 @@ const PUBLIC_PATHS = [
   '/api/auth/login',
   '/api/auth/register', // self-guarded: needs ADMIN_SECRET and only works while no user exists
   '/api/auth/setup-status',
+  '/api/health',
   '/api/auth/logout',
   '/login',
   '/',

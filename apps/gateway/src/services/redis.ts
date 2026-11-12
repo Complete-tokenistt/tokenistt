@@ -12,12 +12,14 @@ export function getRedisClient(): Redis | null {
       redisClient = new Redis(redisUrl, {
         lazyConnect: true,
         maxRetriesPerRequest: 1,
+        // Never give up: a transient Redis outage must not leave the gateway without rate limiting and
+        // budget reservation until the next restart. While disconnected, getRedisClient() returns null and
+        // callers fall back to the database.
         retryStrategy: (times) => {
-          if (times > 3) {
-            console.warn('[Redis] Connection failed. Falling back to direct database.');
-            return null; // Stop retrying
+          if (times === 4) {
+            console.warn('[Redis] Connection failed. Falling back to direct database; will keep retrying.');
           }
-          return Math.min(times * 100, 1000);
+          return Math.min(times * 200, 5000);
         }
       });
       

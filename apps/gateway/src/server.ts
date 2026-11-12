@@ -35,7 +35,7 @@ import {
 }                                                   from './db/auth.js';
 import { logTransaction }                           from './db/transactionLogger.js';
 import { checkDbConnection, closePool, getPool }    from './db/pool.js';
-import { waitForRedis }                            from './services/redis.js';
+import { waitForRedis, getRedisClient }              from './services/redis.js';
 import { startAuditDrainScheduler, stopAuditDrainScheduler } from './services/auditLogger.js';
 import { handleStreamingCompletion, streamsNatively, writeSyntheticStream } from './services/streaming.js';
 import { checkPolicies }                            from './db/policies.js';
@@ -77,6 +77,12 @@ validateSecrets();
 
 const app = express();
 app.disable('x-powered-by');
+// Behind a reverse proxy (Caddy/nginx/ALB) set TRUST_PROXY (e.g. 1, or a CIDR list) so rate limits and
+// logs see the real client IP instead of the proxy's.
+if (process.env.TRUST_PROXY) {
+  const tp = process.env.TRUST_PROXY;
+  app.set('trust proxy', /^\d+$/.test(tp) ? Number(tp) : tp === 'true' ? true : tp);
+}
 app.use(helmet());
 app.use(cors(corsOptions()));
 app.use(express.json({
@@ -206,16 +212,32 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
 // Routes
 // ---------------------------------------------------------------------------
 
+// /health: liveness plus database reachability. Returns 503 when a configured database is down,
+// so container healthchecks and load balancers see the real state.
 app.get('/health', async (_req: Request, res: Response) => {
   const dbConnected = process.env.DATABASE_URL
     ? await checkDbConnection().catch(() => false)
     : null;
+  const healthy = dbConnected !== false;
 
-  res.json({
-    status:    'healthy',
+  res.status(healthy ? 200 : 503).json({
+    status:    healthy ? 'healthy' : 'unhealthy',
     timestamp: new Date().toISOString(),
     providers: gateway.getAvailableProviders(),
     database:  dbConnected === null ? 'not configured (open mode)' : dbConnected ? 'connected' : 'unreachable',
+  });
+});
+
+// /ready: can this instance take traffic right now? Also requires Redis when REDIS_REQUIRED=true.
+app.get('/ready', async (_req: Request, res: Response) => {
+  const dbOk = process.env.DATABASE_URL ? await checkDbConnection().catch(() => false) : true;
+  const redisRequired = process.env.REDIS_REQUIRED === 'true';
+  const redisOk = !redisRequired || getRedisClient() !== null;
+  const ready = dbOk && redisOk;
+  res.status(ready ? 200 : 503).json({
+    status:   ready ? 'ready' : 'not_ready',
+    database: dbOk ? 'ok' : 'unreachable',
+    redis:    redisRequired ? (redisOk ? 'ok' : 'unreachable') : 'optional',
   });
 });
 
@@ -704,6 +726,13 @@ const server = app.listen(PORT, async () => {
 
 async function shutdown(signal: string) {
   console.log(`\n${signal} received — shutting down gracefully...`);
+  // Don't hang forever on keep-alive or long streaming connections.
+  const forceMs = Number(process.env.SHUTDOWN_TIMEOUT_MS) || 15000;
+  setTimeout(() => {
+    console.error(`Shutdown exceeded ${forceMs}ms — forcing exit.`);
+    process.exit(1);
+  }, forceMs).unref();
+  server.closeIdleConnections();
   server.close(async () => {
     stopPartitionMaintenanceScheduler();
     stopDrainScheduler();
