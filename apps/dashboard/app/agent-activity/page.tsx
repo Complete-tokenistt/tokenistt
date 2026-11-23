@@ -35,12 +35,18 @@ export default function AgentActivityPage() {
   const memories = useGateway<Memory[]>(repoId ? `repositories/${repoId}/memories` : "repositories");
   const graph = useGateway<Graph>(repoId ? `repositories/${repoId}/graph` : "repositories");
 
+  // useGateway keeps the previous path's data until the new fetch lands, and the placeholder path returns repositories,
+  // so only trust data once this repository's request has finished.
+  const rows = <T,>(g: { data: unknown; loading: boolean }): T[] => (repoId && !g.loading && Array.isArray(g.data) ? (g.data as T[]) : []);
+  const sessionRows = rows<Session>(sessions);
+  const memoryRows = rows<Memory>(memories);
+
   if (repos.loading || repos.error || list.length === 0) {
     return <StateNote loading={repos.loading} error={repos.error} empty="Nothing synced yet. In a repository run `tokenistt sync --dry-run`, then `tokenistt sync --enable`." />;
   }
 
   const byCategory = new Map<string, Memory[]>();
-  for (const m of (memories.data as Memory[] | null) ?? []) byCategory.set(m.category, [...(byCategory.get(m.category) ?? []), m]);
+  for (const m of memoryRows) { const c = m.category ?? "uncategorized"; byCategory.set(c, [...(byCategory.get(c) ?? []), m]); }
 
   return (
     <div>
@@ -69,10 +75,10 @@ export default function AgentActivityPage() {
 
       {tab === "sessions" && (
         <>
-          <StateNote loading={sessions.loading} error={sessions.error} empty={!sessions.loading && !sessions.error && !(sessions.data as Session[] | null)?.length ? "No sessions synced for this repository." : undefined} />
-          {((sessions.data as Session[] | null) ?? []).length > 0 && (
+          <StateNote loading={sessions.loading} error={sessions.error} empty={!sessions.loading && !sessions.error && sessionRows.length === 0 ? "No sessions synced for this repository." : undefined} />
+          {sessionRows.length > 0 && (
             <div className="card" style={{ overflow: "hidden" }}>
-              {(sessions.data as Session[]).map((s, i, a) => (
+              {sessionRows.map((s, i, a) => (
                 <div key={s.agent + s.session_id} style={{ padding: "14px 18px", borderBottom: i < a.length - 1 ? "1px solid var(--line-soft)" : "none", display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
                   <div style={{ flex: 1, minWidth: 220 }}>
                     <div style={{ fontSize: 14.5, color: "var(--fg)" }}>{s.agent}</div>
