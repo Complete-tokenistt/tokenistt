@@ -85,7 +85,7 @@ export default function AgentActivityPage() {
                     {num((s.counts?.filesModified ?? 0) + (s.counts?.filesCreated ?? 0))} files · tests {num(s.counts?.testsPassed)}✓ {num(s.counts?.testsFailed)}✗
                   </span>
                   <span className="mono" style={{ fontSize: 12.5, color: "var(--fg-3)", minWidth: 150 }}>{when(s.last_event_at)}</span>
-                  <StatusPill status={s.state === "active" ? "active" : "revoked"} />
+                  <StatusPill status={s.state} />
                 </div>
               ))}
             </div>
