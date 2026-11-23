@@ -18,6 +18,7 @@ const ALL_NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/", label: "Overview", icon: IconGrid },
       { href: "/usage", label: "Usage", icon: IconList },
+      { href: "/agent-activity", label: "Agent activity", icon: IconList },
       { href: "/requests", label: "Request history", icon: IconList },
       { href: "/alerts", label: "Alerts", icon: IconBell },
       { href: "/shadow-ai", label: "Shadow AI", icon: IconBell },
@@ -83,6 +84,7 @@ export const SECTION_META: Record<string, { title: string; kicker: string; desc:
   "/shadow-ai": { title: "Shadow AI", kicker: "Monitor", desc: "Unauthorized usage detected via expense & card integrations." },
   "/budgets": { title: "Budgets", kicker: "Control", desc: "Set limits, see status, get warned before they're blown." },
   "/governance": { title: "Governance & Policies", kicker: "Control", desc: "Control what's allowed to run, and prove it after the fact." },
+  "/agent-activity": { title: "Agent activity", kicker: "Monitor", desc: "Coding-agent sessions, memories and the code graph your CLI synced with `tokenistt sync`." },
   "/keys": { title: "API keys", kicker: "Control", desc: "Keys your apps and editors use to call the gateway. Create, cap, and revoke them." },
   "/providers": { title: "Providers & Keys", kicker: "Control", desc: "Connect and manage every AI provider this workspace uses, and the keys behind them." },
   "/approvals": { title: "Approvals", kicker: "Control", desc: "Requests held by policy until someone signs off." },
