@@ -14,6 +14,7 @@ const GATEWAY = (process.env.GATEWAY_URL || process.env.NEXT_PUBLIC_GATEWAY_URL 
 const ALLOWED_ROOTS = new Set([
   'budgets', 'policies', 'routing-rules', 'alerts', 'audit', 'approvals', 'workspaces', 'teams',
   'projects', 'provider-keys', 'keys', 'connectors', 'attribution', 'requests', 'reports', 'models',
+  'repositories', 'agent-sessions',
 ]);
 const SEGMENT = /^[A-Za-z0-9_.-]+$/;
 
