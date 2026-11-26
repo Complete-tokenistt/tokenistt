@@ -44,6 +44,28 @@ export const PRICING: Record<string, PricingTier> = {
   'anthropic:claude-3-sonnet-20240229': { input: 3.00, output: 15.00 },
   'anthropic:claude-3-haiku': { input: 0.25, output: 1.25, cachedInput: 0.03, cacheWrite: 0.30 },
   'anthropic:claude-3-haiku-20240307': { input: 0.25, output: 1.25, cachedInput: 0.03, cacheWrite: 0.30 },
+  // Current generation: copied from platform.claude.com/docs/en/about-claude/pricing (read 2026-11-26), and
+  // seeded into model_catalog by migration 0015, which is the source of truth when Postgres is up. Cache hits
+  // are 0.05x input on Opus/Sonnet 5.5 and 0.025x on Fable/Mythos 5.1 and 5.2, not the usual 0.1x.
+  // claude-haiku-5-5 is left out on purpose: its price depends on prompt length (over 100K tokens costs more)
+  // and a tier holds one price, so it stays COST_UNAVAILABLE rather than being priced wrong.
+  'anthropic:claude-fable-5-2': { input: 8.00, output: 40.00, cachedInput: 0.20, cacheWrite: 10.00 },
+  'anthropic:claude-mythos-5-2': { input: 8.00, output: 40.00, cachedInput: 0.20, cacheWrite: 10.00 },
+  'anthropic:claude-fable-5-1': { input: 10.00, output: 50.00, cachedInput: 0.25, cacheWrite: 12.50 },
+  'anthropic:claude-mythos-5-1': { input: 10.00, output: 50.00, cachedInput: 0.25, cacheWrite: 12.50 },
+  'anthropic:claude-fable-5': { input: 10.00, output: 50.00, cachedInput: 1.00, cacheWrite: 12.50 },
+  'anthropic:claude-mythos-5': { input: 10.00, output: 50.00, cachedInput: 1.00, cacheWrite: 12.50 },
+  'anthropic:claude-opus-5-5': { input: 4.00, output: 20.00, cachedInput: 0.20, cacheWrite: 5.00 },
+  'anthropic:claude-opus-5': { input: 5.00, output: 25.00, cachedInput: 0.50, cacheWrite: 6.25 },
+  'anthropic:claude-opus-4-8': { input: 5.00, output: 25.00, cachedInput: 0.50, cacheWrite: 6.25 },
+  'anthropic:claude-opus-4-7': { input: 5.00, output: 25.00, cachedInput: 0.50, cacheWrite: 6.25 },
+  'anthropic:claude-opus-4-6': { input: 5.00, output: 25.00, cachedInput: 0.50, cacheWrite: 6.25 },
+  'anthropic:claude-opus-4-5': { input: 5.00, output: 25.00, cachedInput: 0.50, cacheWrite: 6.25 },
+  'anthropic:claude-sonnet-5-5': { input: 2.00, output: 10.00, cachedInput: 0.10, cacheWrite: 2.50 },
+  'anthropic:claude-sonnet-5': { input: 2.00, output: 10.00, cachedInput: 0.20, cacheWrite: 2.50 },
+  'anthropic:claude-sonnet-4-6': { input: 3.00, output: 15.00, cachedInput: 0.30, cacheWrite: 3.75 },
+  'anthropic:claude-sonnet-4-5': { input: 3.00, output: 15.00, cachedInput: 0.30, cacheWrite: 3.75 },
+  'anthropic:claude-haiku-4-5': { input: 1.00, output: 5.00, cachedInput: 0.10, cacheWrite: 1.25 },
   'anthropic:claude-2.1': { input: 8.00, output: 24.00 },
   'anthropic:claude-2.0': { input: 8.00, output: 24.00 },
   'anthropic:claude-instant': { input: 0.80, output: 2.40 },

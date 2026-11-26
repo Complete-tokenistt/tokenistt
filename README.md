@@ -433,7 +433,7 @@ Stated plainly so nobody is surprised:
 - **The VS Code extension is a `.vsix` build, not on the Marketplace**, and has been type-checked and unit-tested but not yet run by hand in an Extension Development Host. Only gateway traffic is counted.
 - **The CLI is not on npm yet** (build from the repo). Its Codex and Antigravity hooks are written from their docs and not yet checked against the real agents; non-TypeScript/Python language support is tested on fixtures only. Details in [cli/README.md](cli/README.md).
 - **SDKs are not on npm/PyPI until a release is tagged** (workflow included; needs `NPM_TOKEN` / `PYPI_API_TOKEN` secrets).
-- **Prices** for Groq, Together and Gemini are published list prices added to the catalog — verify them, they change. Models without a price report `COST_UNAVAILABLE`.
+- **Prices** for Groq, Together and Gemini are published list prices added to the catalog — verify them, they change. Models without a price report `COST_UNAVAILABLE`. Claude prices were last checked against Anthropic's pricing page on 2026-11-26. Not priced yet: Claude Haiku 5.5 (its price depends on prompt length), 1-hour prompt-cache writes (billed at the 5-minute rate), fast mode, and current OpenAI/Gemini models newer than GPT-4o / Gemini 2.5.
 - **Not built yet:** SSO (OIDC/SAML), Postgres row-level security, pluggable secrets managers, a Redis-Streams queue for multi-instance deployments, request replay, and a dual ESM/CJS SDK build.
 - Single Postgres instance; no multi-region story.
 
