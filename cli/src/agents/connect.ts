@@ -16,6 +16,11 @@ export function hookCommand(agent: string, execPath = process.execPath, bin = BI
   return `"${execPath}" "${bin}" hook ${agent}`;
 }
 
+/** The command an agent's status line runs: same absolute-path rule as the hook. */
+export function statusLineCommand(execPath = process.execPath, bin = BIN): string {
+  return `"${execPath}" "${bin}" statusline`;
+}
+
 /** Antigravity's file is keyed by a name you choose, rather than by event. */
 const ANTIGRAVITY_KEY = 'tokenistt';
 /** Codex caps SessionEnd hooks at 3 seconds. */
