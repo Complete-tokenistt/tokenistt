@@ -22,10 +22,30 @@ Use either half alone. Nothing leaves your machine unless you run `sync --enable
 
 **Links:** [Source and issues](https://github.com/Complete-tokenistt/tokenistt) · [Dashboard and gateway setup](#the-dashboard) · [Full project README](https://github.com/Complete-tokenistt/tokenistt#readme) · [Agent capabilities](https://github.com/Complete-tokenistt/tokenistt/blob/main/docs/cli/AGENTS.md)
 
+## Your first 5 minutes
+
+New to Tokenistt? You need Node.js 22.13+ and a Git repository. Then:
+
+```bash
+npm install -g tokenistt-cli
+cd /path/to/your-project
+tokenistt setup           # guided: project, agent hooks, optional code map, optional gateway, final check
+tokenistt run claude      # start Claude Code here; cost and activity show in its status bar
+```
+
+That is the whole loop. `setup` explains each step as it goes, can be re-run safely, and works with no gateway (`--yes` accepts the defaults for scripts). When your agent exits, `run` prints a summary: time, tokens, estimated cost, files changed. Open `tokenistt` any time for the dashboard, and `tokenistt doctor` if something looks wrong.
+
+- **Codex or Antigravity?** `tokenistt run codex` works the same way, with the summary at the end (their live status bar is not available; see [Coding agents](#coding-agents)).
+- **Want to watch from a second pane instead?** `tokenistt watch`.
+- **Have a gateway?** `setup` offers to link it; or run `tokenistt login` later. Local features never need one.
+
+The rest of this README is reference. Skip to what you need:
+
 ## How to use this README
 
 | I want to… | Go to |
 |---|---|
+| Get going the first time | [Your first 5 minutes](#your-first-5-minutes) |
 | Install and try it | [Install](#install), [Quick start](#quick-start) |
 | Open the dashboard | [The dashboard](#the-dashboard) |
 | Understand my codebase, find what a change affects | [Codebase graph](#codebase-graph), [Change impact](#change-impact), [Search](#search) |
@@ -52,20 +72,12 @@ Update with `npm install -g tokenistt-cli@latest`; remove with `npm uninstall -g
 
 ### Use it on any of your projects
 
-Run it inside any Git repository:
+Run `tokenistt setup` inside any Git repository (see [Your first 5 minutes](#your-first-5-minutes)). Or step by step: `tokenistt init`, `tokenistt agents connect claude-code`, `tokenistt map`, then `tokenistt` for the interactive app.
 
-```bash
-cd /path/to/your-project
-tokenistt init                  # creates .tokenistt/ in that repo (local SQLite, nothing leaves the machine)
-tokenistt map                   # builds the code knowledge graph
-tokenistt                       # opens the interactive app (see below)
-```
-
-Everything local (`init`, `map`, `search`, `impact`, `memory`, `context`, `sessions`, `graph`) works without a
+Everything local (`init`, `map`, `search`, `impact`, `memory`, `context`, `sessions`, `graph`, `run`) works without a
 gateway. Gateway features (FinOps spend, usage, budgets) need `tokenistt login` against your own running gateway;
-without it the FinOps screen says no gateway is configured. Sync to the gateway is off unless you turn it on per
-repository. To record coding-agent sessions in a project, run `tokenistt agents connect claude-code` (Claude Code is
-the one verified against the real agent; Codex and Antigravity hooks are written from their docs).
+without it the FinOps screen says no gateway is configured, and `doctor` reports the gateway checks as skipped, not failed. Sync to the gateway is off unless you turn it on per
+repository. Claude Code is the agent verified against the real agent; Codex and Antigravity hooks are written from their docs.
 
 ## The dashboard
 
@@ -299,6 +311,8 @@ The viewer needs no network. It listens only on `127.0.0.1`, requires the random
 
 `tokenistt agents connect <agent>` adds hooks to the agent's own settings file, so sessions are recorded as they happen. It works with `claude-code`, `codex` and `antigravity`, and each can report different things: see [what each agent exposes](https://github.com/Complete-tokenistt/tokenistt/blob/main/docs/cli/AGENTS.md). Claude Code has been run live; Codex and Antigravity are written from their documentation and are not yet checked against the real agents. Project scope is the default, and `--user` uses your user-level settings instead. It shows the change and asks first, keeps everything else in the file, saves a backup, and refuses to touch a file it can't parse. `agents disconnect` removes only Tokenistt's entries.
 
+**Start and track in one step:** `tokenistt run <agent>` connects the hooks if needed, starts the agent in your terminal (it keeps the whole screen; there is no wrapper UI), and prints a summary when it exits. For Claude Code it also adds a status line for that run only, through a temporary settings file, so your own settings are never edited; `--no-status` turns it off. It relies on Claude Code's documented `--settings` and `statusLine` options, so if your version lacks them, use `--no-status`. Codex and Antigravity have no status-line hook we can verify, so they get the end-of-run summary; follow them live with `tokenistt watch` from another pane.
+
 **What's recorded:** session start and end, which files were read or changed, tool names, whether things failed, and the program of each command, plus the subcommand for well-known tools (`npm test`, `git push`, but never arguments).
 
 **What isn't:** prompts, file contents, tool output and error text. Set `privacy.commands` to `none` or `redacted` to change what's kept of commands. `privacy.capturePrompts` opts in to storing prompts. Events stay in `.tokenistt/sessions`, which is ignored by git.
@@ -420,6 +434,9 @@ endpoint). Dashboard tokens expire; `tokenistt auth status` shows when, and `doc
 
 | Command | What it does |
 |---|---|
+| `tokenistt setup` | Guided first-time setup: repository, project, agent hooks, optional code map, optional gateway, then a check. Safe to re-run. `--yes`, `--agents <list>`, `--map`, `--no-gateway` |
+| `tokenistt run <agent>` | Start `claude-code`, `codex` or `antigravity` in this terminal with tracking on; summary when it exits. Claude Code also gets a live status line. `--yes`, `--no-status`; the agent's own options go after `--` |
+| `tokenistt statusline` | The one-line session status Claude Code shows (used by `run`; reads its session JSON on stdin) |
 | `tokenistt init` | Set up this repository: `.tokenistt/` and the local database. Safe to re-run; needs no network |
 | `tokenistt map` | Build the codebase knowledge graph in `.tokenistt/graph`. `--full`, `--incremental`, `--watch`, `--stats`, `--export json [--out dir]`, `--import file`. Needs no network |
 | `tokenistt graph` | Summary of the graph. `--open` starts the interactive viewer in your browser (`--no-browser`, `--port`) |
