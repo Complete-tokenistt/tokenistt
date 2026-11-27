@@ -1,7 +1,18 @@
 ﻿"use client";
 
-import { useState, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+
+const fieldStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "10px 14px",
+  borderRadius: "6px",
+  background: "var(--bg-2, #181822)",
+  border: "1px solid var(--line-soft, #2b2b3b)",
+  color: "var(--fg, #f4f4f6)",
+  fontSize: "13.5px",
+  outline: "none",
+};
 
 function LoginForm() {
   const router = useRouter();
@@ -12,6 +23,16 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [needsSetup, setNeedsSetup] = useState(false);
+  const [orgName, setOrgName] = useState("");
+  const [setupToken, setSetupToken] = useState("");
+
+  useEffect(() => {
+    fetch("/api/auth/setup-status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setNeedsSetup(Boolean(d?.needsSetup)))
+      .catch(() => {});
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -24,10 +45,14 @@ function LoginForm() {
     setError(null);
 
     try {
-      const res = await fetch("/api/auth/login", {
+      const res = await fetch(needsSetup ? "/api/auth/register" : "/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify(
+          needsSetup
+            ? { orgName: orgName.trim(), email: email.trim(), password, setupToken }
+            : { email: email.trim(), password }
+        ),
       });
 
       const data = await res.json();
@@ -94,7 +119,7 @@ function LoginForm() {
           color: "var(--fg, #f4f4f6)",
           margin: "0 0 6px 0",
         }}>
-          FinOps Customer Portal
+          {needsSetup ? "Set up Tokenistt" : "Tokenistt"}
         </h1>
         <p style={{
           fontSize: "13px",
@@ -102,7 +127,9 @@ function LoginForm() {
           margin: 0,
           lineHeight: 1.4,
         }}>
-          Sign in to inspect AI usage, costs, and budgets
+          {needsSetup
+            ? "Create the owner account for this installation"
+            : "Sign in to inspect AI usage, costs, and budgets"}
         </p>
       </div>
 
@@ -124,6 +151,28 @@ function LoginForm() {
 
       {/* Login Form */}
       <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+        {needsSetup && (
+          <>
+            <input
+              type="text"
+              value={orgName}
+              onChange={(e) => setOrgName(e.target.value)}
+              placeholder="Organization name"
+              required
+              className="mono"
+              style={fieldStyle}
+            />
+            <input
+              type="password"
+              value={setupToken}
+              onChange={(e) => setSetupToken(e.target.value)}
+              placeholder="ADMIN_SECRET from your .env"
+              required
+              className="mono"
+              style={fieldStyle}
+            />
+          </>
+        )}
         <div>
           <label style={{
             display: "block",
@@ -138,7 +187,7 @@ function LoginForm() {
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="customer@tokenistt.ai"
+            placeholder="you@company.com"
             required
             className="mono"
             style={{
@@ -204,7 +253,7 @@ function LoginForm() {
             cursor: loading ? "not-allowed" : "pointer",
           }}
         >
-          {loading ? "Authenticating..." : "Sign In to Dashboard →"}
+          {loading ? "Working..." : needsSetup ? "Create owner account →" : "Sign In to Dashboard →"}
         </button>
       </form>
     </div>

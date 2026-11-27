@@ -18,6 +18,8 @@ const client = new pg.Client({
   ssl: /sslmode=require/.test(url) ? { rejectUnauthorized: false } : undefined,
 });
 await client.connect();
+// One migrator at a time (several containers may start together); the lock is released when the session ends.
+await client.query('SELECT pg_advisory_lock(hashtext($1))', ['tokenistt-migrate']);
 await client.query(
   'CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())'
 );
@@ -28,8 +30,21 @@ for (const f of [...files, 'views.sql']) {
   const tracked = f !== 'views.sql';
   if (tracked && done.has(f)) continue;
   console.log(`apply ${f}`);
-  await client.query(readFileSync(join(dir, f), 'utf8'));
-  if (tracked) await client.query('INSERT INTO schema_migrations(name) VALUES ($1)', [f]);
+  const sql = readFileSync(join(dir, f), 'utf8');
+  if (!tracked) {
+    await client.query(sql);
+    continue;
+  }
+  // Apply the file and record it atomically, so a crash can never leave it applied-but-unrecorded.
+  try {
+    await client.query('BEGIN');
+    await client.query(sql);
+    await client.query('INSERT INTO schema_migrations(name) VALUES ($1)', [f]);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  }
 }
 // Open (no-login) mode needs one organization to act as; create it on a fresh database.
 if (process.env.AUTH_MODE === 'open') {

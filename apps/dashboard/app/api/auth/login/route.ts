@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getPool, isDbAvailable } from '@/lib/db';
 import { verifyPassword, signJwt } from '@/lib/auth';
 import { Role } from '@/lib/rbac';
+import { sessionCookieSecure } from '@/lib/cookies';
 
 export async function POST(req: NextRequest) {
   try {
@@ -102,7 +103,7 @@ export async function POST(req: NextRequest) {
 
     response.cookies.set('tokenistt_session', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: sessionCookieSecure(),
       sameSite: 'lax',
       path: '/',
       maxAge: 86400,

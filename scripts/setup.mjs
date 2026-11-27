@@ -10,13 +10,30 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const envPath = join(root, '.env');
 const examplePath = join(root, '.env.example');
 
+const hex = () => randomBytes(32).toString('hex');
+
 if (existsSync(envPath)) {
-  console.log('.env already exists — leaving it alone.');
+  // Never overwrite, but add secrets introduced by newer versions so `docker compose up` keeps working.
+  let env = readFileSync(envPath, 'utf8');
+  const added = [];
+  for (const key of ['REDIS_PASSWORD', 'METRICS_TOKEN']) {
+    if (!new RegExp(String.raw`^${key}=[^\s#]`, 'm').test(env)) {
+      env = env.replace(new RegExp(String.raw`^${key}=.*(\r?\n|$)`, 'm'), '');
+      env += (env.endsWith('\n') || env === '' ? '' : '\n') + `${key}=${hex()}\n`;
+      added.push(key);
+    }
+  }
+  if (added.length) {
+    writeFileSync(envPath, env, { mode: 0o600 });
+    console.log(`.env already exists — kept it and added: ${added.join(', ')}.`);
+  } else {
+    console.log('.env already exists — leaving it alone.');
+  }
 } else {
-  const secrets = ['POSTGRES_PASSWORD', 'ADMIN_SECRET', 'MASTER_KEY', 'ENCRYPTION_KEY', 'JWT_SECRET'];
+  const secrets = ['POSTGRES_PASSWORD', 'REDIS_PASSWORD', 'METRICS_TOKEN', 'ADMIN_SECRET', 'MASTER_KEY', 'ENCRYPTION_KEY', 'JWT_SECRET'];
   let env = readFileSync(examplePath, 'utf8');
   for (const key of secrets) {
-    env = env.replace(new RegExp(`^${key}=.*$`, 'm'), `${key}=${randomBytes(32).toString('hex')}`);
+    env = env.replace(new RegExp(`^${key}=.*$`, 'm'), `${key}=${hex()}`);
   }
   writeFileSync(envPath, env, { mode: 0o600 });
   console.log('Created .env with generated secrets.');
@@ -27,6 +44,8 @@ Next:
   docker compose up --build -d
   docker compose --profile demo up seed     # optional: synthetic sample data
 
-  Dashboard  http://localhost:3001   (no login by default — see AUTH_MODE in .env)
+  Dashboard  http://localhost:3001   first visit: create the owner account; the setup token is
+                                     ADMIN_SECRET from your .env
   Gateway    http://localhost:3000
+  Ports bind to 127.0.0.1 only. To serve other machines, see docs/DEPLOYMENT.md.
 `);
